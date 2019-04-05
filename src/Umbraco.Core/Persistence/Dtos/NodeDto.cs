@@ -10,8 +10,9 @@ namespace Umbraco.Core.Persistence.Dtos
     [ExplicitColumns]
     internal class NodeDto
     {
-        private const string TableName = Constants.DatabaseSchema.Tables.Node;
+        public const string TableName = Constants.DatabaseSchema.Tables.Node;
         public const int NodeIdSeed = 1060;
+        private int? _userId;
 
         [Column("id")]
         [PrimaryKeyColumn(IdentitySeed = NodeIdSeed)]
@@ -44,18 +45,19 @@ namespace Umbraco.Core.Persistence.Dtos
         [Index(IndexTypes.NonClustered, Name = "IX_" + TableName + "_Trashed")]
         public bool Trashed { get; set; }
 
-        [Column("nodeUser")] // fixme dbfix rename userId
+        [Column("nodeUser")] // TODO: db rename to 'createUserId'
+        [ForeignKey(typeof(UserDto))]
         [NullSetting(NullSetting = NullSettings.Null)]
-        public int? UserId { get; set; }
+        public int? UserId { get => _userId == 0 ? null : _userId; set => _userId = value; } //return null if zero
 
         [Column("text")]
         [NullSetting(NullSetting = NullSettings.Null)]
         public string Text { get; set; }
 
-        [Column("nodeObjectType")] // fixme dbfix rename objectType
+        [Column("nodeObjectType")] // TODO: db rename to 'objectType'
         [NullSetting(NullSetting = NullSettings.Null)]
         [Index(IndexTypes.NonClustered, Name = "IX_" + TableName + "_ObjectType")]
-        public Guid? NodeObjectType { get; set; } // fixme dbfix rename ObjectType
+        public Guid? NodeObjectType { get; set; }
 
         [Column("createDate")]
         [Constraint(Default = SystemMethods.CurrentDateTime)]

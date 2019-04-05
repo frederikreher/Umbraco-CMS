@@ -37,6 +37,18 @@
             });
         });
 
+        $scope.selectableDocTypesFor = function (config) {
+            // return all doctypes that are:
+            // 1. either already selected for this config, or
+            // 2. not selected in any other config
+            return _.filter($scope.model.docTypes, function (docType) {
+                return docType.alias === config.ncAlias || !_.find($scope.model.value, function(c) {
+                    return docType.alias === c.ncAlias;
+                });
+            });
+
+        }
+
         if (!$scope.model.value) {
             $scope.model.value = [];
             $scope.add();
@@ -59,7 +71,6 @@ angular.module("umbraco").controller("Umbraco.PropertyEditors.NestedContent.Prop
         //$scope.model.config.contentTypes;
         //$scope.model.config.minItems;
         //$scope.model.config.maxItems;
-        //console.log($scope);
 
         var inited = false;
 
@@ -67,25 +78,6 @@ angular.module("umbraco").controller("Umbraco.PropertyEditors.NestedContent.Prop
             contentType.nameExp = !!contentType.nameTemplate
                 ? $interpolate(contentType.nameTemplate)
                 : undefined;
-        });
-
-        $scope.editIconTitle = '';
-        $scope.moveIconTitle = '';
-        $scope.deleteIconTitle = '';
-
-        // localize the edit icon title
-        localizationService.localize('general_edit').then(function (value) {
-            $scope.editIconTitle = value;
-        });
-
-        // localize the delete icon title
-        localizationService.localize('general_delete').then(function (value) {
-            $scope.deleteIconTitle = value;
-        });
-
-        // localize the move icon title
-        localizationService.localize('actions_move').then(function (value) {
-            $scope.moveIconTitle = value;
         });
 
         $scope.nodes = [];
@@ -104,10 +96,10 @@ angular.module("umbraco").controller("Umbraco.PropertyEditors.NestedContent.Prop
         $scope.showIcons = $scope.model.config.showIcons || true;
         $scope.wideMode = $scope.model.config.hideLabel == "1";
 
-        $scope.overlayMenu = {
-            show: false,
-            style: {}
-        };
+        $scope.labels = {};
+        localizationService.localizeMany(["grid_insertControl"]).then(function(data) {
+            $scope.labels.docTypePickerTitle = data[0];
+        });
 
         // helper to force the current form into the dirty state
         $scope.setDirty = function () {
@@ -123,40 +115,54 @@ angular.module("umbraco").controller("Umbraco.PropertyEditors.NestedContent.Prop
 
             $scope.currentNode = newNode;
             $scope.setDirty();
-
-            $scope.closeNodeTypePicker();
         };
 
-        $scope.openNodeTypePicker = function (event) {
+        $scope.openNodeTypePicker = function ($event) {
             if ($scope.nodes.length >= $scope.maxItems) {
                 return;
             }
 
+            $scope.overlayMenu = {
+                title: $scope.labels.docTypePickerTitle,
+                show: false,
+                style: {},
+                filter: $scope.scaffolds.length > 15 ? true : false,
+                view: "itempicker",
+                event: $event,
+                submit: function(model) {                    
+                    if(model && model.selectedItem) {
+                        $scope.addNode(model.selectedItem.alias);
+                    }
+                    $scope.overlayMenu.show = false;
+                    $scope.overlayMenu = null;
+                },
+                close: function() {
+                    $scope.overlayMenu.show = false;
+                    $scope.overlayMenu = null;
+                }
+            };
+
             // this could be used for future limiting on node types
-            $scope.overlayMenu.scaffolds = [];
+            $scope.overlayMenu.availableItems = [];
             _.each($scope.scaffolds, function (scaffold) {
-                $scope.overlayMenu.scaffolds.push({
+                $scope.overlayMenu.availableItems.push({
                     alias: scaffold.contentTypeAlias,
                     name: scaffold.contentTypeName,
                     icon: iconHelper.convertFromLegacyIcon(scaffold.icon)
                 });
             });
 
-            if ($scope.overlayMenu.scaffolds.length == 0) {
+            if ($scope.overlayMenu.availableItems.length === 0) {
                 return;
             }
 
-            if ($scope.overlayMenu.scaffolds.length == 1) {
+            if ($scope.overlayMenu.availableItems.length === 1) {
                 // only one scaffold type - no need to display the picker
                 $scope.addNode($scope.scaffolds[0].contentTypeAlias);
                 return;
             }
 
             $scope.overlayMenu.show = true;
-        };
-
-        $scope.closeNodeTypePicker = function () {
-            $scope.overlayMenu.show = false;
         };
 
         $scope.editNode = function (idx) {
@@ -228,10 +234,11 @@ angular.module("umbraco").controller("Umbraco.PropertyEditors.NestedContent.Prop
         $scope.sortableOptions = {
             axis: 'y',
             cursor: "move",
-            handle: ".nested-content__icon--move",
+            handle: ".umb-nested-content__icon--move",
             start: function (ev, ui) {
+                updateModel();
                 // Yea, yea, we shouldn't modify the dom, sue me
-                $("#nested-content--" + $scope.model.id + " .umb-rte textarea").each(function () {
+                $("#umb-nested-content--" + $scope.model.id + " .umb-rte textarea").each(function () {
                     tinymce.execCommand('mceRemoveEditor', false, $(this).attr('id'));
                     $(this).css("visibility", "hidden");
                 });
@@ -243,7 +250,7 @@ angular.module("umbraco").controller("Umbraco.PropertyEditors.NestedContent.Prop
                 $scope.setDirty();
             },
             stop: function (ev, ui) {
-                $("#nested-content--" + $scope.model.id + " .umb-rte textarea").each(function () {
+                $("#umb-nested-content--" + $scope.model.id + " .umb-rte textarea").each(function () {
                     tinymce.execCommand('mceAddEditor', true, $(this).attr('id'));
                     $(this).css("visibility", "visible");
                 });
@@ -277,26 +284,30 @@ angular.module("umbraco").controller("Umbraco.PropertyEditors.NestedContent.Prop
         $scope.scaffolds = [];
         _.each($scope.model.config.contentTypes, function (contentType) {
             contentResource.getScaffold(-20, contentType.ncAlias).then(function (scaffold) {
-                // remove all tabs except the specified tab
-                var tab = _.find(scaffold.tabs, function (tab) {
-                    return tab.id != 0 && (tab.alias.toLowerCase() == contentType.ncTabAlias.toLowerCase() || contentType.ncTabAlias == "");
-                });
-                scaffold.tabs = [];
-                if (tab) {
-                    scaffold.tabs.push(tab);
+                // make sure it's an element type before allowing the user to create new ones
+                if (scaffold.isElement) {
+                    // remove all tabs except the specified tab
+                    var tabs = scaffold.variants[0].tabs;
+                    var tab = _.find(tabs, function (tab) {
+                        return tab.id != 0 && (tab.alias.toLowerCase() == contentType.ncTabAlias.toLowerCase() || contentType.ncTabAlias == "");
+                    });
+                    scaffold.tabs = [];
+                    if (tab) {
+                        scaffold.tabs.push(tab);
 
-                    angular.forEach(tab.properties,
-                      function (property) {
-                          if (_.find(notSupported, function (x) { return x === property.editor; })) {
-                              property.notSupported = true;
-                              //TODO: Not supported message to be replaced with 'content_nestedContentEditorNotSupported' dictionary key. Currently not possible due to async/timing quirk.
-                              property.notSupportedMessage = "Property " + property.label + " uses editor " + property.editor + " which is not supported by Nested Content.";
-                          }
-                      });
+                        angular.forEach(tab.properties,
+                            function (property) {
+                                if (_.find(notSupported, function (x) { return x === property.editor; })) {
+                                    property.notSupported = true;
+                                    // TODO: Not supported message to be replaced with 'content_nestedContentEditorNotSupported' dictionary key. Currently not possible due to async/timing quirk.
+                                    property.notSupportedMessage = "Property " + property.label + " uses editor " + property.editor + " which is not supported by Nested Content.";
+                                }
+                            });
+                    }
+
+                    // Store the scaffold object
+                    $scope.scaffolds.push(scaffold);
                 }
-
-                // Store the scaffold object
-                $scope.scaffolds.push(scaffold);
 
                 scaffoldsLoaded++;
                 initIfAllScaffoldsHaveLoaded();
@@ -421,7 +432,7 @@ angular.module("umbraco").controller("Umbraco.PropertyEditors.NestedContent.Prop
             unsubscribe();
         });
 
-        //TODO: Move this into a shared location?
+        // TODO: Move this into a shared location?
         var UUID = (function () {
             var self = {};
             var lut = []; for (var i = 0; i < 256; i++) { lut[i] = (i < 16 ? '0' : '') + (i).toString(16); }

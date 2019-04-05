@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Linq;
+using Umbraco.Core;
 using Umbraco.Core.Cache;
 using Umbraco.Core.Models;
+using Umbraco.Core.Models.PublishedContent;
 using Umbraco.Core.Services;
 using Umbraco.Core.Services.Changes;
 using Umbraco.Web.PublishedCache;
@@ -11,12 +13,14 @@ namespace Umbraco.Web.Cache
     public sealed class ContentTypeCacheRefresher : PayloadCacheRefresherBase<ContentTypeCacheRefresher, ContentTypeCacheRefresher.JsonPayload>
     {
         private readonly IPublishedSnapshotService _publishedSnapshotService;
+        private readonly IPublishedModelFactory _publishedModelFactory;
         private readonly IdkMap _idkMap;
 
-        public ContentTypeCacheRefresher(CacheHelper cacheHelper, IPublishedSnapshotService publishedSnapshotService, IdkMap idkMap)
-            : base(cacheHelper)
+        public ContentTypeCacheRefresher(AppCaches appCaches, IPublishedSnapshotService publishedSnapshotService, IPublishedModelFactory publishedModelFactory, IdkMap idkMap)
+            : base(appCaches)
         {
             _publishedSnapshotService = publishedSnapshotService;
+            _publishedModelFactory = publishedModelFactory;
             _idkMap = idkMap;
         }
 
@@ -61,23 +65,26 @@ namespace Umbraco.Web.Cache
             foreach (var id in payloads.Select(x => x.Id))
             {
                 _idkMap.ClearCache(id);
-                ClearLegacyCaches(id);
             }
 
             if (payloads.Any(x => x.ItemType == typeof(IContentType).Name))
                 // don't try to be clever - refresh all
-                ContentCacheRefresher.RefreshContentTypes(CacheHelper);
+                ContentCacheRefresher.RefreshContentTypes(AppCaches);
 
             if (payloads.Any(x => x.ItemType == typeof(IMediaType).Name))
                 // don't try to be clever - refresh all
-                MediaCacheRefresher.RefreshMediaTypes(CacheHelper);
+                MediaCacheRefresher.RefreshMediaTypes(AppCaches);
 
             if (payloads.Any(x => x.ItemType == typeof(IMemberType).Name))
                 // don't try to be clever - refresh all
-                MemberCacheRefresher.RefreshMemberTypes(CacheHelper);
+                MemberCacheRefresher.RefreshMemberTypes(AppCaches);
 
-            // notify
-            _publishedSnapshotService.Notify(payloads);
+            // we have to refresh models before we notify the published snapshot
+            // service of changes, else factories may try to rebuild models while
+            // we are using the database to load content into caches
+
+            _publishedModelFactory.WithSafeLiveFactory(() =>
+                _publishedSnapshotService.Notify(payloads));
 
             // now we can trigger the event
             base.Refresh(payloads);
@@ -101,30 +108,6 @@ namespace Umbraco.Web.Cache
         public override void Remove(int id)
         {
             throw new NotSupportedException();
-        }
-
-        private void ClearLegacyCaches(int contentTypeId /*, string contentTypeAlias, IEnumerable<int> propertyTypeIds*/)
-        {
-            // legacy umbraco.cms.businesslogic.ContentType
-
-            // TODO - get rid of all this mess
-
-            // clears the cache for each property type associated with the content type
-            // see src/umbraco.cms/businesslogic/propertytype/propertytype.cs
-            // that cache is disabled because we could not clear it properly
-            //foreach (var pid in propertyTypeIds)
-            //    ApplicationContext.Current.ApplicationCache.RuntimeCache.ClearCacheItem(CacheKeys.PropertyTypeCacheKey + pid);
-
-            // clears the cache associated with the content type itself
-            CacheHelper.RuntimeCache.ClearCacheItem(CacheKeys.ContentTypeCacheKey + contentTypeId);
-
-            // clears the cache associated with the content type properties collection
-            CacheHelper.RuntimeCache.ClearCacheItem(CacheKeys.ContentTypePropertiesCacheKey + contentTypeId);
-
-            // clears the dictionary object cache of the legacy ContentType
-            // see src/umbraco.cms/businesslogic/ContentType.cs
-            // that cache is disabled because we could not clear it properly
-            //global::umbraco.cms.businesslogic.ContentType.RemoveFromDataTypeCache(contentTypeAlias);
         }
 
         #endregion

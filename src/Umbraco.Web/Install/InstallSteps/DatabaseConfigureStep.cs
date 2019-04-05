@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Configuration;
+using System.Threading.Tasks;
 using Umbraco.Core;
-using Umbraco.Core.Configuration;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Migrations.Install;
 using Umbraco.Web.Install.Models;
@@ -21,7 +21,7 @@ namespace Umbraco.Web.Install.InstallSteps
             _databaseBuilder = databaseBuilder;
         }
 
-        public override InstallSetupResult Execute(DatabaseModel database)
+        public override Task<InstallSetupResult> ExecuteAsync(DatabaseModel database)
         {
             //if the database model is null then we will apply the defaults
             if (database == null)
@@ -29,12 +29,12 @@ namespace Umbraco.Web.Install.InstallSteps
                 database = new DatabaseModel();
             }
 
-            if (_databaseBuilder.CheckConnection(database.DatabaseType.ToString(), database.ConnectionString, database.Server, database.DatabaseName, database.Login, database.Password, database.IntegratedAuth) == false)
+            if (_databaseBuilder.CanConnect(database.DatabaseType.ToString(), database.ConnectionString, database.Server, database.DatabaseName, database.Login, database.Password, database.IntegratedAuth) == false)
             {
                 throw new InstallException("Could not connect to the database");
             }
             ConfigureConnection(database);
-            return null;
+            return Task.FromResult<InstallSetupResult>(null);
         }
 
         private void ConfigureConnection(DatabaseModel database)
@@ -79,13 +79,12 @@ namespace Umbraco.Web.Install.InstallSteps
                 try
                 {
                     //Since a connection string was present we verify the db can connect and query
-                    var result = _databaseBuilder.ValidateDatabaseSchema();
-                    result.DetermineInstalledVersion();
+                    _ = _databaseBuilder.ValidateSchema();
                     return false;
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error<DatabaseConfigureStep>("An error occurred, reconfiguring...", ex);
+                    _logger.Error<DatabaseConfigureStep>(ex, "An error occurred, reconfiguring...");
                     //something went wrong, could not connect so probably need to reconfigure
                     return true;
                 }

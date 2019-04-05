@@ -109,12 +109,6 @@ namespace Umbraco.Core.Persistence.DatabaseModelDefinitions
             var constraintAttribute = propertyInfo.FirstAttribute<ConstraintAttribute>();
             if (constraintAttribute != null)
             {
-                //Special case for MySQL as it can't have multiple default DateTime values, which
-                //is what the umbracoServer table definition is trying to create
-                if (sqlSyntax is MySqlSyntaxProvider && definition.TableName == "umbracoServer" &&
-                        definition.TableName.ToLowerInvariant() == "lastNotifiedDate".ToLowerInvariant())
-                    return definition;
-
                 definition.ConstraintName = constraintAttribute.Name ?? string.Empty;
                 definition.DefaultValue = constraintAttribute.Default ?? string.Empty;
             }
@@ -159,9 +153,7 @@ namespace Umbraco.Core.Persistence.DatabaseModelDefinitions
                                      Name = indexName,
                                      IndexType = attribute.IndexType,
                                      ColumnName = columnName,
-                                     TableName = tableName,
-                                     IsClustered = attribute.IndexType == IndexTypes.Clustered,
-                                     IsUnique = attribute.IndexType == IndexTypes.UniqueNonClustered
+                                     TableName = tableName,                                                                     
                                  };
 
             if (string.IsNullOrEmpty(attribute.ForColumns) == false)

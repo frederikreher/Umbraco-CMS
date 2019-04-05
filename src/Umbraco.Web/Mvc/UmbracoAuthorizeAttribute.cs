@@ -57,7 +57,7 @@ namespace Umbraco.Web.Mvc
         {
             if (redirectToUmbracoLogin)
             {
-                _redirectUrl = UmbracoConfig.For.GlobalSettings().Path.EnsureStartsWith("~");
+                _redirectUrl = Current.Configs.Global().Path.EnsureStartsWith("~");
             }
         }
 
@@ -85,7 +85,7 @@ namespace Umbraco.Web.Mvc
         }
 
         /// <summary>
-        /// Override to to ensure no redirect occurs
+        /// Override to ensure no redirect occurs
         /// </summary>
         /// <param name="filterContext"></param>
         protected override void HandleUnauthorizedRequest(AuthorizationContext filterContext)
@@ -94,7 +94,7 @@ namespace Umbraco.Web.Mvc
             {
                 filterContext.Result = (ActionResult)new HttpUnauthorizedResult("You must login to view this resource.");
 
-                
+
             }
             else
             {

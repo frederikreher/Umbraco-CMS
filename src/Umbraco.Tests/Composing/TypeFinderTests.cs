@@ -11,7 +11,6 @@ using System.Threading;
 using System.Web;
 using System.Web.Compilation;
 using NUnit.Framework;
-using umbraco;
 using Umbraco.Core;
 using Umbraco.Core.Composing;
 using Umbraco.Core.IO;
@@ -49,7 +48,7 @@ namespace Umbraco.Tests.Composing
                     //typeof(TabPage).Assembly,
                     typeof(System.Web.Mvc.ActionResult).Assembly,
                     typeof(TypeFinder).Assembly,
-                    typeof(global::Umbraco.Examine.UmbracoExamineIndexer).Assembly
+                    typeof(global::Umbraco.Examine.UmbracoExamineIndex).Assembly
                 };
 
         }
@@ -90,10 +89,10 @@ namespace Umbraco.Tests.Composing
             Assert.AreEqual(0, typesFound.Count()); // 0 classes in _assemblies are marked with [Tree]
 
             typesFound = TypeFinder.FindClassesWithAttribute<TreeAttribute>(new[] { typeof (UmbracoContext).Assembly });
-            Assert.AreEqual(21, typesFound.Count()); // + classes in Umbraco.Web are marked with [Tree]
+            Assert.AreEqual(22, typesFound.Count()); // + classes in Umbraco.Web are marked with [Tree]
         }
 
-        private static ProfilingLogger GetTestProfilingLogger()
+        private static IProfilingLogger GetTestProfilingLogger()
         {
             var logger = new DebugDiagnosticsLogger();
             var profiler = new TestProfiler();
@@ -356,7 +355,6 @@ namespace Umbraco.Tests.Composing
                     "Dynamic,",
                     "HtmlDiff,",
                     "Iesi.Collections,",
-                    "log4net,",
                     "Microsoft.",
                     "Newtonsoft.",
                     "NHibernate.",
@@ -368,7 +366,6 @@ namespace Umbraco.Tests.Composing
                     "umbraco.interfaces,",
                     "umbraco.providers,",
                     "Umbraco.Web.UI,",
-                    "umbraco.webservices",
                     "Lucene.",
                     "Examine,",
                     "Examine.",
@@ -379,7 +376,8 @@ namespace Umbraco.Tests.Composing
                     "ICSharpCode.",
                     "CookComputing.",
                     /* Mono */
-                    "MonoDevelop.NUnit"
+                    "MonoDevelop.NUnit",
+                    "Serilog."
                 };
 
             public static IEnumerable<Type> FindClassesOfTypeWithAttribute<T, TAttribute>()

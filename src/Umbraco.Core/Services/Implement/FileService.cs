@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -75,7 +74,7 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="stylesheet"><see cref="Stylesheet"/> to save</param>
         /// <param name="userId"></param>
-        public void SaveStylesheet(Stylesheet stylesheet, int userId = 0)
+        public void SaveStylesheet(Stylesheet stylesheet, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -91,7 +90,7 @@ namespace Umbraco.Core.Services.Implement
                 saveEventArgs.CanCancel = false;
                 scope.Events.Dispatch(SavedStylesheet, this, saveEventArgs);
 
-                Audit(AuditType.Save, "Save Stylesheet performed by user", userId, -1);
+                Audit(AuditType.Save, userId, -1, ObjectTypes.GetName(UmbracoObjectTypes.Stylesheet));
                 scope.Complete();
             }
         }
@@ -101,7 +100,7 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="path">Name incl. extension of the Stylesheet to delete</param>
         /// <param name="userId"></param>
-        public void DeleteStylesheet(string path, int userId = 0)
+        public void DeleteStylesheet(string path, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -123,7 +122,7 @@ namespace Umbraco.Core.Services.Implement
                 deleteEventArgs.CanCancel = false;
                 scope.Events.Dispatch(DeletedStylesheet, this, deleteEventArgs);
 
-                Audit(AuditType.Delete, "Delete Stylesheet performed by user", userId, -1);
+                Audit(AuditType.Delete, userId, -1, ObjectTypes.GetName(UmbracoObjectTypes.Stylesheet));
                 scope.Complete();
             }
         }
@@ -138,6 +137,24 @@ namespace Umbraco.Core.Services.Implement
             using (var scope = ScopeProvider.CreateScope(autoComplete: true))
             {
                 return _stylesheetRepository.ValidateStylesheet(stylesheet);
+            }
+        }
+
+        public void CreateStyleSheetFolder(string folderPath)
+        {
+            using (var scope = ScopeProvider.CreateScope())
+            {
+                ((StylesheetRepository) _stylesheetRepository).AddFolder(folderPath);
+                scope.Complete();
+            }
+        }
+
+        public void DeleteStyleSheetFolder(string folderPath)
+        {
+            using (var scope = ScopeProvider.CreateScope())
+            {
+                ((StylesheetRepository) _stylesheetRepository).DeleteFolder(folderPath);
+                scope.Complete();
             }
         }
 
@@ -200,7 +217,7 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="script"><see cref="Script"/> to save</param>
         /// <param name="userId"></param>
-        public void SaveScript(Script script, int userId = 0)
+        public void SaveScript(Script script, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -215,7 +232,7 @@ namespace Umbraco.Core.Services.Implement
                 saveEventArgs.CanCancel = false;
                 scope.Events.Dispatch(SavedScript, this, saveEventArgs);
 
-                Audit(AuditType.Save, "Save Script performed by user", userId, -1);
+                Audit(AuditType.Save, userId, -1, "Script");
                 scope.Complete();
             }
         }
@@ -225,7 +242,7 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="path">Name incl. extension of the Script to delete</param>
         /// <param name="userId"></param>
-        public void DeleteScript(string path, int userId = 0)
+        public void DeleteScript(string path, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -247,7 +264,7 @@ namespace Umbraco.Core.Services.Implement
                 deleteEventArgs.CanCancel = false;
                 scope.Events.Dispatch(DeletedScript, this, deleteEventArgs);
 
-                Audit(AuditType.Delete, "Delete Script performed by user", userId, -1);
+                Audit(AuditType.Delete, userId, -1, "Script");
                 scope.Complete();
             }
         }
@@ -321,7 +338,7 @@ namespace Umbraco.Core.Services.Implement
         /// <returns>
         /// The template created
         /// </returns>
-        public Attempt<OperationResult<OperationResultType, ITemplate>> CreateTemplateForContentType(string contentTypeAlias, string contentTypeName, int userId = 0)
+        public Attempt<OperationResult<OperationResultType, ITemplate>> CreateTemplateForContentType(string contentTypeAlias, string contentTypeName, int userId = Constants.Security.SuperUserId)
         {
             var template = new Template(contentTypeName,
                 //NOTE: We are NOT passing in the content type alias here, we want to use it's name since we don't
@@ -332,16 +349,23 @@ namespace Umbraco.Core.Services.Implement
 
             var evtMsgs = EventMessagesFactory.Get();
 
-            //NOTE: This isn't pretty but we need to maintain backwards compatibility so we cannot change
+            // TODO: This isn't pretty because we we're required to maintain backwards compatibility so we could not change
             // the event args here. The other option is to create a different event with different event
-            // args specifically for this method... which also isn't pretty. So for now, we'll use this
-            // dictionary approach to store 'additional data' in.
+            // args specifically for this method... which also isn't pretty. So fix this in v8!
             var additionalData = new Dictionary<string, object>
             {
                 { "CreateTemplateForContentType", true },
                 { "ContentTypeAlias", contentTypeAlias },
             };
 
+            // check that the template hasn't been created on disk before creating the content type
+            // if it exists, set the new template content to the existing file content
+            string content = GetViewContent(contentTypeAlias);
+            if (content != null)
+            {
+                template.Content = content;
+            }
+            
             using (var scope = ScopeProvider.CreateScope())
             {
                 var saveEventArgs = new SaveEventArgs<ITemplate>(template, true, evtMsgs, additionalData);
@@ -355,24 +379,37 @@ namespace Umbraco.Core.Services.Implement
                 saveEventArgs.CanCancel = false;
                 scope.Events.Dispatch(SavedTemplate, this, saveEventArgs);
 
-                Audit(AuditType.Save, "Save Template performed by user", userId, template.Id);
+                Audit(AuditType.Save, userId, template.Id, ObjectTypes.GetName(UmbracoObjectTypes.Template));
                 scope.Complete();
             }
 
             return OperationResult.Attempt.Succeed<OperationResultType, ITemplate>(OperationResultType.Success, evtMsgs, template);
         }
 
-        public ITemplate CreateTemplateWithIdentity(string name, string content, ITemplate masterTemplate = null, int userId = 0)
+        /// <summary>
+        /// Create a new template, setting the content if a view exists in the filesystem
+        /// </summary>
+        /// <param name="name"></param>
+        /// <param name="alias"></param>
+        /// <param name="content"></param>
+        /// <param name="masterTemplate"></param>
+        /// <param name="userId"></param>
+        /// <returns></returns>
+        public ITemplate CreateTemplateWithIdentity(string name, string alias, string content, ITemplate masterTemplate = null, int userId = Constants.Security.SuperUserId)
         {
-            var template = new Template(name, name)
+            // file might already be on disk, if so grab the content to avoid overwriting
+            var template = new Template(name, alias)
             {
-                Content = content
+                Content = GetViewContent(alias) ?? content
             };
+            
             if (masterTemplate != null)
             {
                 template.SetMasterTemplate(masterTemplate);
             }
+
             SaveTemplate(template, userId);
+
             return template;
         }
 
@@ -416,7 +453,7 @@ namespace Umbraco.Core.Services.Implement
         /// <summary>
         /// Gets a <see cref="ITemplate"/> object by its identifier.
         /// </summary>
-        /// <param name="id">The identifer of the template.</param>
+        /// <param name="id">The identifier of the template.</param>
         /// <returns>The <see cref="ITemplate"/> object matching the identifier, or null.</returns>
         public ITemplate GetTemplate(int id)
         {
@@ -488,42 +525,11 @@ namespace Umbraco.Core.Services.Implement
         }
 
         /// <summary>
-        /// Returns a template as a template node which can be traversed (parent, children)
-        /// </summary>
-        /// <param name="alias"></param>
-        /// <returns></returns>
-        [Obsolete("Use GetDescendants instead")]
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        public TemplateNode GetTemplateNode(string alias)
-        {
-            using (var scope = ScopeProvider.CreateScope(autoComplete: true))
-            {
-                return _templateRepository.GetTemplateNode(alias);
-            }
-        }
-
-        /// <summary>
-        /// Given a template node in a tree, this will find the template node with the given alias if it is found in the hierarchy, otherwise null
-        /// </summary>
-        /// <param name="anyNode"></param>
-        /// <param name="alias"></param>
-        /// <returns></returns>
-        [Obsolete("Use GetDescendants instead")]
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        public TemplateNode FindTemplateInTree(TemplateNode anyNode, string alias)
-        {
-            using (var scope = ScopeProvider.CreateScope(autoComplete: true))
-            {
-                return _templateRepository.FindTemplateInTree(anyNode, alias);
-            }
-        }
-
-        /// <summary>
         /// Saves a <see cref="Template"/>
         /// </summary>
         /// <param name="template"><see cref="Template"/> to save</param>
         /// <param name="userId"></param>
-        public void SaveTemplate(ITemplate template, int userId = 0)
+        public void SaveTemplate(ITemplate template, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -537,7 +543,7 @@ namespace Umbraco.Core.Services.Implement
 
                 scope.Events.Dispatch(SavedTemplate, this, new SaveEventArgs<ITemplate>(template, false));
 
-                Audit(AuditType.Save, "Save Template performed by user", userId, template.Id);
+                Audit(AuditType.Save, userId, template.Id, ObjectTypes.GetName(UmbracoObjectTypes.Template));
                 scope.Complete();
             }
         }
@@ -547,7 +553,7 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="templates">List of <see cref="Template"/> to save</param>
         /// <param name="userId">Optional id of the user</param>
-        public void SaveTemplate(IEnumerable<ITemplate> templates, int userId = 0)
+        public void SaveTemplate(IEnumerable<ITemplate> templates, int userId = Constants.Security.SuperUserId)
         {
             var templatesA = templates.ToArray();
             using (var scope = ScopeProvider.CreateScope())
@@ -563,29 +569,8 @@ namespace Umbraco.Core.Services.Implement
 
                 scope.Events.Dispatch(SavedTemplate, this, new SaveEventArgs<ITemplate>(templatesA, false));
 
-                Audit(AuditType.Save, "Save Template performed by user", userId, -1);
+                Audit(AuditType.Save, userId, -1, ObjectTypes.GetName(UmbracoObjectTypes.Template));
                 scope.Complete();
-            }
-        }
-
-        /// <summary>
-        /// This checks what the default rendering engine is set in config but then also ensures that there isn't already
-        /// a template that exists in the opposite rendering engine's template folder, then returns the appropriate
-        /// rendering engine to use.
-        /// </summary>
-        /// <returns></returns>
-        /// <remarks>
-        /// The reason this is required is because for example, if you have a master page file already existing under ~/masterpages/Blah.aspx
-        /// and then you go to create a template in the tree called Blah and the default rendering engine is MVC, it will create a Blah.cshtml
-        /// empty template in ~/Views. This means every page that is using Blah will go to MVC and render an empty page.
-        /// This is mostly related to installing packages since packages install file templates to the file system and then create the
-        /// templates in business logic. Without this, it could cause the wrong rendering engine to be used for a package.
-        /// </remarks>
-        public RenderingEngine DetermineTemplateRenderingEngine(ITemplate template)
-        {
-            using (var scope = ScopeProvider.CreateScope(autoComplete: true))
-            {
-                return _templateRepository.DetermineTemplateRenderingEngine(template);
             }
         }
 
@@ -594,7 +579,7 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="alias">Alias of the <see cref="ITemplate"/> to delete</param>
         /// <param name="userId"></param>
-        public void DeleteTemplate(string alias, int userId = 0)
+        public void DeleteTemplate(string alias, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -617,7 +602,7 @@ namespace Umbraco.Core.Services.Implement
                 args.CanCancel = false;
                 scope.Events.Dispatch(DeletedTemplate, this, args);
 
-                Audit(AuditType.Delete, "Delete Template performed by user", userId, template.Id);
+                Audit(AuditType.Delete, userId, template.Id, ObjectTypes.GetName(UmbracoObjectTypes.Template));
                 scope.Complete();
             }
         }
@@ -659,10 +644,26 @@ namespace Umbraco.Core.Services.Implement
                 return _templateRepository.GetFileSize(filepath);
             }
         }
+        
+        private string GetViewContent(string fileName)
+        {
+            if (fileName.IsNullOrWhiteSpace())
+                throw new ArgumentNullException(nameof(fileName));
 
-        #endregion
+            if (!fileName.EndsWith(".cshtml"))
+                fileName = $"{fileName}.cshtml";
 
-        #region Partial Views
+            var fs = _templateRepository.GetFileContentStream(fileName);
+            if (fs == null) return null;
+            using (var view = new StreamReader(fs))
+            {
+                return view.ReadToEnd().Trim();
+            }
+        }
+
+#endregion
+
+#region Partial Views
 
         public IEnumerable<string> GetPartialViewSnippetNames(params string[] filterNames)
         {
@@ -722,17 +723,17 @@ namespace Umbraco.Core.Services.Implement
             }
         }
 
-        public Attempt<IPartialView> CreatePartialView(IPartialView partialView, string snippetName = null, int userId = 0)
+        public Attempt<IPartialView> CreatePartialView(IPartialView partialView, string snippetName = null, int userId = Constants.Security.SuperUserId)
         {
             return CreatePartialViewMacro(partialView, PartialViewType.PartialView, snippetName, userId);
         }
 
-        public Attempt<IPartialView> CreatePartialViewMacro(IPartialView partialView, string snippetName = null, int userId = 0)
+        public Attempt<IPartialView> CreatePartialViewMacro(IPartialView partialView, string snippetName = null, int userId = Constants.Security.SuperUserId)
         {
             return CreatePartialViewMacro(partialView, PartialViewType.PartialViewMacro, snippetName, userId);
         }
 
-        private Attempt<IPartialView> CreatePartialViewMacro(IPartialView partialView, PartialViewType partialViewType, string snippetName = null, int userId = 0)
+        private Attempt<IPartialView> CreatePartialViewMacro(IPartialView partialView, PartialViewType partialViewType, string snippetName = null, int userId = Constants.Security.SuperUserId)
         {
             string partialViewHeader;
             switch (partialViewType)
@@ -764,6 +765,12 @@ namespace Umbraco.Core.Services.Implement
                     //strip the @inherits if it's there
                     snippetContent = StripPartialViewHeader(snippetContent);
 
+                    //Update Model.Content. to be Model. when used as PartialView
+                    if(partialViewType == PartialViewType.PartialView)
+                    {
+                        snippetContent = snippetContent.Replace("Model.Content.", "Model.");
+                    }
+
                     partialViewContent = $"{partialViewHeader}{Environment.NewLine}{snippetContent}";
                 }
             }
@@ -784,25 +791,25 @@ namespace Umbraco.Core.Services.Implement
                 newEventArgs.CanCancel = false;
                 scope.Events.Dispatch(CreatedPartialView, this, newEventArgs);
 
-                Audit(AuditType.Save, $"Save {partialViewType} performed by user", userId, -1);
+                Audit(AuditType.Save, userId, -1, partialViewType.ToString());
 
                 scope.Complete();
             }
 
             return Attempt<IPartialView>.Succeed(partialView);
-        }
+        }        
 
-        public bool DeletePartialView(string path, int userId = 0)
+        public bool DeletePartialView(string path, int userId = Constants.Security.SuperUserId)
         {
             return DeletePartialViewMacro(path, PartialViewType.PartialView, userId);
         }
 
-        public bool DeletePartialViewMacro(string path, int userId = 0)
+        public bool DeletePartialViewMacro(string path, int userId = Constants.Security.SuperUserId)
         {
             return DeletePartialViewMacro(path, PartialViewType.PartialViewMacro, userId);
         }
 
-        private bool DeletePartialViewMacro(string path, PartialViewType partialViewType, int userId = 0)
+        private bool DeletePartialViewMacro(string path, PartialViewType partialViewType, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -824,7 +831,7 @@ namespace Umbraco.Core.Services.Implement
                 repository.Delete(partialView);
                 deleteEventArgs.CanCancel = false;
                 scope.Events.Dispatch(DeletedPartialView, this, deleteEventArgs);
-                Audit(AuditType.Delete, $"Delete {partialViewType} performed by user", userId, -1);
+                Audit(AuditType.Delete, userId, -1, partialViewType.ToString());
 
                 scope.Complete();
             }
@@ -832,17 +839,17 @@ namespace Umbraco.Core.Services.Implement
             return true;
         }
 
-        public Attempt<IPartialView> SavePartialView(IPartialView partialView, int userId = 0)
+        public Attempt<IPartialView> SavePartialView(IPartialView partialView, int userId = Constants.Security.SuperUserId)
         {
             return SavePartialView(partialView, PartialViewType.PartialView, userId);
         }
 
-        public Attempt<IPartialView> SavePartialViewMacro(IPartialView partialView, int userId = 0)
+        public Attempt<IPartialView> SavePartialViewMacro(IPartialView partialView, int userId = Constants.Security.SuperUserId)
         {
             return SavePartialView(partialView, PartialViewType.PartialViewMacro, userId);
         }
 
-        private Attempt<IPartialView> SavePartialView(IPartialView partialView, PartialViewType partialViewType, int userId = 0)
+        private Attempt<IPartialView> SavePartialView(IPartialView partialView, PartialViewType partialViewType, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -856,7 +863,7 @@ namespace Umbraco.Core.Services.Implement
                 var repository = GetPartialViewRepository(partialViewType);
                 repository.Save(partialView);
                 saveEventArgs.CanCancel = false;
-                Audit(AuditType.Save, $"Save {partialViewType} performed by user", userId, -1);
+                Audit(AuditType.Save, userId, -1, partialViewType.ToString());
                 scope.Events.Dispatch(SavedPartialView, this, saveEventArgs);
 
                 scope.Complete();
@@ -1027,6 +1034,12 @@ namespace Umbraco.Core.Services.Implement
                 //strip the @inherits if it's there
                 snippetContent = StripPartialViewHeader(snippetContent);
 
+                //Update Model.Content. to be Model. when used as PartialView
+                if (partialViewType == PartialViewType.PartialView)
+                {
+                    snippetContent = snippetContent.Replace("Model.Content.", "Model.");
+                }
+
                 var content = $"{partialViewHeader}{Environment.NewLine}{snippetContent}";
                 return content;
             }
@@ -1034,12 +1047,12 @@ namespace Umbraco.Core.Services.Implement
 
         #endregion
         
-        private void Audit(AuditType type, string message, int userId, int objectId)
+        private void Audit(AuditType type, int userId, int objectId, string entityType)
         {
-            _auditRepository.Save(new AuditItem(objectId, message, type, userId));
+            _auditRepository.Save(new AuditItem(objectId, type, userId, entityType));
         }
 
-        //TODO Method to change name and/or alias of view/masterpage template
+        // TODO: Method to change name and/or alias of view template
 
         #region Event Handlers
 

@@ -19,7 +19,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
     {
         private readonly Guid _containerObjectType;
 
-        public EntityContainerRepository(IScopeAccessor scopeAccessor, CacheHelper cache, ILogger logger, Guid containerObjectType)
+        public EntityContainerRepository(IScopeAccessor scopeAccessor, AppCaches cache, ILogger logger, Guid containerObjectType)
             : base(scopeAccessor, cache, logger)
         {
             var allowedContainers = new[] { Constants.ObjectTypes.DocumentTypeContainer, Constants.ObjectTypes.MediaTypeContainer, Constants.ObjectTypes.DataTypeContainer };
@@ -93,7 +93,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             var entity = new EntityContainer(nodeDto.NodeId, nodeDto.UniqueId,
                 nodeDto.ParentId, nodeDto.Path, nodeDto.Level, nodeDto.SortOrder,
                 containedObjectType,
-                nodeDto.Text, nodeDto.UserId ?? 0);
+                nodeDto.Text, nodeDto.UserId ?? Constants.Security.UnknownUserId);
 
             // reset dirty initial properties (U4-1946)
             entity.ResetDirtyProperties(false);

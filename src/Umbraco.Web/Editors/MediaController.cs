@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -18,22 +17,26 @@ using Umbraco.Core.Models.Membership;
 using Umbraco.Core.Persistence.DatabaseModelDefinitions;
 using Umbraco.Core.Services;
 using Umbraco.Web.Models.ContentEditing;
-using Umbraco.Web.Models.Mapping;
 using Umbraco.Web.Mvc;
 using Umbraco.Web.WebApi;
 using System.Linq;
 using System.Web.Http.Controllers;
-using Umbraco.Web.WebApi.Binders;
+using Umbraco.Core.Cache;
+using Umbraco.Core.Composing;
+using Umbraco.Core.Configuration;
 using Umbraco.Web.WebApi.Filters;
 using Constants = Umbraco.Core.Constants;
-using Umbraco.Core.Configuration;
 using Umbraco.Core.Persistence.Querying;
-using Umbraco.Web.UI;
 using Notification = Umbraco.Web.Models.ContentEditing.Notification;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Configuration.UmbracoSettings;
+using Umbraco.Core.Models.ContentEditing;
 using Umbraco.Core.Models.Editors;
 using Umbraco.Core.Models.Validation;
+using Umbraco.Core.PropertyEditors;
+using Umbraco.Web.ContentApps;
+using Umbraco.Web.Editors.Binders;
+using Umbraco.Web.Editors.Filters;
 
 namespace Umbraco.Web.Editors
 {
@@ -46,6 +49,13 @@ namespace Umbraco.Web.Editors
     [MediaControllerControllerConfiguration]
     public class MediaController : ContentControllerBase
     {
+        public MediaController(PropertyEditorCollection propertyEditors, IGlobalSettings globalSettings, IUmbracoContextAccessor umbracoContextAccessor, ISqlContext sqlContext, ServiceContext services, AppCaches appCaches, IProfilingLogger logger, IRuntimeState runtimeState, UmbracoHelper umbracoHelper, IContentTypeBaseServiceProvider contentTypeBaseServiceProvider)
+            : base(globalSettings, umbracoContextAccessor, sqlContext, services, appCaches, logger, runtimeState, umbracoHelper)
+        {
+            _propertyEditors = propertyEditors ?? throw new ArgumentNullException(nameof(propertyEditors));
+            _contentTypeBaseServiceProvider = contentTypeBaseServiceProvider;
+        }
+
         /// <summary>
         /// Configures this controller with a custom action selector
         /// </summary>
@@ -75,11 +85,11 @@ namespace Umbraco.Web.Editors
             }
 
             var emptyContent = Services.MediaService.CreateMedia("", parentId, contentType.Alias, Security.GetUserId().ResultOr(0));
-            var mapped = ContextMapper.Map<IMedia, MediaItemDisplay>(emptyContent, UmbracoContext);
+            var mapped = Mapper.Map<MediaItemDisplay>(emptyContent);
 
-            //remove this tab if it exists: umbContainerView
-            var containerTab = mapped.Tabs.FirstOrDefault(x => x.Alias == Constants.Conventions.PropertyGroups.ListViewGroupName);
-            mapped.Tabs = mapped.Tabs.Except(new[] { containerTab });
+            //remove the listview app if it exists
+            mapped.ContentApps = mapped.ContentApps.Where(x => x.Alias != "umbListView").ToList();
+
             return mapped;
         }
 
@@ -87,9 +97,12 @@ namespace Umbraco.Web.Editors
         /// Returns an item to be used to display the recycle bin for media
         /// </summary>
         /// <returns></returns>
-        public ContentItemDisplay GetRecycleBin()
+        public MediaItemDisplay GetRecycleBin()
         {
-            var display = new ContentItemDisplay
+            var apps = new List<ContentApp>();
+            apps.Add(ListViewContentAppFactory.CreateContentApp(Services.DataTypeService, _propertyEditors, "recycleBin", "media", Core.Constants.DataTypes.DefaultMediaListView));
+            apps[0].Active = true;
+            var display = new MediaItemDisplay
             {
                 Id = Constants.System.RecycleBinMedia,
                 Alias = "recycleBin",
@@ -98,10 +111,9 @@ namespace Umbraco.Web.Editors
                 ContentTypeAlias = "recycleBin",
                 CreateDate = DateTime.Now,
                 IsContainer = true,
-                Path = "-1," + Constants.System.RecycleBinMedia
+                Path = "-1," + Constants.System.RecycleBinMedia,
+                ContentApps = apps
             };
-
-            TabsAndPropertiesResolver.AddListView(display, "media", Services.DataTypeService, Services.TextService);
 
             return display;
         }
@@ -123,7 +135,7 @@ namespace Umbraco.Web.Editors
                 //HandleContentNotFound will throw an exception
                 return null;
             }
-            return ContextMapper.Map<IMedia, MediaItemDisplay>(foundContent, UmbracoContext);
+            return Mapper.Map<MediaItemDisplay>(foundContent);
         }
 
         /// <summary>
@@ -143,7 +155,7 @@ namespace Umbraco.Web.Editors
                 //HandleContentNotFound will throw an exception
                 return null;
             }
-            return ContextMapper.Map<IMedia, MediaItemDisplay>(foundContent, UmbracoContext);
+            return Mapper.Map<MediaItemDisplay>(foundContent);
         }
 
         /// <summary>
@@ -172,21 +184,7 @@ namespace Umbraco.Web.Editors
         public IEnumerable<MediaItemDisplay> GetByIds([FromUri]int[] ids)
         {
             var foundMedia = Services.MediaService.GetByIds(ids);
-            return foundMedia.Select(media => ContextMapper.Map<IMedia, MediaItemDisplay>(media, UmbracoContext));
-        }
-
-        /// <summary>
-        /// Returns media items known to be of a "Folder" type
-        /// </summary>
-        /// <param name="id"></param>
-        /// <returns></returns>
-        [Obsolete("This is no longer used and shouldn't be because it performs poorly when there are a lot of media items")]
-        [FilterAllowedOutgoingMedia(typeof(IEnumerable<ContentItemBasic<ContentPropertyBasic, IMedia>>))]
-        public IEnumerable<ContentItemBasic<ContentPropertyBasic, IMedia>> GetChildFolders(int id = -1)
-        {
-            //we are only allowing a max of 500 to be returned here, if more is required it needs to be paged
-            var result = GetChildFolders(id, 1, 500);
-            return result.Items;
+            return foundMedia.Select(media => Mapper.Map<MediaItemDisplay>(media));
         }
 
         /// <summary>
@@ -196,7 +194,7 @@ namespace Umbraco.Web.Editors
         /// <param name="pageNumber"></param>
         /// <param name="pageSize"></param>
         /// <returns></returns>
-        public PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>> GetChildFolders(int id, int pageNumber, int pageSize)
+        public PagedResult<ContentItemBasic<ContentPropertyBasic>> GetChildFolders(int id, int pageNumber = 1, int pageSize = 1000)
         {
             //Suggested convention for folder mediatypes - we can make this more or less complicated as long as we document it...
             //if you create a media type, which has an alias that ends with ...Folder then its a folder: ex: "secureFolder", "bannerFolder", "Folder"
@@ -208,33 +206,39 @@ namespace Umbraco.Web.Editors
 
             if (folderTypes.Length == 0)
             {
-                return new PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>>(0, pageNumber, pageSize);
+                return new PagedResult<ContentItemBasic<ContentPropertyBasic>>(0, pageNumber, pageSize);
             }
 
             long total;
-            var children = Services.MediaService.GetPagedChildren(id, pageNumber - 1, pageSize, out total, "Name", Direction.Ascending, true, null, folderTypes.ToArray());
+            var children = Services.MediaService.GetPagedChildren(id, pageNumber - 1, pageSize, out total,
+                //lookup these content types
+                SqlContext.Query<IMedia>().Where(x => folderTypes.Contains(x.ContentTypeId)),
+                Ordering.By("Name", Direction.Ascending));
 
-            return new PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>>(total, pageNumber, pageSize)
+            return new PagedResult<ContentItemBasic<ContentPropertyBasic>>(total, pageNumber, pageSize)
             {
-                Items = children.Select(Mapper.Map<IMedia, ContentItemBasic<ContentPropertyBasic, IMedia>>)
+                Items = children.Select(Mapper.Map<IMedia, ContentItemBasic<ContentPropertyBasic>>)
             };
         }
 
         /// <summary>
         /// Returns the root media objects
         /// </summary>
-        [FilterAllowedOutgoingMedia(typeof(IEnumerable<ContentItemBasic<ContentPropertyBasic, IMedia>>))]
-        public IEnumerable<ContentItemBasic<ContentPropertyBasic, IMedia>> GetRootMedia()
+        [FilterAllowedOutgoingMedia(typeof(IEnumerable<ContentItemBasic<ContentPropertyBasic>>))]
+        public IEnumerable<ContentItemBasic<ContentPropertyBasic>> GetRootMedia()
         {
-            //TODO: Add permissions check!
+            // TODO: Add permissions check!
 
             return Services.MediaService.GetRootMedia()
-                           .Select(Mapper.Map<IMedia, ContentItemBasic<ContentPropertyBasic, IMedia>>);
+                           .Select(Mapper.Map<IMedia, ContentItemBasic<ContentPropertyBasic>>);
         }
 
         #region GetChildren
 
         private int[] _userStartNodes;
+        private readonly PropertyEditorCollection _propertyEditors;
+        private readonly IContentTypeBaseServiceProvider _contentTypeBaseServiceProvider;
+
         protected int[] UserStartNodes
         {
             get { return _userStartNodes ?? (_userStartNodes = Security.CurrentUser.CalculateMediaStartNodeIds(Services.EntityService)); }
@@ -243,8 +247,8 @@ namespace Umbraco.Web.Editors
         /// <summary>
         /// Returns the child media objects - using the entity INT id
         /// </summary>
-        [FilterAllowedOutgoingMedia(typeof(IEnumerable<ContentItemBasic<ContentPropertyBasic, IMedia>>), "Items")]
-        public PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>> GetChildren(int id,
+        [FilterAllowedOutgoingMedia(typeof(IEnumerable<ContentItemBasic<ContentPropertyBasic>>), "Items")]
+        public PagedResult<ContentItemBasic<ContentPropertyBasic>> GetChildren(int id,
             int pageNumber = 0,
             int pageSize = 0,
             string orderBy = "SortOrder",
@@ -257,14 +261,14 @@ namespace Umbraco.Web.Editors
             if (id == Constants.System.Root && UserStartNodes.Length > 0 && UserStartNodes.Contains(Constants.System.Root) == false)
             {
                 if (pageNumber > 0)
-                    return new PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>>(0, 0, 0);
+                    return new PagedResult<ContentItemBasic<ContentPropertyBasic>>(0, 0, 0);
                 var nodes = Services.MediaService.GetByIds(UserStartNodes).ToArray();
                 if (nodes.Length == 0)
-                    return new PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>>(0, 0, 0);
+                    return new PagedResult<ContentItemBasic<ContentPropertyBasic>>(0, 0, 0);
                 if (pageSize < nodes.Length) pageSize = nodes.Length; // bah
-                var pr = new PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>>(nodes.Length, pageNumber, pageSize)
+                var pr = new PagedResult<ContentItemBasic<ContentPropertyBasic>>(nodes.Length, pageNumber, pageSize)
                 {
-                    Items = nodes.Select(Mapper.Map<IMedia, ContentItemBasic<ContentPropertyBasic, IMedia>>)
+                    Items = nodes.Select(Mapper.Map<IMedia, ContentItemBasic<ContentPropertyBasic>>)
                 };
                 return pr;
             }
@@ -272,7 +276,7 @@ namespace Umbraco.Web.Editors
             // else proceed as usual
 
             long totalChildren;
-            IMedia[] children;
+            List<IMedia> children;
             if (pageNumber > 0 && pageSize > 0)
             {
                 IQuery<IMedia> queryFilter = null;
@@ -287,23 +291,24 @@ namespace Umbraco.Web.Editors
                     .GetPagedChildren(
                         id, (pageNumber - 1), pageSize,
                         out totalChildren,
-                        orderBy, orderDirection, orderBySystemField,
-                        queryFilter).ToArray();
+                        queryFilter,
+                        Ordering.By(orderBy, orderDirection, isCustomField: !orderBySystemField)).ToList();
             }
             else
             {
-                children = Services.MediaService.GetChildren(id).ToArray();
-                totalChildren = children.Length;
+                //better to not use this without paging where possible, currently only the sort dialog does
+                children = Services.MediaService.GetPagedChildren(id,0, int.MaxValue, out var total).ToList();
+                totalChildren = children.Count;
             }
 
             if (totalChildren == 0)
             {
-                return new PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>>(0, 0, 0);
+                return new PagedResult<ContentItemBasic<ContentPropertyBasic>>(0, 0, 0);
             }
 
-            var pagedResult = new PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>>(totalChildren, pageNumber, pageSize);
+            var pagedResult = new PagedResult<ContentItemBasic<ContentPropertyBasic>>(totalChildren, pageNumber, pageSize);
             pagedResult.Items = children
-                .Select(Mapper.Map<IMedia, ContentItemBasic<ContentPropertyBasic, IMedia>>);
+                .Select(Mapper.Map<IMedia, ContentItemBasic<ContentPropertyBasic>>);
 
             return pagedResult;
         }
@@ -319,8 +324,8 @@ namespace Umbraco.Web.Editors
         /// <param name="orderBySystemField"></param>
         /// <param name="filter"></param>
         /// <returns></returns>
-        [FilterAllowedOutgoingMedia(typeof(IEnumerable<ContentItemBasic<ContentPropertyBasic, IMedia>>), "Items")]
-        public PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>> GetChildren(Guid id,
+        [FilterAllowedOutgoingMedia(typeof(IEnumerable<ContentItemBasic<ContentPropertyBasic>>), "Items")]
+        public PagedResult<ContentItemBasic<ContentPropertyBasic>> GetChildren(Guid id,
            int pageNumber = 0,
            int pageSize = 0,
            string orderBy = "SortOrder",
@@ -347,8 +352,8 @@ namespace Umbraco.Web.Editors
         /// <param name="orderBySystemField"></param>
         /// <param name="filter"></param>
         /// <returns></returns>
-        [FilterAllowedOutgoingMedia(typeof(IEnumerable<ContentItemBasic<ContentPropertyBasic, IMedia>>), "Items")]
-        public PagedResult<ContentItemBasic<ContentPropertyBasic, IMedia>> GetChildren(Udi id,
+        [FilterAllowedOutgoingMedia(typeof(IEnumerable<ContentItemBasic<ContentPropertyBasic>>), "Items")]
+        public PagedResult<ContentItemBasic<ContentPropertyBasic>> GetChildren(Udi id,
            int pageNumber = 0,
            int pageSize = 0,
            string orderBy = "SortOrder",
@@ -390,7 +395,7 @@ namespace Umbraco.Web.Editors
             //if the current item is in the recycle bin
             if (foundMedia.Trashed == false)
             {
-                var moveResult = Services.MediaService.WithResult().MoveToRecycleBin(foundMedia, (int)Security.CurrentUser.Id);
+                var moveResult = Services.MediaService.MoveToRecycleBin(foundMedia, (int)Security.CurrentUser.Id);
                 if (moveResult == false)
                 {
                     //returning an object of INotificationModel will ensure that any pending
@@ -400,7 +405,7 @@ namespace Umbraco.Web.Editors
             }
             else
             {
-                var deleteResult = Services.MediaService.WithResult().Delete(foundMedia, (int)Security.CurrentUser.Id);
+                var deleteResult = Services.MediaService.Delete(foundMedia, (int)Security.CurrentUser.Id);
                 if (deleteResult == false)
                 {
                     //returning an object of INotificationModel will ensure that any pending
@@ -421,12 +426,25 @@ namespace Umbraco.Web.Editors
         public HttpResponseMessage PostMove(MoveOrCopy move)
         {
             var toMove = ValidateMoveOrCopy(move);
+            var destinationParentID = move.ParentId;
+            var sourceParentID = toMove.ParentId;
 
-            Services.MediaService.Move(toMove, move.ParentId);
+            var moveResult = Services.MediaService.Move(toMove, move.ParentId);
 
-            var response = Request.CreateResponse(HttpStatusCode.OK);
-            response.Content = new StringContent(toMove.Path, Encoding.UTF8, "application/json");
-            return response;
+            if (sourceParentID == destinationParentID)
+            {
+                return Request.CreateValidationErrorResponse(new SimpleNotificationModel(new Notification("",Services.TextService.Localize("media/moveToSameFolderFailed"),NotificationStyle.Error)));
+            }
+            if (moveResult == false)
+            {
+                return Request.CreateValidationErrorResponse(new SimpleNotificationModel());
+            }
+            else
+            {
+                var response = Request.CreateResponse(HttpStatusCode.OK);
+                response.Content = new StringContent(toMove.Path, Encoding.UTF8, "text/plain");
+                return response;
+            }
         }
 
         /// <summary>
@@ -434,12 +452,23 @@ namespace Umbraco.Web.Editors
         /// </summary>
         /// <returns></returns>
         [FileUploadCleanupFilter]
-        [MediaPostValidate]
+        [MediaItemSaveValidation]
         [OutgoingEditorModelEvent]
         public MediaItemDisplay PostSave(
             [ModelBinder(typeof(MediaItemBinder))]
                 MediaItemSave contentItem)
         {
+            //Recent versions of IE/Edge may send in the full client side file path instead of just the file name.
+            //To ensure similar behavior across all browsers no matter what they do - we strip the FileName property of all
+            //uploaded files to being *only* the actual file name (as it should be).
+            if (contentItem.UploadedFiles != null && contentItem.UploadedFiles.Any())
+            {
+                foreach (var file in contentItem.UploadedFiles)
+                {
+                    file.FileName = Path.GetFileName(file.FileName);
+                }
+            }
+
             //If we've reached here it means:
             // * Our model has been bound
             // * and validated
@@ -453,37 +482,35 @@ namespace Umbraco.Web.Editors
                 contentItem.PersistedContent.Name = contentItem.Name;
             }
 
-            MapPropertyValues<IMedia, MediaItemSave>(
+            MapPropertyValuesForPersistence<IMedia, MediaItemSave>(
                 contentItem,
-                (save, property) => property.GetValue(),        //get prop val
-                (save, property, v) => property.SetValue(v));   //set prop val
+                contentItem.PropertyCollectionDto,
+                (save, property) => property.GetValue(), //get prop val
+                (save, property, v) => property.SetValue(v), //set prop val
+                null); // media are all invariant
 
-            //We need to manually check the validation results here because:
-            // * We still need to save the entity even if there are validation value errors
-            // * Depending on if the entity is new, and if there are non property validation errors (i.e. the name is null)
-            //      then we cannot continue saving, we can only display errors
-            // * If there are validation errors and they were attempting to publish, we can only save, NOT publish and display
-            //      a message indicating this
-            if (ModelState.IsValid == false)
+            //we will continue to save if model state is invalid, however we cannot save if critical data is missing.
+            //TODO: Allowing media to be saved when it is invalid is odd - media doesn't have a publish phase so suddenly invalid data is allowed to be 'live'
+            if (!ModelState.IsValid)
             {
-                if (!RequiredForPersistenceAttribute.HasRequiredValuesForPersistence(contentItem)
-                    && (contentItem.Action == ContentSaveAction.SaveNew))
+                //check for critical data validation issues, we can't continue saving if this data is invalid
+                if (!RequiredForPersistenceAttribute.HasRequiredValuesForPersistence(contentItem))
                 {
                     //ok, so the absolute mandatory data is invalid and it's new, we cannot actually continue!
-                    // add the modelstate to the outgoing object and throw validation response
-                    var forDisplay = ContextMapper.Map<IMedia, MediaItemDisplay>(contentItem.PersistedContent, UmbracoContext);
+                    // add the model state to the outgoing object and throw validation response
+                    var forDisplay = Mapper.Map<MediaItemDisplay>(contentItem.PersistedContent);
                     forDisplay.Errors = ModelState.ToErrorDictionary();
                     throw new HttpResponseException(Request.CreateValidationErrorResponse(forDisplay));
                 }
             }
 
             //save the item
-            var saveStatus = Services.MediaService.WithResult().Save(contentItem.PersistedContent, (int)Security.CurrentUser.Id);
+            var saveStatus = Services.MediaService.Save(contentItem.PersistedContent, (int)Security.CurrentUser.Id);
 
             //return the updated model
-            var display = ContextMapper.Map<IMedia, MediaItemDisplay>(contentItem.PersistedContent, UmbracoContext);
+            var display = Mapper.Map<MediaItemDisplay>(contentItem.PersistedContent);
 
-            //lasty, if it is not valid, add the modelstate to the outgoing object and throw a 403
+            //lastly, if it is not valid, add the model state to the outgoing object and throw a 403
             HandleInvalidModelState(display);
 
             //put the correct msgs in
@@ -515,7 +542,7 @@ namespace Umbraco.Web.Editors
 
             return display;
         }
-        
+
         /// <summary>
         /// Empties the recycle bin
         /// </summary>
@@ -564,21 +591,21 @@ namespace Umbraco.Web.Editors
             }
             catch (Exception ex)
             {
-                Logger.Error<MediaController>("Could not update media sort order", ex);
+                Logger.Error<MediaController>(ex, "Could not update media sort order");
                 throw;
             }
         }
-        
+
         public MediaItemDisplay PostAddFolder(PostedFolder folder)
         {
             var intParentId = GetParentIdAsInt(folder.ParentId, validatePermissions:true);
-            
+
             var mediaService = Services.MediaService;
 
             var f = mediaService.CreateMedia(folder.Name, intParentId, Constants.Conventions.MediaTypes.Folder);
             mediaService.Save(f, Security.CurrentUser.Id);
 
-            return ContextMapper.Map<IMedia, MediaItemDisplay>(f, UmbracoContext);
+            return Mapper.Map<MediaItemDisplay>(f);
         }
 
         /// <summary>
@@ -596,7 +623,7 @@ namespace Umbraco.Web.Editors
                 throw new HttpResponseException(HttpStatusCode.UnsupportedMediaType);
             }
 
-            var root = IOHelper.MapPath("~/App_Data/TEMP/FileUploads");
+            var root = IOHelper.MapPath(SystemDirectories.TempFileUploads);
             //ensure it exists
             Directory.CreateDirectory(root);
             var provider = new MultipartFormDataStreamProvider(root);
@@ -612,10 +639,10 @@ namespace Umbraco.Web.Editors
             //get the string json from the request
             string currentFolderId = result.FormData["currentFolder"];
             int parentId = GetParentIdAsInt(currentFolderId, validatePermissions: true);
-           
+
             var tempFiles = new PostedFiles();
             var mediaService = Services.MediaService;
-            
+
             //in case we pass a path with a folder in it, we will create it and upload media to it.
             if (result.FormData.ContainsKey("path"))
             {
@@ -652,7 +679,8 @@ namespace Umbraco.Web.Editors
                                 " returned null");
 
                         //look for matching folder
-                        folderMediaItem = mediaRoot.Children(Services.MediaService).FirstOrDefault(x => x.Name == folderName && x.ContentType.Alias == Constants.Conventions.MediaTypes.Folder);
+                        folderMediaItem = FindInChildren(mediaRoot.Id, folderName, Constants.Conventions.MediaTypes.Folder);
+
                         if (folderMediaItem == null)
                         {
                             //if null, create a folder
@@ -672,13 +700,13 @@ namespace Umbraco.Web.Editors
                 var safeFileName = fileName.ToSafeFileName();
                 var ext = safeFileName.Substring(safeFileName.LastIndexOf('.') + 1).ToLower();
 
-                if (UmbracoConfig.For.UmbracoSettings().Content.IsFileAllowedForUpload(ext))
+                if (Current.Configs.Settings().Content.IsFileAllowedForUpload(ext))
                 {
                     var mediaType = Constants.Conventions.MediaTypes.File;
 
                     if (result.FormData["contentTypeAlias"] == Constants.Conventions.MediaTypes.AutoSelect)
                     {
-                        if (UmbracoConfig.For.UmbracoSettings().Content.ImageFileTypes.Contains(ext))
+                        if (Current.Configs.Settings().Content.ImageFileTypes.Contains(ext))
                         {
                             mediaType = Constants.Conventions.MediaTypes.Image;
                         }
@@ -688,15 +716,7 @@ namespace Umbraco.Web.Editors
                         mediaType = result.FormData["contentTypeAlias"];
                     }
 
-                    //TODO: make the media item name "nice" since file names could be pretty ugly, we have
-                    // string extensions to do much of this but we'll need:
-                    // * Pascalcase the name (use string extensions)
-                    // * strip the file extension
-                    // * underscores to spaces
-                    // * probably remove 'ugly' characters - let's discuss
-                    // All of this logic should exist in a string extensions method and be unit tested
-                    // http://issues.umbraco.org/issue/U4-5572
-                    var mediaItemName = fileName;
+                    var mediaItemName = fileName.ToFriendlyName();
 
                     var f = mediaService.CreateMedia(mediaItemName, parentId, mediaType, Security.CurrentUser.Id);
 
@@ -705,15 +725,14 @@ namespace Umbraco.Web.Editors
                     if (fs == null) throw new InvalidOperationException("Could not acquire file stream");
                     using (fs)
                     {
-                        f.SetValue(Constants.Conventions.Media.File, fileName, fs);
+                        f.SetValue(_contentTypeBaseServiceProvider, Constants.Conventions.Media.File,fileName, fs);
                     }
 
-                    var saveResult = mediaService.WithResult().Save(f, Security.CurrentUser.Id);
+                    var saveResult = mediaService.Save(f, Security.CurrentUser.Id);
                     if (saveResult == false)
                     {
                         AddCancelMessage(tempFiles,
-                            message: Services.TextService.Localize("speechBubbles/operationCancelledText") + " -- " + mediaItemName,
-                            localizeMessage: false);
+                            message: Services.TextService.Localize("speechBubbles/operationCancelledText") + " -- " + mediaItemName);
                     }
                     else
                     {
@@ -730,7 +749,7 @@ namespace Umbraco.Web.Editors
                     tempFiles.Notifications.Add(new Notification(
                         Services.TextService.Localize("speechBubbles/operationFailedHeader"),
                         Services.TextService.Localize("media/disallowedFileType"),
-                        SpeechBubbleIcon.Warning));
+                        NotificationStyle.Warning));
                 }
             }
 
@@ -748,6 +767,21 @@ namespace Umbraco.Web.Editors
             }
 
             return Request.CreateResponse(HttpStatusCode.OK, tempFiles);
+        }
+
+        private IMedia FindInChildren(int mediaId, string nameToFind, string contentTypeAlias)
+        {
+            const int pageSize = 500;
+            var page = 0;
+            var total = long.MaxValue;
+            while (page * pageSize < total)
+            {
+                var children = Services.MediaService.GetPagedChildren(mediaId, page, pageSize, out total,
+                    SqlContext.Query<IMedia>().Where(x => x.Name == nameToFind));
+                foreach (var c in children)
+                    return c; //return first one if any are found
+            }
+            return null;
         }
 
         /// <summary>
@@ -807,7 +841,7 @@ namespace Umbraco.Web.Editors
                     new SimpleNotificationModel(new Notification(
                         Services.TextService.Localize("speechBubbles/operationFailedHeader"),
                         Services.TextService.Localize("speechBubbles/invalidUserPermissionsText"),
-                        SpeechBubbleIcon.Warning))));
+                        NotificationStyle.Warning))));
             }
 
             return intParentId;
@@ -833,8 +867,10 @@ namespace Umbraco.Web.Editors
             }
             if (model.ParentId < 0)
             {
-                //cannot move if the content item is not allowed at the root
-                if (toMove.ContentType.AllowedAsRoot == false)
+                //cannot move if the content item is not allowed at the root unless there are
+                //none allowed at root (in which case all should be allowed at root)
+                var mediaTypeService = Services.MediaTypeService;
+                if (toMove.ContentType.AllowedAsRoot == false && mediaTypeService.GetAll().Any(ct => ct.AllowedAsRoot))
                 {
                     var notificationModel = new SimpleNotificationModel();
                     notificationModel.AddErrorNotification(Services.TextService.Localize("moveOrCopy/notAllowedAtRoot"), "");
@@ -850,7 +886,8 @@ namespace Umbraco.Web.Editors
                 }
 
                 //check if the item is allowed under this one
-                if (parent.ContentType.AllowedContentTypes.Select(x => x.Id).ToArray()
+                var parentContentType = Services.MediaTypeService.Get(parent.ContentTypeId);
+                if (parentContentType.AllowedContentTypes.Select(x => x.Id).ToArray()
                     .Any(x => x.Value == toMove.ContentType.Id) == false)
                 {
                     var notificationModel = new SimpleNotificationModel();
@@ -891,7 +928,7 @@ namespace Umbraco.Web.Editors
             if (media == null && nodeId != Constants.System.Root && nodeId != Constants.System.RecycleBinMedia)
             {
                 media = mediaService.GetById(nodeId);
-                //put the content item into storage so it can be retreived
+                //put the content item into storage so it can be retrieved
                 // in the controller (saves a lookup)
                 storage[typeof(IMedia).ToString()] = media;
             }

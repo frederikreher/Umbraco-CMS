@@ -3,10 +3,8 @@ using System.Runtime.Serialization;
 using Umbraco.Web.Trees;
 using System.Collections.Generic;
 using Umbraco.Core;
-using Umbraco.Core.Models.Entities;
 using Umbraco.Core.Services;
-using Umbraco.Web.Composing;
-using Umbraco.Web._Legacy.Actions;
+using Umbraco.Web.Actions;
 
 namespace Umbraco.Web.Models.Trees
 {
@@ -30,14 +28,27 @@ namespace Umbraco.Web.Models.Trees
             Name = name;
         }
 
-        public MenuItem(IAction legacyMenu, string name = "")
+
+        public MenuItem(string alias, ILocalizedTextService textService)
             : this()
         {
-            Name = name.IsNullOrWhiteSpace() ? legacyMenu.Alias : name;
-            Alias = legacyMenu.Alias;
-            SeperatorBefore = false;
-            Icon = legacyMenu.Icon;
-            Action = legacyMenu;
+            Alias = alias;
+            Name = textService.Localize($"actions/{Alias}");
+        }
+
+        /// <summary>
+        /// Create a menu item based on an <see cref="IAction"/> definition
+        /// </summary>
+        /// <param name="action"></param>
+        /// <param name="name"></param>
+        public MenuItem(IAction action, string name = "")
+            : this()
+        {
+            Name = name.IsNullOrWhiteSpace() ? action.Alias : name;
+            Alias = action.Alias;
+            SeparatorBefore = false;
+            Icon = action.Icon;
+            Action = action;
         }
         #endregion
 
@@ -66,11 +77,18 @@ namespace Umbraco.Web.Models.Trees
         /// <summary>
         /// Ensures a menu separator will exist before this menu item
         /// </summary>
-        [DataMember(Name = "seperator")]
-        public bool SeperatorBefore { get; set; }
+        [DataMember(Name = "separator")]
+        public bool SeparatorBefore { get; set; }
 
         [DataMember(Name = "cssclass")]
         public string Icon { get; set; }
+
+        /// <summary>
+        /// Used in the UI to inform the user that the menu item will open a dialog/confirmation
+        /// </summary>
+        [DataMember(Name = "opensDialog")]
+        public bool OpensDialog { get; set; }
+
         #endregion
 
         #region Constants
@@ -85,7 +103,7 @@ namespace Umbraco.Web.Models.Trees
         /// </summary>
         internal const string ActionUrlKey = "actionUrl";
 
-        //TODO: some action's want to launch a new window like live editing, we support this in the menu item's metadata with
+        // TODO: some action's want to launch a new window like live editing, we support this in the menu item's metadata with
         // a key called: "actionUrlMethod" which can be set to either: Dialog, BlankWindow. Normally this is always set to Dialog
         // if a URL is specified in the "actionUrl" metadata. For now I'm not going to implement launching in a blank window,
         // though would be v-easy, just not sure we want to ever support that?
@@ -123,7 +141,7 @@ namespace Umbraco.Web.Models.Trees
         /// Adds the required meta data to the menu item so that angular knows to attempt to call the Js method.
         /// </summary>
         /// <param name="jsToExecute"></param>
-        public void ExecuteLegacyJs(string jsToExecute)
+        public void ExecuteJsMethod(string jsToExecute)
         {
             SetJsAction(jsToExecute);
         }
@@ -136,7 +154,7 @@ namespace Umbraco.Web.Models.Trees
         public void LaunchDialogView(string view, string dialogTitle)
         {
             SetDialogTitle(dialogTitle);
-            AdditionalData[ActionViewKey] = view;
+            SetActionView(view);
         }
 
         /// <summary>
@@ -166,6 +184,15 @@ namespace Umbraco.Web.Models.Trees
         }
 
         /// <summary>
+        /// Configures the menu item to launch a specific view
+        /// </summary>
+        /// <param name="view"></param>
+        private void SetActionView(string view)
+        {
+            AdditionalData[ActionViewKey] = view;
+        }
+
+        /// <summary>
         /// Configures the menu item to launch a URL with the specified action (dialog or new window)
         /// </summary>
         /// <param name="url"></param>
@@ -176,58 +203,6 @@ namespace Umbraco.Web.Models.Trees
             AdditionalData[ActionUrlMethodKey] = method;
         }
 
-        internal void ConvertLegacyMenuItem(IUmbracoEntity item, string nodeType, string currentSection)
-        {
-            // try to get a URL/title from the legacy action,
-            // in some edge cases, item can be null so we'll just convert those to "-1" and "" for id and name since these edge cases don't need that.
-            var attempt = LegacyTreeDataConverter.GetUrlAndTitleFromLegacyAction(Action,
-                item == null ? "-1" : item.Id.ToInvariantString(),
-                nodeType,
-                item == null ? "" : item.Name, currentSection);
-            if (attempt)
-            {
-                var action = attempt.Result;
-                LaunchDialogUrl(action.Url, action.DialogTitle);
-            }
-            else
-            {
-                // if that doesn't work, try to get the legacy confirm view
-                var attempt2 = LegacyTreeDataConverter.GetLegacyConfirmView(Action);
-                if (attempt2)
-                {
-                    var view = attempt2.Result;
-                    var textService = Current.Services.TextService;
-                    LaunchDialogView(view, textService.Localize("defaultdialogs/confirmdelete") + " '" + (item == null ? "" : item.Name) + "' ?");
-                }
-            }
-        }
-
-        internal void ConvertLegacyFileSystemMenuItem(string path, string nodeType, string currentSection)
-        {
-            // try to get a URL/title from the legacy action,
-            // in some edge cases, item can be null so we'll just convert those to "-1" and "" for id and name since these edge cases don't need that.
-            var attempt = LegacyTreeDataConverter.GetUrlAndTitleFromLegacyAction(Action,
-                path,
-                nodeType,
-                path, currentSection);
-            if (attempt)
-            {
-                var action = attempt.Result;
-                LaunchDialogUrl(action.Url, action.DialogTitle);
-            }
-            else
-            {
-                // if that doesn't work, try to get the legacy confirm view
-                var attempt2 = LegacyTreeDataConverter.GetLegacyConfirmView(Action);
-                if (attempt2)
-                {
-                    var view = attempt2.Result;
-                    var textService = Current.Services.TextService;
-                    LaunchDialogView(view, textService.Localize("defaultdialogs/confirmdelete") + " '" + path + "' ?");
-                }
-            }
-        }
         #endregion
-
     }
 }

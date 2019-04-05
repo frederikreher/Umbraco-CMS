@@ -88,7 +88,7 @@ namespace Umbraco.Web
         /// Use crop dimensions to have the output image sized according to the predefined crop sizes, this will override the width and height parameters.
         /// </param>
         /// <param name="cacheBuster">
-        /// Add a serialised date of the last edit of the item to ensure client cache refresh when updated
+        /// Add a serialized date of the last edit of the item to ensure client cache refresh when updated
         /// </param>
         /// <param name="furtherOptions">
         /// These are any query string parameters (formatted as query strings) that ImageProcessor supports. For example:
@@ -196,7 +196,7 @@ namespace Umbraco.Web
         /// Use crop dimensions to have the output image sized according to the predefined crop sizes, this will override the width and height parameters
         /// </param>
         /// <param name="cacheBusterValue">
-        /// Add a serialised date of the last edit of the item to ensure client cache refresh when updated
+        /// Add a serialized date of the last edit of the item to ensure client cache refresh when updated
         /// </param>
         /// <param name="furtherOptions">
         /// These are any query string parameters (formatted as query strings) that ImageProcessor supports. For example:
@@ -275,7 +275,7 @@ namespace Umbraco.Web
         /// Use crop dimensions to have the output image sized according to the predefined crop sizes, this will override the width and height parameters
         /// </param>
         /// <param name="cacheBusterValue">
-        /// Add a serialised date of the last edit of the item to ensure client cache refresh when updated
+        /// Add a serialized date of the last edit of the item to ensure client cache refresh when updated
         /// </param>
         /// <param name="furtherOptions">
         /// These are any query string parameters (formatted as query strings) that ImageProcessor supports. For example:
@@ -383,7 +383,7 @@ namespace Umbraco.Web
 
                 if (ratioMode == ImageCropRatioMode.Width && height != null)
                 {
-                    // if only height specified then assume a sqaure
+                    // if only height specified then assume a square
                     if (width == null)
                     {
                         width = height;
@@ -395,7 +395,7 @@ namespace Umbraco.Web
 
                 if (ratioMode == ImageCropRatioMode.Height && width != null)
                 {
-                    // if only width specified then assume a sqaure
+                    // if only width specified then assume a square
                     if (height == null)
                     {
                         height = width;
@@ -447,7 +447,7 @@ namespace Umbraco.Web
                 }
                 catch (Exception ex)
                 {
-                    Current.Logger.Error(typeof(ImageCropperTemplateExtensions), "Could not parse the json string: " + json, ex);
+                    Current.Logger.Error(typeof(ImageCropperTemplateExtensions), ex, "Could not parse the json string: {Json}", json);
                 }
             }
 

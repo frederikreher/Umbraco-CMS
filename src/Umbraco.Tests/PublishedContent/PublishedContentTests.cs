@@ -9,8 +9,10 @@ using Umbraco.Core.PropertyEditors;
 using Umbraco.Web;
 using Umbraco.Web.PublishedCache;
 using Umbraco.Core.Composing;
-using LightInject;
 using Moq;
+using Newtonsoft.Json;
+using Umbraco.Core.Cache;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.Services;
@@ -25,33 +27,35 @@ namespace Umbraco.Tests.PublishedContent
     /// Tests the methods on IPublishedContent using the DefaultPublishedContentStore
     /// </summary>
     [TestFixture]
-    [UmbracoTest(PluginManager = UmbracoTestOptions.PluginManager.PerFixture)]
+    [UmbracoTest(TypeLoader = UmbracoTestOptions.TypeLoader.PerFixture)]
     public class PublishedContentTests : PublishedContentTestBase
     {
         protected override void Compose()
         {
             base.Compose();
+            _publishedSnapshotAccessorMock = new Mock<IPublishedSnapshotAccessor>();
+            Composition.RegisterUnique<IPublishedSnapshotAccessor>(_publishedSnapshotAccessorMock.Object);
 
-            Container.RegisterSingleton<IPublishedModelFactory>(f => new PublishedModelFactory(f.GetInstance<TypeLoader>().GetTypes<PublishedContentModel>()));
-            Container.RegisterSingleton<IPublishedContentTypeFactory, PublishedContentTypeFactory>();
-            Container.RegisterSingleton<IPublishedValueFallback, PublishedValueFallback>();
+            Composition.RegisterUnique<IPublishedModelFactory>(f => new PublishedModelFactory(f.GetInstance<TypeLoader>().GetTypes<PublishedContentModel>()));
+            Composition.RegisterUnique<IPublishedContentTypeFactory, PublishedContentTypeFactory>();
+            Composition.RegisterUnique<IPublishedValueFallback, PublishedValueFallback>();
 
             var logger = Mock.Of<ILogger>();
             var dataTypeService = new TestObjects.TestDataTypeService(
-                new DataType(new VoidEditor(logger)) { Id = 1},
+                new DataType(new VoidEditor(logger)) { Id = 1 },
                 new DataType(new TrueFalsePropertyEditor(logger)) { Id = 1001 },
                 new DataType(new RichTextPropertyEditor(logger)) { Id = 1002 },
                 new DataType(new IntegerPropertyEditor(logger)) { Id = 1003 },
                 new DataType(new TextboxPropertyEditor(logger)) { Id = 1004 },
                 new DataType(new MediaPickerPropertyEditor(logger)) { Id = 1005 });
-            Container.RegisterSingleton<IDataTypeService>(f => dataTypeService);
+            Composition.RegisterUnique<IDataTypeService>(f => dataTypeService);
         }
 
         protected override void Initialize()
         {
             base.Initialize();
 
-            var factory = Container.GetInstance<IPublishedContentTypeFactory>() as PublishedContentTypeFactory;
+            var factory = Factory.GetInstance<IPublishedContentTypeFactory>() as PublishedContentTypeFactory;
 
             // need to specify a custom callback for unit tests
             // AutoPublishedContentTypes generates properties automatically
@@ -68,13 +72,14 @@ namespace Umbraco.Tests.PublishedContent
                 factory.CreatePropertyType("testRecursive", 1),
             };
             var compositionAliases = new[] { "MyCompositionAlias" };
-            var type = new AutoPublishedContentType(0, "anything", compositionAliases, propertyTypes);
-            ContentTypesCache.GetPublishedContentTypeByAlias = alias => type;
+            var anythingType = new AutoPublishedContentType(0, "anything", compositionAliases, propertyTypes);
+            var homeType = new AutoPublishedContentType(0, "home", compositionAliases, propertyTypes);
+            ContentTypesCache.GetPublishedContentTypeByAlias = alias => alias.InvariantEquals("home") ? homeType : anythingType;
         }
 
-        protected override TypeLoader CreatePluginManager(IServiceFactory f)
+        protected override TypeLoader CreateTypeLoader(IAppPolicyCache runtimeCache, IGlobalSettings globalSettings, IProfilingLogger logger)
         {
-            var pluginManager = base.CreatePluginManager(f);
+            var pluginManager = base.CreateTypeLoader(runtimeCache, globalSettings, logger);
 
             // this is so the model factory looks into the test assembly
             pluginManager.AssembliesToScan = pluginManager.AssembliesToScan
@@ -85,6 +90,7 @@ namespace Umbraco.Tests.PublishedContent
         }
 
         private readonly Guid _node1173Guid = Guid.NewGuid();
+        private Mock<IPublishedSnapshotAccessor> _publishedSnapshotAccessorMock;
 
         protected override string GetXmlContent(int templateId)
         {
@@ -111,9 +117,12 @@ namespace Umbraco.Tests.PublishedContent
                 <creatorName><![CDATA[Custom data with same property name as the member name]]></creatorName>
                 <testRecursive><![CDATA[]]></testRecursive>
             </Home>
-            <CustomDocument id=""1177"" parentID=""1173"" level=""3"" writerID=""0"" creatorID=""0"" nodeType=""1234"" template=""" + templateId + @""" sortOrder=""2"" createDate=""2012-07-16T15:26:59"" updateDate=""2012-07-18T14:23:35"" nodeName=""custom sub 1"" urlName=""custom-sub-1"" writerName=""admin"" creatorName=""admin"" path=""-1,1046,1173,1177"" isDoc="""" />
-            <CustomDocument id=""1178"" parentID=""1173"" level=""3"" writerID=""0"" creatorID=""0"" nodeType=""1234"" template=""" + templateId + @""" sortOrder=""3"" createDate=""2012-07-16T15:26:59"" updateDate=""2012-07-16T14:23:35"" nodeName=""custom sub 2"" urlName=""custom-sub-2"" writerName=""admin"" creatorName=""admin"" path=""-1,1046,1173,1178"" isDoc="""" />
-            <Home id=""1176"" parentID=""1173"" level=""3"" writerID=""0"" creatorID=""0"" nodeType=""1044"" template=""" + templateId + @""" sortOrder=""4"" createDate=""2012-07-20T18:08:08"" updateDate=""2012-07-20T19:10:52"" nodeName=""Sub 3"" urlName=""sub-3"" writerName=""admin"" creatorName=""admin"" path=""-1,1046,1173,1176"" isDoc="""" key=""CDB83BBC-A83B-4BA6-93B8-AADEF67D3C09"">
+			<CustomDocument id=""117"" parentID=""1173"" level=""3"" writerID=""0"" creatorID=""0"" nodeType=""1234"" template=""" + templateId + @""" sortOrder=""2"" createDate=""2018-07-18T10:06:37"" updateDate=""2018-07-18T10:06:37"" nodeName=""custom sub 1"" urlName=""custom-sub-1"" writerName=""admin"" creatorName=""admin"" path=""-1,1046,1173,117"" isDoc="""" />
+			<CustomDocument id=""1177"" parentID=""1173"" level=""3"" writerID=""0"" creatorID=""0"" nodeType=""1234"" template=""" + templateId + @""" sortOrder=""3"" createDate=""2012-07-16T15:26:59"" updateDate=""2012-07-18T14:23:35"" nodeName=""custom sub 1"" urlName=""custom-sub-1"" writerName=""admin"" creatorName=""admin"" path=""-1,1046,1173,1177"" isDoc="""" />
+			<CustomDocument id=""1178"" parentID=""1173"" level=""3"" writerID=""0"" creatorID=""0"" nodeType=""1234"" template=""" + templateId + @""" sortOrder=""4"" createDate=""2012-07-16T15:26:59"" updateDate=""2012-07-16T14:23:35"" nodeName=""custom sub 2"" urlName=""custom-sub-2"" writerName=""admin"" creatorName=""admin"" path=""-1,1046,1173,1178"" isDoc="""">
+				<CustomDocument id=""1179"" parentID=""1178"" level=""4"" writerID=""0"" creatorID=""0"" nodeType=""1234"" template=""" + templateId + @""" sortOrder=""1"" createDate=""2012-07-16T15:26:59"" updateDate=""2012-07-18T14:23:35"" nodeName=""custom sub sub 1"" urlName=""custom-sub-sub-1"" writerName=""admin"" creatorName=""admin"" path=""-1,1046,1173,1178,1179"" isDoc="""" />
+			</CustomDocument>
+			<Home id=""1176"" parentID=""1173"" level=""3"" writerID=""0"" creatorID=""0"" nodeType=""1044"" template=""" + templateId + @""" sortOrder=""5"" createDate=""2012-07-20T18:08:08"" updateDate=""2012-07-20T19:10:52"" nodeName=""Sub 3"" urlName=""sub-3"" writerName=""admin"" creatorName=""admin"" path=""-1,1046,1173,1176"" isDoc="""" key=""CDB83BBC-A83B-4BA6-93B8-AADEF67D3C09"">
                 <content><![CDATA[]]></content>
                 <umbracoNaviHide>1</umbracoNaviHide>
             </Home>
@@ -183,7 +192,7 @@ namespace Umbraco.Tests.PublishedContent
                 .Where(x => x.IsVisible())
                 .ToIndexedArray();
 
-            Assert.AreEqual(3, items.Length);
+            Assert.AreEqual(4, items.Length);
 
             foreach (var d in items)
             {
@@ -191,6 +200,10 @@ namespace Umbraco.Tests.PublishedContent
                 {
                     case 1174:
                         Assert.IsTrue(d.IsFirst());
+                        Assert.IsFalse(d.IsLast());
+                        break;
+                    case 117:
+                        Assert.IsFalse(d.IsFirst());
                         Assert.IsFalse(d.IsLast());
                         break;
                     case 1177:
@@ -216,11 +229,19 @@ namespace Umbraco.Tests.PublishedContent
             {}
         }
 
+        [PublishedModel("anything")]
+        internal class Anything : PublishedContentModel
+        {
+            public Anything(IPublishedContent content)
+                : base(content)
+            { }
+        }
+
         [Test]
-        [Ignore("Fails as long as PublishedContentModel is internal.")] // fixme
         public void Is_Last_From_Where_Filter2()
         {
             var doc = GetNode(1173);
+            var ct = doc.ContentType;
 
             var items = doc.Children
                 .Select(x => x.CreateModel()) // linq, returns IEnumerable<IPublishedContent>
@@ -254,7 +275,7 @@ namespace Umbraco.Tests.PublishedContent
         {
             var doc = GetNode(1173);
 
-            var items = doc.Children.Take(3).ToIndexedArray();
+            var items = doc.Children.Take(4).ToIndexedArray();
 
             foreach (var item in items)
             {
@@ -314,7 +335,7 @@ namespace Umbraco.Tests.PublishedContent
         {
             var doc = GetNode(1046);
 
-            var expected = new[] {1046, 1173, 1174, 1177, 1178, 1176, 1175, 4444, 1172};
+            var expected = new[] { 1046, 1173, 1174, 117, 1177, 1178, 1179, 1176, 1175, 4444, 1172 };
             var exindex = 0;
 
             // must respect the XPath descendants-or-self axis!
@@ -323,11 +344,11 @@ namespace Umbraco.Tests.PublishedContent
         }
 
         [Test]
-        public void GetPropertyValueRecursiveTest()
+        public void Get_Property_Value_Recursive()
         {
             var doc = GetNode(1174);
-            var rVal = doc.Value("testRecursive", recurse: true);
-            var nullVal = doc.Value("DoNotFindThis", recurse: true);
+            var rVal = doc.Value("testRecursive", fallback: Fallback.ToAncestors);
+            var nullVal = doc.Value("DoNotFindThis", fallback: Fallback.ToAncestors);
             Assert.AreEqual("This is the recursive val", rVal);
             Assert.AreEqual(null, nullVal);
         }
@@ -435,6 +456,23 @@ namespace Umbraco.Tests.PublishedContent
         }
 
         [Test]
+        public void FirstChildAsT()
+        {
+            var doc = GetNode(1046); // has child nodes
+
+            var model = doc.FirstChild<Home>(x => true); // predicate
+
+            Assert.IsNotNull(model);
+            Assert.IsTrue(model.Id == 1173);
+            Assert.IsInstanceOf<Home>(model);
+            Assert.IsInstanceOf<IPublishedContent>(model);
+
+            doc = GetNode(1175); // does not have child nodes
+            Assert.IsNull(doc.FirstChild<Anything>());
+            Assert.IsNull(doc.FirstChild<Anything>(x => true));
+        }
+
+        [Test]
         public void IsComposedOf()
         {
             var doc = GetNode(1173);
@@ -535,6 +573,106 @@ namespace Umbraco.Tests.PublishedContent
         }
 
         [Test]
+        public void IsAncestor()
+        {
+            // Structure:
+            // - Root : 1046 (no parent)
+            // -- Home: 1173 (parent 1046)
+            // -- Custom Doc: 1178 (parent 1173)
+            // --- Custom Doc2: 1179 (parent: 1178)
+            // -- Custom Doc4: 117 (parent 1173)
+            // - Custom Doc3: 1172 (no parent)
+
+            var home = GetNode(1173);
+            var root = GetNode(1046);
+            var customDoc = GetNode(1178);
+            var customDoc2 = GetNode(1179);
+            var customDoc3 = GetNode(1172);
+            var customDoc4 = GetNode(117);
+
+            Assert.IsTrue(root.IsAncestor(customDoc4));
+            Assert.IsFalse(root.IsAncestor(customDoc3));
+            Assert.IsTrue(root.IsAncestor(customDoc2));
+            Assert.IsTrue(root.IsAncestor(customDoc));
+            Assert.IsTrue(root.IsAncestor(home));
+            Assert.IsFalse(root.IsAncestor(root));
+
+            Assert.IsTrue(home.IsAncestor(customDoc4));
+            Assert.IsFalse(home.IsAncestor(customDoc3));
+            Assert.IsTrue(home.IsAncestor(customDoc2));
+            Assert.IsTrue(home.IsAncestor(customDoc));
+            Assert.IsFalse(home.IsAncestor(home));
+            Assert.IsFalse(home.IsAncestor(root));
+
+            Assert.IsFalse(customDoc.IsAncestor(customDoc4));
+            Assert.IsFalse(customDoc.IsAncestor(customDoc3));
+            Assert.IsTrue(customDoc.IsAncestor(customDoc2));
+            Assert.IsFalse(customDoc.IsAncestor(customDoc));
+            Assert.IsFalse(customDoc.IsAncestor(home));
+            Assert.IsFalse(customDoc.IsAncestor(root));
+
+            Assert.IsFalse(customDoc2.IsAncestor(customDoc4));
+            Assert.IsFalse(customDoc2.IsAncestor(customDoc3));
+            Assert.IsFalse(customDoc2.IsAncestor(customDoc2));
+            Assert.IsFalse(customDoc2.IsAncestor(customDoc));
+            Assert.IsFalse(customDoc2.IsAncestor(home));
+            Assert.IsFalse(customDoc2.IsAncestor(root));
+
+            Assert.IsFalse(customDoc3.IsAncestor(customDoc3));
+        }
+
+        [Test]
+        public void IsAncestorOrSelf()
+        {
+            // Structure:
+            // - Root : 1046 (no parent)
+            // -- Home: 1173 (parent 1046)
+            // -- Custom Doc: 1178 (parent 1173)
+            // --- Custom Doc2: 1179 (parent: 1178)
+            // -- Custom Doc4: 117 (parent 1173)
+            // - Custom Doc3: 1172 (no parent)
+
+            var home = GetNode(1173);
+            var root = GetNode(1046);
+            var customDoc = GetNode(1178);
+            var customDoc2 = GetNode(1179);
+            var customDoc3 = GetNode(1172);
+            var customDoc4 = GetNode(117);
+
+            Assert.IsTrue(root.IsAncestorOrSelf(customDoc4));
+            Assert.IsFalse(root.IsAncestorOrSelf(customDoc3));
+            Assert.IsTrue(root.IsAncestorOrSelf(customDoc2));
+            Assert.IsTrue(root.IsAncestorOrSelf(customDoc));
+            Assert.IsTrue(root.IsAncestorOrSelf(home));
+            Assert.IsTrue(root.IsAncestorOrSelf(root));
+
+            Assert.IsTrue(home.IsAncestorOrSelf(customDoc4));
+            Assert.IsFalse(home.IsAncestorOrSelf(customDoc3));
+            Assert.IsTrue(home.IsAncestorOrSelf(customDoc2));
+            Assert.IsTrue(home.IsAncestorOrSelf(customDoc));
+            Assert.IsTrue(home.IsAncestorOrSelf(home));
+            Assert.IsFalse(home.IsAncestorOrSelf(root));
+
+            Assert.IsFalse(customDoc.IsAncestorOrSelf(customDoc4));
+            Assert.IsFalse(customDoc.IsAncestorOrSelf(customDoc3));
+            Assert.IsTrue(customDoc.IsAncestorOrSelf(customDoc2));
+            Assert.IsTrue(customDoc.IsAncestorOrSelf(customDoc));
+            Assert.IsFalse(customDoc.IsAncestorOrSelf(home));
+            Assert.IsFalse(customDoc.IsAncestorOrSelf(root));
+
+            Assert.IsFalse(customDoc2.IsAncestorOrSelf(customDoc4));
+            Assert.IsFalse(customDoc2.IsAncestorOrSelf(customDoc3));
+            Assert.IsTrue(customDoc2.IsAncestorOrSelf(customDoc2));
+            Assert.IsFalse(customDoc2.IsAncestorOrSelf(customDoc));
+            Assert.IsFalse(customDoc2.IsAncestorOrSelf(home));
+            Assert.IsFalse(customDoc2.IsAncestorOrSelf(root));
+
+            Assert.IsTrue(customDoc4.IsAncestorOrSelf(customDoc4));
+            Assert.IsTrue(customDoc3.IsAncestorOrSelf(customDoc3));
+        }
+
+
+        [Test]
         public void Descendants_Or_Self()
         {
             var doc = GetNode(1046);
@@ -543,7 +681,7 @@ namespace Umbraco.Tests.PublishedContent
 
             Assert.IsNotNull(result);
 
-            Assert.AreEqual(8, result.Length);
+            Assert.AreEqual(10, result.Count());
             Assert.IsTrue(result.Select(x => ((dynamic)x).Id).ContainsAll(new dynamic[] { 1046, 1173, 1174, 1176, 1175 }));
         }
 
@@ -556,38 +694,198 @@ namespace Umbraco.Tests.PublishedContent
 
             Assert.IsNotNull(result);
 
-            Assert.AreEqual(7, result.Length);
+            Assert.AreEqual(9, result.Count());
             Assert.IsTrue(result.Select(x => ((dynamic)x).Id).ContainsAll(new dynamic[] { 1173, 1174, 1176, 1175, 4444 }));
         }
 
         [Test]
-        public void Up()
+        public void IsDescendant()
         {
-            var doc = GetNode(1173);
+            // Structure:
+            // - Root : 1046 (no parent)
+            // -- Home: 1173 (parent 1046)
+            // -- Custom Doc: 1178 (parent 1173)
+            // --- Custom Doc2: 1179 (parent: 1178)
+            // -- Custom Doc4: 117 (parent 1173)
+            // - Custom Doc3: 1172 (no parent)
 
-            var result = doc.Up();
+            var home = GetNode(1173);
+            var root = GetNode(1046);
+            var customDoc = GetNode(1178);
+            var customDoc2 = GetNode(1179);
+            var customDoc3 = GetNode(1172);
+            var customDoc4 = GetNode(117);
 
-            Assert.IsNotNull(result);
+            Assert.IsFalse(root.IsDescendant(root));
+            Assert.IsFalse(root.IsDescendant(home));
+            Assert.IsFalse(root.IsDescendant(customDoc));
+            Assert.IsFalse(root.IsDescendant(customDoc2));
+            Assert.IsFalse(root.IsDescendant(customDoc3));
+            Assert.IsFalse(root.IsDescendant(customDoc4));
 
-            Assert.AreEqual(1046, result.Id);
+            Assert.IsTrue(home.IsDescendant(root));
+            Assert.IsFalse(home.IsDescendant(home));
+            Assert.IsFalse(home.IsDescendant(customDoc));
+            Assert.IsFalse(home.IsDescendant(customDoc2));
+            Assert.IsFalse(home.IsDescendant(customDoc3));
+            Assert.IsFalse(home.IsDescendant(customDoc4));
+
+            Assert.IsTrue(customDoc.IsDescendant(root));
+            Assert.IsTrue(customDoc.IsDescendant(home));
+            Assert.IsFalse(customDoc.IsDescendant(customDoc));
+            Assert.IsFalse(customDoc.IsDescendant(customDoc2));
+            Assert.IsFalse(customDoc.IsDescendant(customDoc3));
+            Assert.IsFalse(customDoc.IsDescendant(customDoc4));
+
+            Assert.IsTrue(customDoc2.IsDescendant(root));
+            Assert.IsTrue(customDoc2.IsDescendant(home));
+            Assert.IsTrue(customDoc2.IsDescendant(customDoc));
+            Assert.IsFalse(customDoc2.IsDescendant(customDoc2));
+            Assert.IsFalse(customDoc2.IsDescendant(customDoc3));
+            Assert.IsFalse(customDoc2.IsDescendant(customDoc4));
+
+            Assert.IsFalse(customDoc3.IsDescendant(customDoc3));
         }
 
         [Test]
-        public void Down()
+        public void IsDescendantOrSelf()
         {
-            var doc = GetNode(1173);
+            // Structure:
+            // - Root : 1046 (no parent)
+            // -- Home: 1173 (parent 1046)
+            // -- Custom Doc: 1178 (parent 1173)
+            // --- Custom Doc2: 1179 (parent: 1178)
+            // -- Custom Doc4: 117 (parent 1173)
+            // - Custom Doc3: 1172 (no parent)
 
-            var result = doc.Down();
+            var home = GetNode(1173);
+            var root = GetNode(1046);
+            var customDoc = GetNode(1178);
+            var customDoc2 = GetNode(1179);
+            var customDoc3 = GetNode(1172);
+            var customDoc4 = GetNode(117);
 
-            Assert.IsNotNull(result);
+            Assert.IsTrue(root.IsDescendantOrSelf(root));
+            Assert.IsFalse(root.IsDescendantOrSelf(home));
+            Assert.IsFalse(root.IsDescendantOrSelf(customDoc));
+            Assert.IsFalse(root.IsDescendantOrSelf(customDoc2));
+            Assert.IsFalse(root.IsDescendantOrSelf(customDoc3));
+            Assert.IsFalse(root.IsDescendantOrSelf(customDoc4));
 
-            Assert.AreEqual(1174, result.Id);
+            Assert.IsTrue(home.IsDescendantOrSelf(root));
+            Assert.IsTrue(home.IsDescendantOrSelf(home));
+            Assert.IsFalse(home.IsDescendantOrSelf(customDoc));
+            Assert.IsFalse(home.IsDescendantOrSelf(customDoc2));
+            Assert.IsFalse(home.IsDescendantOrSelf(customDoc3));
+            Assert.IsFalse(home.IsDescendantOrSelf(customDoc4));
+
+            Assert.IsTrue(customDoc.IsDescendantOrSelf(root));
+            Assert.IsTrue(customDoc.IsDescendantOrSelf(home));
+            Assert.IsTrue(customDoc.IsDescendantOrSelf(customDoc));
+            Assert.IsFalse(customDoc.IsDescendantOrSelf(customDoc2));
+            Assert.IsFalse(customDoc.IsDescendantOrSelf(customDoc3));
+            Assert.IsFalse(customDoc.IsDescendantOrSelf(customDoc4));
+
+            Assert.IsTrue(customDoc2.IsDescendantOrSelf(root));
+            Assert.IsTrue(customDoc2.IsDescendantOrSelf(home));
+            Assert.IsTrue(customDoc2.IsDescendantOrSelf(customDoc));
+            Assert.IsTrue(customDoc2.IsDescendantOrSelf(customDoc2));
+            Assert.IsFalse(customDoc2.IsDescendantOrSelf(customDoc3));
+            Assert.IsFalse(customDoc2.IsDescendantOrSelf(customDoc4));
+
+            Assert.IsTrue(customDoc3.IsDescendantOrSelf(customDoc3));
+        }
+
+        [Test]
+        public void SiblingsAndSelf()
+        {
+            // Structure:
+            // - Root : 1046 (no parent)
+            // -- Level1.1: 1173 (parent 1046)
+            // --- Level1.1.1: 1174 (parent 1173)
+            // --- Level1.1.2: 117 (parent 1173)
+            // --- Level1.1.3: 1177 (parent 1173)
+            // --- Level1.1.4: 1178 (parent 1173)
+            // --- Level1.1.5: 1176 (parent 1173)
+            // -- Level1.2: 1175 (parent 1046)
+            // -- Level1.3: 4444 (parent 1046)
+            var root = GetNode(1046);
+            var level1_1 = GetNode(1173);
+            var level1_1_1 = GetNode(1174);
+            var level1_1_2 = GetNode(117);
+            var level1_1_3 = GetNode(1177);
+            var level1_1_4 = GetNode(1178);
+            var level1_1_5 = GetNode(1176);
+            var level1_2 = GetNode(1175);
+            var level1_3 = GetNode(4444);
+
+            _publishedSnapshotAccessorMock.Setup(x => x.PublishedSnapshot.Content.GetAtRoot()).Returns(new []{root});
+
+            CollectionAssertAreEqual(new []{root}, root.SiblingsAndSelf());
+
+            CollectionAssertAreEqual( new []{level1_1, level1_2, level1_3}, level1_1.SiblingsAndSelf());
+            CollectionAssertAreEqual( new []{level1_1, level1_2, level1_3}, level1_2.SiblingsAndSelf());
+            CollectionAssertAreEqual( new []{level1_1, level1_2, level1_3}, level1_3.SiblingsAndSelf());
+
+            CollectionAssertAreEqual( new []{level1_1_1, level1_1_2, level1_1_3, level1_1_4, level1_1_5}, level1_1_1.SiblingsAndSelf());
+            CollectionAssertAreEqual( new []{level1_1_1, level1_1_2, level1_1_3, level1_1_4, level1_1_5}, level1_1_2.SiblingsAndSelf());
+            CollectionAssertAreEqual( new []{level1_1_1, level1_1_2, level1_1_3, level1_1_4, level1_1_5}, level1_1_3.SiblingsAndSelf());
+            CollectionAssertAreEqual( new []{level1_1_1, level1_1_2, level1_1_3, level1_1_4, level1_1_5}, level1_1_4.SiblingsAndSelf());
+            CollectionAssertAreEqual( new []{level1_1_1, level1_1_2, level1_1_3, level1_1_4, level1_1_5}, level1_1_5.SiblingsAndSelf());
+
+        }
+
+         [Test]
+        public void Siblings()
+        {
+            // Structure:
+            // - Root : 1046 (no parent)
+            // -- Level1.1: 1173 (parent 1046)
+            // --- Level1.1.1: 1174 (parent 1173)
+            // --- Level1.1.2: 117 (parent 1173)
+            // --- Level1.1.3: 1177 (parent 1173)
+            // --- Level1.1.4: 1178 (parent 1173)
+            // --- Level1.1.5: 1176 (parent 1173)
+            // -- Level1.2: 1175 (parent 1046)
+            // -- Level1.3: 4444 (parent 1046)
+            var root = GetNode(1046);
+            var level1_1 = GetNode(1173);
+            var level1_1_1 = GetNode(1174);
+            var level1_1_2 = GetNode(117);
+            var level1_1_3 = GetNode(1177);
+            var level1_1_4 = GetNode(1178);
+            var level1_1_5 = GetNode(1176);
+            var level1_2 = GetNode(1175);
+            var level1_3 = GetNode(4444);
+
+            _publishedSnapshotAccessorMock.Setup(x => x.PublishedSnapshot.Content.GetAtRoot()).Returns(new []{root});
+
+            CollectionAssertAreEqual(new IPublishedContent[0], root.Siblings());
+
+            CollectionAssertAreEqual( new []{level1_2, level1_3}, level1_1.Siblings());
+            CollectionAssertAreEqual( new []{level1_1,  level1_3}, level1_2.Siblings());
+            CollectionAssertAreEqual( new []{level1_1, level1_2}, level1_3.Siblings());
+
+            CollectionAssertAreEqual( new []{ level1_1_2, level1_1_3, level1_1_4, level1_1_5}, level1_1_1.Siblings());
+            CollectionAssertAreEqual( new []{level1_1_1,  level1_1_3, level1_1_4, level1_1_5}, level1_1_2.Siblings());
+            CollectionAssertAreEqual( new []{level1_1_1, level1_1_2,  level1_1_4, level1_1_5}, level1_1_3.Siblings());
+            CollectionAssertAreEqual( new []{level1_1_1, level1_1_2, level1_1_3,  level1_1_5}, level1_1_4.Siblings());
+            CollectionAssertAreEqual( new []{level1_1_1, level1_1_2, level1_1_3, level1_1_4}, level1_1_5.Siblings());
+
+        }
+
+        private void CollectionAssertAreEqual<T>(IEnumerable<T> expected, IEnumerable<T> actual)
+        where T: IPublishedContent
+        {
+            var e = expected.Select(x => x.Id);
+            var a = actual.Select(x => x.Id);
+            CollectionAssert.AreEquivalent(e, a, $"\nExpected:\n{string.Join(", ", e)}\n\nActual:\n{string.Join(", ", a)}");
         }
 
         [Test]
         public void FragmentProperty()
         {
-            var factory = Container.GetInstance<IPublishedContentTypeFactory>() as PublishedContentTypeFactory;
+            var factory = Factory.GetInstance<IPublishedContentTypeFactory>() as PublishedContentTypeFactory;
 
             var pt = factory.CreatePropertyType("detached", 1003);
             var ct = factory.CreateContentType(0, "alias", new[] { pt });
@@ -606,7 +904,7 @@ namespace Umbraco.Tests.PublishedContent
         [Test]
         public void Fragment2()
         {
-            var factory = Container.GetInstance<IPublishedContentTypeFactory>() as PublishedContentTypeFactory;
+            var factory = Factory.GetInstance<IPublishedContentTypeFactory>() as PublishedContentTypeFactory;
 
             var pt1 = factory.CreatePropertyType("legend", 1004);
             var pt2 = factory.CreatePropertyType("image", 1005);

@@ -12,10 +12,10 @@ namespace Umbraco.Core.Services
     /// </summary>
     public static class LocalizedTextServiceExtensions
     {
-        public static string Localize(this ILocalizedTextService manager, params string[] keyParts)
+        public static string Localize(this ILocalizedTextService manager, string area, string key)
         {
-            var key = string.Join("/", keyParts);
-            return manager.Localize(key, Thread.CurrentThread.CurrentUICulture);
+            var fullKey = string.Join("/", area, key);
+            return manager.Localize(fullKey, Thread.CurrentThread.CurrentUICulture);
         }
 
         /// <summary>
@@ -56,7 +56,7 @@ namespace Umbraco.Core.Services
         }
 
         /// <summary>
-        /// Convert an array of strings to a dictionary of indicies -> values
+        /// Convert an array of strings to a dictionary of indices -> values
         /// </summary>
         /// <param name="variables"></param>
         /// <returns></returns>

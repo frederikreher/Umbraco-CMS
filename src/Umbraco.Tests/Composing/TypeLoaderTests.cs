@@ -5,10 +5,10 @@ using System.Linq;
 using System.Reflection;
 using Moq;
 using NUnit.Framework;
-using umbraco;
 using Umbraco.Core;
 using Umbraco.Core.Cache;
 using Umbraco.Core.Composing;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.IO;
 using Umbraco.Core.Logging;
 using Umbraco.Core.PropertyEditors;
@@ -22,13 +22,14 @@ namespace Umbraco.Tests.Composing
     public class TypeLoaderTests
     {
         private TypeLoader _typeLoader;
+
         [SetUp]
         public void Initialize()
         {
             // this ensures it's reset
-            _typeLoader = new TypeLoader(NullCacheProvider.Instance, SettingsForTests.GenerateMockGlobalSettings(), new ProfilingLogger(Mock.Of<ILogger>(), Mock.Of<IProfiler>()));
+            _typeLoader = new TypeLoader(NoAppCache.Instance, IOHelper.MapPath("~/App_Data/TEMP"), new ProfilingLogger(Mock.Of<ILogger>(), Mock.Of<IProfiler>()));
 
-            foreach (var file in Directory.GetFiles(IOHelper.MapPath("~/App_Data/TEMP/TypesCache")))
+            foreach (var file in Directory.GetFiles(IOHelper.MapPath(SystemDirectories.TempData.EnsureEndsWith('/') + "TypesCache")))
                 File.Delete(file);
 
             // for testing, we'll specify which assemblies are scanned for the PluginTypeResolver
@@ -53,16 +54,21 @@ namespace Umbraco.Tests.Composing
         public void TearDown()
         {
             _typeLoader = null;
+
+
+            // cleanup
+            var assDir = new FileInfo(Assembly.GetExecutingAssembly().Location).Directory;
+            var tlDir = Path.Combine(assDir.FullName, "TypeLoader");
+            if (!Directory.Exists(tlDir))
+                return;
+            Directory.Delete(tlDir, true);
         }
 
         private DirectoryInfo PrepareFolder()
         {
             var assDir = new FileInfo(Assembly.GetExecutingAssembly().Location).Directory;
-            var dir = Directory.CreateDirectory(Path.Combine(assDir.FullName, "TypeLoader", Guid.NewGuid().ToString("N")));
-            foreach (var f in dir.GetFiles())
-            {
-                f.Delete();
-            }
+            var tlDir = Path.Combine(assDir.FullName, "TypeLoader");
+            var dir = Directory.CreateDirectory(Path.Combine(tlDir, Guid.NewGuid().ToString("N")));
             return dir;
         }
 
@@ -255,13 +261,6 @@ AnotherContentFinder
         }
 
         [Test]
-        public void Resolves_Assigned_Mappers()
-        {
-            var foundTypes1 = _typeLoader.GetAssignedMapperTypes();
-            Assert.AreEqual(30, foundTypes1.Count());
-        }
-
-        [Test]
         public void Resolves_Types()
         {
             var foundTypes1 = _typeLoader.ResolveFindMeTypes();
@@ -269,26 +268,12 @@ AnotherContentFinder
         }
 
         [Test]
-        public void Resolves_Actions()
-        {
-            var actions = _typeLoader.GetActions();
-            Assert.AreEqual(35, actions.Count());
-        }
-
-        [Test]
-        public void Resolves_Trees()
-        {
-            var trees = _typeLoader.GetTrees();
-            Assert.AreEqual(4, trees.Count());
-        }
-
-        [Test]
         public void GetDataEditors()
         {
             var types = _typeLoader.GetDataEditors();
-            Assert.AreEqual(43, types.Count());
+            Assert.AreEqual(38, types.Count());
         }
-        
+
         /// <summary>
         /// This demonstrates this issue: http://issues.umbraco.org/issue/U4-3505 - the TypeList was returning a list of assignable types
         /// not explicit types which is sort of ideal but is confusing so we'll do it the less confusing way.

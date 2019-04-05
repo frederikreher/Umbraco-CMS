@@ -1,11 +1,7 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using System.Text;
-using Umbraco.Core.Logging;
+using Umbraco.Core.Persistence.DatabaseModelDefinitions;
 
 namespace Umbraco.Core
 {
@@ -14,6 +10,18 @@ namespace Umbraco.Core
     ///</summary>
     public static class EnumerableExtensions
     {
+        /// <summary>
+        /// Wraps this object instance into an IEnumerable{T} consisting of a single item.
+        /// </summary>
+        /// <typeparam name="T"> Type of the object. </typeparam>
+        /// <param name="item"> The instance that will be wrapped. </param>
+        /// <returns> An IEnumerable{T} consisting of a single item. </returns>
+        public static IEnumerable<T> Yield<T>(this T item)
+        {
+            // see EnumeratorBenchmarks - this is faster, and allocates less, than returning an array
+            yield return item;
+        }
+
         public static IEnumerable<IEnumerable<T>> InGroupsOf<T>(this IEnumerable<T> source, int groupSize)
         {
             if (source == null)
@@ -92,18 +100,7 @@ namespace Umbraco.Core
             }
         }
 
-        /// <summary>The flatten list.</summary>
-        /// <param name="e">The items.</param>
-        /// <param name="f">The select child.</param>
-        /// <typeparam name="T">Item type</typeparam>
-        /// <returns>list of TItem</returns>
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        [Obsolete("Do not use, use SelectRecursive instead which has far less potential of re-iterating an iterator which may cause significantly more SQL queries")]
-        public static IEnumerable<T> FlattenList<T>(this IEnumerable<T> e, Func<T, IEnumerable<T>> f)
-        {
-            return e.SelectMany(c => f(c).FlattenList(f)).Concat(e);
-        }
-
+        
         /// <summary>
         /// Returns true if all items in the other collection exist in this collection
         /// </summary>
@@ -268,7 +265,7 @@ namespace Umbraco.Core
             return -1;
         }
 
-        ///<summary>Finds the index of the first occurence of an item in an enumerable.</summary>
+        ///<summary>Finds the index of the first occurrence of an item in an enumerable.</summary>
         ///<param name="items">The enumerable to search.</param>
         ///<param name="item">The item to find.</param>
         ///<returns>The index of the first matching item, or -1 if the item was not found.</returns>
@@ -340,6 +337,11 @@ namespace Umbraco.Core
                 for (var value = e.Current; e.MoveNext(); value = e.Current)
                     yield return value;
             }
+        }
+
+        public static IOrderedEnumerable<TSource> OrderBy<TSource, TKey>(this IEnumerable<TSource> source, Func<TSource, TKey> keySelector, Direction sortOrder)
+        {
+            return sortOrder == Direction.Ascending ? source.OrderBy(keySelector) : source.OrderByDescending(keySelector);
         }
     }
 }

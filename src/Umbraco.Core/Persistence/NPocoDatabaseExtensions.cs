@@ -32,31 +32,7 @@ namespace Umbraco.Core.Persistence
         //
         // works in READ COMMITED, TSQL & SQLCE lock the constraint even if it does not exist, so INSERT is OK
         //
-        // proper way to do it with MySQL
-        //   IF EXISTS (SELECT ... FROM table WHERE ... FOR UPDATE)
-        //   BEGIN
-        //     UPDATE table SET ... WHERE ...
-        //   END
-        //   ELSE
-        //   BEGIN
-        //     INSERT INTO table (...) VALUES (...)
-        //   END
-        //
-        // MySQL locks the constraint ONLY if it exists, so INSERT may fail...
-        //   in theory, happens in READ COMMITTED but not REPEATABLE READ
-        //   http://www.percona.com/blog/2012/08/28/differences-between-read-committed-and-repeatable-read-transaction-isolation-levels/
-        //   but according to
-        //   http://dev.mysql.com/doc/refman/5.0/en/set-transaction.html
-        //   it won't work for exact index value (only ranges) so really...
-        //
-        // MySQL should do
-        //   INSERT INTO table (...) VALUES (...) ON DUPLICATE KEY UPDATE ...
-        //
-        // also the lock is released when the transaction is committed
-        // not sure if that can have unexpected consequences on our code?
-        //
-        // so... for the time being, let's do with that somewhat crazy solution below...
-        // todo: use the proper database syntax, not this kludge
+        // TODO: use the proper database syntax, not this kludge
 
         /// <summary>
         /// Safely inserts a record, or updates if it exists, based on a unique constraint.
@@ -66,7 +42,7 @@ namespace Umbraco.Core.Persistence
         /// <returns>The action that executed, either an insert or an update. If an insert occurred and a PK value got generated, the poco object
         /// passed in will contain the updated value.</returns>
         /// <remarks>
-        /// <para>We cannot rely on database-specific options such as MySql ON DUPLICATE KEY UPDATE or MSSQL MERGE WHEN MATCHED because SQLCE
+        /// <para>We cannot rely on database-specific options because SQLCE
         /// does not support any of them. Ideally this should be achieved with proper transaction isolation levels but that would mean revisiting
         /// isolation levels globally. We want to keep it simple for the time being and manage it manually.</para>
         /// <para>We handle it by trying to update, then insert, etc. until something works, or we get bored.</para>
@@ -89,7 +65,7 @@ namespace Umbraco.Core.Persistence
         /// <returns>The action that executed, either an insert or an update. If an insert occurred and a PK value got generated, the poco object
         /// passed in will contain the updated value.</returns>
         /// <remarks>
-        /// <para>We cannot rely on database-specific options such as MySql ON DUPLICATE KEY UPDATE or MSSQL MERGE WHEN MATCHED because SQLCE
+        /// <para>We cannot rely on database-specific options because SQLCE
         /// does not support any of them. Ideally this should be achieved with proper transaction isolation levels but that would mean revisiting
         /// isolation levels globally. We want to keep it simple for the time being and manage it manually.</para>
         /// <para>We handle it by trying to update, then insert, etc. until something works, or we get bored.</para>
@@ -105,7 +81,7 @@ namespace Umbraco.Core.Persistence
             if (poco == null)
                 throw new ArgumentNullException(nameof(poco));
 
-            // fixme - NPoco has a Save method that works with the primary key
+            // TODO: NPoco has a Save method that works with the primary key
             //  in any case, no point trying to update if there's no primary key!
 
             // try to update
@@ -171,8 +147,23 @@ namespace Umbraco.Core.Persistence
         private static TConnection GetTypedConnection<TConnection>(IDbConnection connection)
             where TConnection : class, IDbConnection
         {
-            var profiled = connection as ProfiledDbConnection;
-            return profiled == null ? connection as TConnection : profiled.InnerConnection as TConnection;
+            var c = connection;
+            for (;;)
+            {
+                switch (c)
+                {
+                    case TConnection ofType:
+                        return ofType;
+                    case RetryDbConnection retry:
+                        c = retry.Inner;
+                        break;
+                    case ProfiledDbConnection profiled:
+                        c = profiled.WrappedConnection;
+                        break;
+                    default:
+                        throw new NotSupportedException(connection.GetType().FullName);
+                }
+            }
         }
 
         /// <summary>
@@ -184,8 +175,20 @@ namespace Umbraco.Core.Persistence
         private static TTransaction GetTypedTransaction<TTransaction>(IDbTransaction transaction)
             where TTransaction : class, IDbTransaction
         {
-            var profiled = transaction as ProfiledDbTransaction;
-            return profiled == null ? transaction as TTransaction : profiled.WrappedTransaction as TTransaction;
+            var t = transaction;
+            for (;;)
+            {
+                switch (t)
+                {
+                    case TTransaction ofType:
+                        return ofType;
+                    case ProfiledDbTransaction profiled:
+                        t = profiled.WrappedTransaction;
+                        break;
+                    default:
+                        throw new NotSupportedException(transaction.GetType().FullName);
+                }
+            }
         }
 
         /// <summary>
@@ -197,11 +200,23 @@ namespace Umbraco.Core.Persistence
         private static TCommand GetTypedCommand<TCommand>(IDbCommand command)
             where TCommand : class, IDbCommand
         {
-            var faultHandling = command as FaultHandlingDbCommand;
-            if (faultHandling != null) command = faultHandling.Inner;
-            var profiled = command as ProfiledDbCommand;
-            if (profiled != null) command = profiled.InternalCommand;
-            return command as TCommand;
+            var c = command;
+            for (;;)
+            {
+                switch (c)
+                {
+                    case TCommand ofType:
+                        return ofType;
+                    case FaultHandlingDbCommand faultHandling:
+                        c = faultHandling.Inner;
+                        break;
+                    case ProfiledDbCommand profiled:
+                        c = profiled.InternalCommand;
+                        break;
+                    default:
+                        throw new NotSupportedException(command.GetType().FullName);
+                }
+            }
         }
 
         public static void TruncateTable(this IDatabase db, ISqlSyntaxProvider sqlSyntax, string tableName)

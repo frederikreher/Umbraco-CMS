@@ -5,7 +5,7 @@ using System.IO;
 namespace Umbraco.Core.IO
 {
     /// <summary>
-    /// Provides methods allowing the manipulation of files within an Umbraco application.
+    /// Provides methods allowing the manipulation of files.
     /// </summary>
     public interface IFileSystem
     {
@@ -76,7 +76,7 @@ namespace Umbraco.Core.IO
         IEnumerable<string> GetFiles(string path, string filter);
 
         /// <summary>
-        /// Gets a <see cref="Stream"/> representing the file at the gieven path.
+        /// Gets a <see cref="Stream"/> representing the file at the given path.
         /// </summary>
         /// <param name="path">The path to the file.</param>
         /// <returns>

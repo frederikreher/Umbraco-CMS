@@ -17,9 +17,25 @@ namespace Umbraco.Web.PublishedCache.NuCache
 
         public static ContentNodeKit Null { get; } = new ContentNodeKit { ContentTypeId = -1 };
 
-        public void Build(PublishedContentType contentType, IPublishedSnapshotAccessor publishedSnapshotAccessor, IVariationContextAccessor variationContextAccessor)
+        public void Build(
+            PublishedContentType contentType,
+            IPublishedSnapshotAccessor publishedSnapshotAccessor,
+            IVariationContextAccessor variationContextAccessor,
+            bool canBePublished,
+            IUmbracoContextAccessor umbracoContextAccessor)
         {
-            Node.SetContentTypeAndData(contentType, DraftData, PublishedData, publishedSnapshotAccessor, variationContextAccessor);
+            var draftData = DraftData;
+
+            // no published data if it cannot be published (eg is masked)
+            var publishedData = canBePublished ? PublishedData : null;
+
+            // we *must* have either published or draft data
+            // if it cannot be published, published data is going to be null
+            // therefore, ensure that draft data is not
+            if (draftData == null && !canBePublished)
+                draftData = PublishedData;
+
+            Node.SetContentTypeAndData(contentType, draftData, publishedData, publishedSnapshotAccessor, variationContextAccessor,umbracoContextAccessor);
         }
     }
 }

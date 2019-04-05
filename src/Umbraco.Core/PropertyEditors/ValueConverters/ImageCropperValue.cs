@@ -9,7 +9,7 @@ using System.Web;
 using Newtonsoft.Json;
 using Umbraco.Core.Serialization;
 
-namespace Umbraco.Core.PropertyEditors.ValueConverters // fixme MOVE TO MODELS OR SOMETHING
+namespace Umbraco.Core.PropertyEditors.ValueConverters
 {
     /// <summary>
     /// Represents a value of the image cropper value editor.
@@ -59,7 +59,6 @@ namespace Umbraco.Core.PropertyEditors.ValueConverters // fixme MOVE TO MODELS O
                 : Crops.FirstOrDefault(x => x.Alias.InvariantEquals(alias));
         }
 
-        // fixme was defined in web project, extension methods? why internal?
         internal void AppendCropBaseUrl(StringBuilder url, ImageCropperCrop crop, bool defaultCrop, bool preferFocalPoint)
         {
             if (preferFocalPoint && HasFocalPoint()
@@ -138,7 +137,7 @@ namespace Umbraco.Core.PropertyEditors.ValueConverters // fixme MOVE TO MODELS O
         /// </summary>
         /// <returns></returns>
         public bool HasFocalPoint()
-            => FocalPoint != null && FocalPoint.Left != 0.5m && FocalPoint.Top != 0.5m;
+            => FocalPoint != null && (FocalPoint.Left != 0.5m || FocalPoint.Top != 0.5m);
 
         /// <summary>
         /// Determines whether the value has a specified crop.

@@ -16,7 +16,7 @@ namespace Umbraco.Core.Services.Implement
     /// <summary>
     /// Represents the DataType Service, which is an easy access to operations involving <see cref="IDataType"/>
     /// </summary>
-    internal class DataTypeService : ScopeRepositoryService, IDataTypeService
+    public class DataTypeService : ScopeRepositoryService, IDataTypeService
     {
         private readonly IDataTypeRepository _dataTypeRepository;
         private readonly IDataTypeContainerRepository _dataTypeContainerRepository;
@@ -38,7 +38,7 @@ namespace Umbraco.Core.Services.Implement
 
         #region Containers
 
-        public Attempt<OperationResult<OperationResultType, EntityContainer>> CreateContainer(int parentId, string name, int userId = 0)
+        public Attempt<OperationResult<OperationResultType, EntityContainer>> CreateContainer(int parentId, string name, int userId = Constants.Security.SuperUserId)
         {
             var evtMsgs = EventMessagesFactory.Get();
             using (var scope = ScopeProvider.CreateScope())
@@ -62,7 +62,7 @@ namespace Umbraco.Core.Services.Implement
                     scope.Complete();
 
                     scope.Events.Dispatch(SavedContainer, this, new SaveEventArgs<EntityContainer>(container, evtMsgs));
-                    //TODO: Audit trail ?
+                    // TODO: Audit trail ?
 
                     return OperationResult.Attempt.Succeed(evtMsgs, container);
                 }
@@ -119,7 +119,7 @@ namespace Umbraco.Core.Services.Implement
             }
         }
 
-        public Attempt<OperationResult> SaveContainer(EntityContainer container, int userId = 0)
+        public Attempt<OperationResult> SaveContainer(EntityContainer container, int userId = Constants.Security.SuperUserId)
         {
             var evtMsgs = EventMessagesFactory.Get();
 
@@ -149,11 +149,11 @@ namespace Umbraco.Core.Services.Implement
                 scope.Complete();
             }
 
-            //TODO: Audit trail ?
+            // TODO: Audit trail ?
             return OperationResult.Attempt.Succeed(evtMsgs);
         }
 
-        public Attempt<OperationResult> DeleteContainer(int containerId, int userId = 0)
+        public Attempt<OperationResult> DeleteContainer(int containerId, int userId = Constants.Security.SuperUserId)
         {
             var evtMsgs = EventMessagesFactory.Get();
             using (var scope = ScopeProvider.CreateScope())
@@ -182,11 +182,11 @@ namespace Umbraco.Core.Services.Implement
                 scope.Complete();
             }
 
-            //TODO: Audit trail ?
+            // TODO: Audit trail ?
             return OperationResult.Attempt.Succeed(evtMsgs);
         }
 
-        public Attempt<OperationResult<OperationResultType, EntityContainer>> RenameContainer(int id, string name, int userId = 0)
+        public Attempt<OperationResult<OperationResultType, EntityContainer>> RenameContainer(int id, string name, int userId = Constants.Security.SuperUserId)
         {
             var evtMsgs = EventMessagesFactory.Get();
             using (var scope = ScopeProvider.CreateScope())
@@ -204,7 +204,7 @@ namespace Umbraco.Core.Services.Implement
                     _dataTypeContainerRepository.Save(container);
                     scope.Complete();
 
-                    // fixme - triggering SavedContainer with a different name?!
+                    // TODO: triggering SavedContainer with a different name?!
                     scope.Events.Dispatch(SavedContainer, this, new SaveEventArgs<EntityContainer>(container, evtMsgs), "RenamedContainer");
 
                     return OperationResult.Attempt.Succeed(OperationResultType.Success, evtMsgs, container);
@@ -262,7 +262,7 @@ namespace Umbraco.Core.Services.Implement
         /// Gets a <see cref="IDataType"/> by its control Id
         /// </summary>
         /// <param name="propertyEditorAlias">Alias of the property editor</param>
-        /// <returns>Collection of <see cref="IDataType"/> objects with a matching contorl id</returns>
+        /// <returns>Collection of <see cref="IDataType"/> objects with a matching control id</returns>
         public IEnumerable<IDataType> GetByEditorAlias(string propertyEditorAlias)
         {
             using (var scope = ScopeProvider.CreateScope(autoComplete: true))
@@ -318,7 +318,7 @@ namespace Umbraco.Core.Services.Implement
                 }
                 catch (DataOperationException<MoveOperationStatusType> ex)
                 {
-                    scope.Complete(); // fixme what are we doing here exactly?
+                    scope.Complete(); // TODO: what are we doing here exactly?
                     return OperationResult.Attempt.Fail(ex.Operation, evtMsgs);
                 }
             }
@@ -330,8 +330,8 @@ namespace Umbraco.Core.Services.Implement
         /// Saves an <see cref="IDataType"/>
         /// </summary>
         /// <param name="dataType"><see cref="IDataType"/> to save</param>
-        /// <param name="userId">Id of the user issueing the save</param>
-        public void Save(IDataType dataType, int userId = 0)
+        /// <param name="userId">Id of the user issuing the save</param>
+        public void Save(IDataType dataType, int userId = Constants.Security.SuperUserId)
         {
             dataType.CreatorId = userId;
 
@@ -353,7 +353,7 @@ namespace Umbraco.Core.Services.Implement
 
                 saveEventArgs.CanCancel = false;
                 scope.Events.Dispatch(Saved, this, saveEventArgs);
-                Audit(AuditType.Save, "Save DataTypeDefinition performed by user", userId, dataType.Id);
+                Audit(AuditType.Save, userId, dataType.Id);
                 scope.Complete();
             }
         }
@@ -362,8 +362,8 @@ namespace Umbraco.Core.Services.Implement
         /// Saves a collection of <see cref="IDataType"/>
         /// </summary>
         /// <param name="dataTypeDefinitions"><see cref="IDataType"/> to save</param>
-        /// <param name="userId">Id of the user issueing the save</param>
-        public void Save(IEnumerable<IDataType> dataTypeDefinitions, int userId = 0)
+        /// <param name="userId">Id of the user issuing the save</param>
+        public void Save(IEnumerable<IDataType> dataTypeDefinitions, int userId = Constants.Security.SuperUserId)
         {
             Save(dataTypeDefinitions, userId, true);
         }
@@ -372,7 +372,7 @@ namespace Umbraco.Core.Services.Implement
         /// Saves a collection of <see cref="IDataType"/>
         /// </summary>
         /// <param name="dataTypeDefinitions"><see cref="IDataType"/> to save</param>
-        /// <param name="userId">Id of the user issueing the save</param>
+        /// <param name="userId">Id of the user issuing the save</param>
         /// <param name="raiseEvents">Boolean indicating whether or not to raise events</param>
         public void Save(IEnumerable<IDataType> dataTypeDefinitions, int userId, bool raiseEvents)
         {
@@ -398,7 +398,7 @@ namespace Umbraco.Core.Services.Implement
                     saveEventArgs.CanCancel = false;
                     scope.Events.Dispatch(Saved, this, saveEventArgs);
                 }
-                Audit(AuditType.Save, "Save DataTypeDefinition performed by user", userId, -1);
+                Audit(AuditType.Save, userId, -1);
 
                 scope.Complete();
             }
@@ -412,8 +412,8 @@ namespace Umbraco.Core.Services.Implement
         /// all the <see cref="PropertyType"/> data that references this <see cref="IDataType"/>.
         /// </remarks>
         /// <param name="dataType"><see cref="IDataType"/> to delete</param>
-        /// <param name="userId">Optional Id of the user issueing the deletion</param>
-        public void Delete(IDataType dataType, int userId = 0)
+        /// <param name="userId">Optional Id of the user issuing the deletion</param>
+        public void Delete(IDataType dataType, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -426,8 +426,8 @@ namespace Umbraco.Core.Services.Implement
 
 
                 // find ContentTypes using this IDataTypeDefinition on a PropertyType, and delete
-                // fixme - media and members?!
-                // fixme - non-group properties?!
+                // TODO: media and members?!
+                // TODO: non-group properties?!
                 var query = Query<PropertyType>().Where(x => x.DataTypeId == dataType.Id);
                 var contentTypes = _contentTypeRepository.GetByQuery(query);
                 foreach (var contentType in contentTypes)
@@ -444,7 +444,7 @@ namespace Umbraco.Core.Services.Implement
                     // so... we are modifying content types here. the service will trigger Deleted event,
                     // which will propagate to DataTypeCacheRefresher which will clear almost every cache
                     // there is to clear... and in addition published snapshot caches will clear themselves too, so
-                    // this is probably safe alghough it looks... weird.
+                    // this is probably safe although it looks... weird.
                     //
                     // what IS weird is that a content type is losing a property and we do NOT raise any
                     // content type event... so ppl better listen on the data type events too.
@@ -456,15 +456,15 @@ namespace Umbraco.Core.Services.Implement
 
                 deleteEventArgs.CanCancel = false;
                 scope.Events.Dispatch(Deleted, this, deleteEventArgs);
-                Audit(AuditType.Delete, "Delete DataTypeDefinition performed by user", userId, dataType.Id);
+                Audit(AuditType.Delete, userId, dataType.Id);
 
                 scope.Complete();
             }
         }
 
-        private void Audit(AuditType type, string message, int userId, int objectId)
+        private void Audit(AuditType type, int userId, int objectId)
         {
-            _auditRepository.Save(new AuditItem(objectId, message, type, userId));
+            _auditRepository.Save(new AuditItem(objectId, type, userId, ObjectTypes.GetName(UmbracoObjectTypes.DataType)));
         }
 
         #region Event Handlers

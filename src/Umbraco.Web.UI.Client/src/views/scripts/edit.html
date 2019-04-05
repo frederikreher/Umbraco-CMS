@@ -14,7 +14,6 @@
                 hide-alias="true"
                 description="vm.script.virtualPath"
                 description-locked="true"
-                menu="vm.page.menu"
                 hide-icon="true">
             </umb-editor-header>
 
@@ -36,7 +35,8 @@
 
                     <umb-keyboard-shortcuts-overview
                         model="vm.page.keyboardShortcutsOverview"
-                        show-overlay="vm.showKeyboardShortcut">
+                        show-overlay="vm.showKeyboardShortcut"
+                        on-close="vm.showKeyboardShortcut = false;">
                     </umb-keyboard-shortcuts-overview>
 
                 </umb-editor-footer-content-left>

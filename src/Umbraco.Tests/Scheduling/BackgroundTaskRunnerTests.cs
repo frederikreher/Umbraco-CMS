@@ -13,6 +13,7 @@ namespace Umbraco.Tests.Scheduling
 {
     [TestFixture]
     [Timeout(30000)]
+    [Category("Slow")]
     public class BackgroundTaskRunnerTests
     {
         private ILogger _logger;
@@ -944,8 +945,6 @@ namespace Umbraco.Tests.Scheduling
             {
                 throw new NotImplementedException();
             }
-
-            private int i;
 
             public async Task RunAsync(CancellationToken token)
             {

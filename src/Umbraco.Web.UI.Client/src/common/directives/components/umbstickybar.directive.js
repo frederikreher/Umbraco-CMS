@@ -50,8 +50,13 @@ Use this directive make an element sticky and follow the page when scrolling.
 
             function activate() {
 
+                if (bar.parents(".umb-property").length > 1) {
+                    bar.addClass("nested");
+                    return;
+                }
+
                 if (attr.scrollableContainer) {
-                    scrollableContainer = $(attr.scrollableContainer);
+                    scrollableContainer = bar.closest(attr.scrollableContainer);
                 } else {
                     scrollableContainer = $(window);
                 }
@@ -114,9 +119,9 @@ Use this directive make an element sticky and follow the page when scrolling.
             }
 
             function calculateSize() {
+                var width = bar.innerWidth();
                 clonedBar.css({
-                    width: bar.outerWidth(),
-                    height: bar.height()
+                    width: width + 10 // + 10 (5*2) because we need to add border to avoid seeing the shadow beneath. Look at the CSS.
                 });
             }
 
@@ -128,7 +133,9 @@ Use this directive make an element sticky and follow the page when scrolling.
                 clonedBar.addClass('-umb-sticky-bar');
                 clonedBar.css({
                     'position': 'fixed',
-                    'z-index': 500,
+                    // if you change this z-index value, make sure the sticky editor sub headers do not 
+                    // clash with umb-dropdown (e.g. the content actions dropdown in content list view)
+                    'z-index': 99, 
                     'visibility': 'hidden'
                 });
 

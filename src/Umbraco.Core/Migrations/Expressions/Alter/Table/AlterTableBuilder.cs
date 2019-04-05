@@ -1,7 +1,8 @@
 ﻿using System.Data;
-using NPoco;
 using Umbraco.Core.Migrations.Expressions.Alter.Expressions;
 using Umbraco.Core.Migrations.Expressions.Common.Expressions;
+using Umbraco.Core.Migrations.Expressions.Create.Expressions;
+using Umbraco.Core.Persistence.DatabaseAnnotations;
 using Umbraco.Core.Persistence.DatabaseModelDefinitions;
 
 namespace Umbraco.Core.Migrations.Expressions.Alter.Table
@@ -40,11 +41,11 @@ namespace Umbraco.Core.Migrations.Expressions.Alter.Table
             if (CurrentColumn.ModificationType == ModificationType.Alter)
             {
                 var dc = new AlterDefaultConstraintExpression(_context)
-                             {
-                                 TableName = Expression.TableName,
-                                 ColumnName = CurrentColumn.Name,
-                                 DefaultValue = value
-                             };
+                {
+                    TableName = Expression.TableName,
+                    ColumnName = CurrentColumn.Name,
+                    DefaultValue = value
+                };
 
                 Expression.Expressions.Add(dc);
             }
@@ -75,9 +76,9 @@ namespace Umbraco.Core.Migrations.Expressions.Alter.Table
             });
 
             index.Index.Columns.Add(new IndexColumnDefinition
-                                        {
-                                            Name = CurrentColumn.Name
-                                        });
+            {
+                Name = CurrentColumn.Name
+            });
 
             Expression.Expressions.Add(index);
 
@@ -87,6 +88,17 @@ namespace Umbraco.Core.Migrations.Expressions.Alter.Table
         public IAlterTableColumnOptionBuilder PrimaryKey()
         {
             CurrentColumn.IsPrimaryKey = true;
+
+            var expression = new CreateConstraintExpression(_context, ConstraintType.PrimaryKey)
+            {
+                Constraint =
+                    {
+                        TableName = Expression.TableName,
+                        Columns = new[] { CurrentColumn.Name }
+                    }
+            };
+            Expression.Expressions.Add(expression);
+
             return this;
         }
 
@@ -94,6 +106,18 @@ namespace Umbraco.Core.Migrations.Expressions.Alter.Table
         {
             CurrentColumn.IsPrimaryKey = true;
             CurrentColumn.PrimaryKeyName = primaryKeyName;
+
+            var expression = new CreateConstraintExpression(_context, ConstraintType.PrimaryKey)
+            {
+                Constraint =
+                    {
+                        ConstraintName = primaryKeyName,
+                        TableName = Expression.TableName,
+                        Columns = new[] { CurrentColumn.Name }
+                    }
+            };
+            Expression.Expressions.Add(expression);
+
             return this;
         }
 
@@ -122,13 +146,13 @@ namespace Umbraco.Core.Migrations.Expressions.Alter.Table
             {
                 Name = indexName,
                 TableName = Expression.TableName,
-                IsUnique = true
+                IndexType = IndexTypes.UniqueNonClustered
             });
 
             index.Index.Columns.Add(new IndexColumnDefinition
-                                        {
-                                            Name = CurrentColumn.Name
-                                        });
+            {
+                Name = CurrentColumn.Name
+            });
 
             Expression.Expressions.Add(index);
 
@@ -207,10 +231,10 @@ namespace Umbraco.Core.Migrations.Expressions.Alter.Table
         {
             var column = new ColumnDefinition { Name = name, ModificationType = ModificationType.Create };
             var createColumn = new CreateColumnExpression(_context)
-                                   {
-                                       Column = column,
-                                       TableName = Expression.TableName
-                                   };
+            {
+                Column = column,
+                TableName = Expression.TableName
+            };
 
             CurrentColumn = column;
 

@@ -30,12 +30,12 @@ namespace Umbraco.Core.Services
             string[] filterPropertyTypes = null)
         {
             filterContentTypes = filterContentTypes == null
-                ? new string[] { }
-                : filterContentTypes.Where(x => x.IsNullOrWhiteSpace() == false).ToArray();
+                ? Array.Empty<string>()
+                : filterContentTypes.Where(x => !x.IsNullOrWhiteSpace()).ToArray();
 
             filterPropertyTypes = filterPropertyTypes == null
-                ? new string[] {}
-                : filterPropertyTypes.Where(x => x.IsNullOrWhiteSpace() == false).ToArray();
+                ? Array.Empty<string>()
+                : filterPropertyTypes.Where(x => !x.IsNullOrWhiteSpace()).ToArray();
 
             //create the full list of property types to use as the filter
             //this is the combination of all property type aliases found in the content types passed in for the filter
@@ -47,7 +47,7 @@ namespace Umbraco.Core.Services
                     .Union(filterPropertyTypes)
                     .ToArray();
 
-            var sourceId = source != null ? source.Id : 0;
+            var sourceId = source?.Id ?? 0;
 
             // find out if any content type uses this content type
             var isUsing = allContentTypes.Where(x => x.ContentTypeComposition.Any(y => y.Id == sourceId)).ToArray();
@@ -58,7 +58,7 @@ namespace Umbraco.Core.Services
             }
 
             // if it is not used then composition is possible
-            // hashset guarantees unicity on Id
+            // hashset guarantees uniqueness on Id
             var list = new HashSet<IContentTypeComposition>(new DelegateEqualityComparer<IContentTypeComposition>(
                 (x, y) => x.Id == y.Id,
                 x => x.Id));
@@ -109,6 +109,7 @@ namespace Umbraco.Core.Services
 
             return new ContentTypeAvailableCompositionsResults(ancestors, result);
         }
+        
 
         private static IContentTypeComposition[] GetAncestors(IContentTypeComposition ctype, IContentTypeComposition[] allContentTypes)
         {
@@ -140,7 +141,7 @@ namespace Umbraco.Core.Services
         {
             if (ctype == null) return Enumerable.Empty<IContentTypeComposition>();
 
-            // hashset guarantees unicity on Id
+            // hashset guarantees uniqueness on Id
             var all = new HashSet<IContentTypeComposition>(new DelegateEqualityComparer<IContentTypeComposition>(
                 (x, y) => x.Id == y.Id,
                 x => x.Id));
@@ -160,6 +161,5 @@ namespace Umbraco.Core.Services
 
             return all;
         }
-
     }
 }

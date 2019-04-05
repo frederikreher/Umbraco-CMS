@@ -1,7 +1,6 @@
 angular.module("umbraco").controller("Umbraco.Editors.Content.MoveController",
 	function ($scope, userService, eventsService, contentResource, navigationService, appState, treeService, localizationService, notificationsService) {
 
-	    var dialogOptions = $scope.dialogOptions;
 	    var searchText = "Search...";
 	    localizationService.localize("general_search").then(function (value) {
 	        searchText = value + "...";
@@ -23,7 +22,13 @@ angular.module("umbraco").controller("Umbraco.Editors.Content.MoveController",
             $scope.treeModel.hideHeader = userData.startContentIds.length > 0 && userData.startContentIds.indexOf(-1) == -1;
         });
 
-	    var node = dialogOptions.currentNode;
+	    $scope.source = _.clone($scope.currentNode);
+
+        function treeLoadedHandler(args) {
+            if ($scope.source && $scope.source.path) {
+                $scope.dialogTreeApi.syncTree({ path: $scope.source.path, activate: false });
+            }
+        }
 
 	    function nodeSelectHandler(args) {
 
@@ -61,21 +66,25 @@ angular.module("umbraco").controller("Umbraco.Editors.Content.MoveController",
 	    // method to select a search result 
 	    $scope.selectResult = function (evt, result) {
 	        result.selected = result.selected === true ? false : true;
-	        nodeSelectHandler(evt, { event: evt, node: result });
+	        nodeSelectHandler({ event: evt, node: result });
 	    };
 
 	    //callback when there are search results 
 	    $scope.onSearchResults = function (results) {
 	        $scope.searchInfo.results = results;
 	        $scope.searchInfo.showSearch = true;
-	    };
+		};
+		
+		$scope.close = function() {
+			navigationService.hideDialog();
+		};
 
 	    $scope.move = function () {
 
 	        $scope.busy = true;
 	        $scope.error = false;
 
-	        contentResource.move({ parentId: $scope.target.id, id: node.id })
+	        contentResource.move({ parentId: $scope.target.id, id: $scope.source.id })
                 .then(function (path) {
                     $scope.error = false;
                     $scope.success = true;
@@ -102,16 +111,12 @@ angular.module("umbraco").controller("Umbraco.Editors.Content.MoveController",
                     $scope.success = false;
                     $scope.error = err;
                     $scope.busy = false;
-                    //show any notifications
-                    if (angular.isArray(err.data.notifications)) {
-                        for (var i = 0; i < err.data.notifications.length; i++) {
-                            notificationsService.showNotification(err.data.notifications[i]);
-                        }
-                    }
+                   
                 });
 	    };
 
         $scope.onTreeInit = function () {
+            $scope.dialogTreeApi.callbacks.treeLoaded(treeLoadedHandler);
             $scope.dialogTreeApi.callbacks.treeNodeSelect(nodeSelectHandler);
             $scope.dialogTreeApi.callbacks.treeNodeExpanded(nodeExpandedHandler);
         }	    
@@ -119,7 +124,7 @@ angular.module("umbraco").controller("Umbraco.Editors.Content.MoveController",
 		// Mini list view
 		$scope.selectListViewNode = function (node) {
 			node.selected = node.selected === true ? false : true;
-			nodeSelectHandler({}, { node: node });
+			nodeSelectHandler({ node: node });
 		};
 
 		$scope.closeMiniListView = function () {

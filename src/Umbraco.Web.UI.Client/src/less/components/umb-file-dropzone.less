@@ -1,5 +1,5 @@
 
-.umb-file-dropzone-directive{
+.umb-file-dropzone {
 
   // drop zone
   // tall and small version - animate height
@@ -8,12 +8,11 @@
     width: auto;
     padding: 50px 0;
     border: 1px dashed @gray-8;
+    background-color: @white;
     text-align: center;
     color: @gray-3;
     margin: 0 0 20px 0;
     position: relative;
-    -webkit-transition: height 0.8s;
-    -moz-transition: height 0.8s;
     transition: height 0.8s;
     .illustration {
       width: 300px;
@@ -42,14 +41,14 @@
   // file select link
   .file-select {
     font-size: 15px;
-    color: @turquoise-d1;
+    color: @ui-action-discreet-type;
     cursor: pointer;
 
     margin-top: 10px;
 
     &:hover {
-        color: @turquoise-d1;
-        text-decoration: underline;
+        color: @ui-action-discreet-type-hover;
+        text-decoration: none;
     }
   }
 

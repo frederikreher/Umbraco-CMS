@@ -1,33 +1,33 @@
 ﻿using System;
 using System.Threading;
 using System.Web;
-using LightInject;
 using Umbraco.Core;
 using Umbraco.Core.Cache;
 using Umbraco.Core.Dictionary;
 using Umbraco.Core.Events;
 using Umbraco.Core.IO;
 using Umbraco.Core.Logging;
-using Umbraco.Core.Macros;
 using Umbraco.Core.Models.PublishedContent;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Composing;
-using Umbraco.Core.Migrations;
+using Umbraco.Core.Configuration;
+using Umbraco.Core.PackageActions;
+using Umbraco.Core.Packaging;
 using Umbraco.Core.PropertyEditors;
 using Umbraco.Core.Scoping;
 using Umbraco.Core.Services;
 using Umbraco.Core.Strings;
 using Umbraco.Core.Sync;
-using Umbraco.Core._Legacy.PackageActions;
+using Umbraco.Web.Actions;
 using Umbraco.Web.Cache;
 using Umbraco.Web.Editors;
 using Umbraco.Web.HealthCheck;
-using Umbraco.Web.Media;
 using Umbraco.Web.Mvc;
 using Umbraco.Web.PublishedCache;
 using Umbraco.Web.Routing;
+using Umbraco.Web.Services;
 using Umbraco.Web.WebApi;
-using Umbraco.Web._Legacy.Actions;
+
 using CoreCurrent = Umbraco.Core.Composing.Current;
 
 namespace Umbraco.Web.Composing
@@ -44,7 +44,10 @@ namespace Umbraco.Web.Composing
             CoreCurrent.Resetted += (sender, args) =>
             {
                 if (_umbracoContextAccessor != null)
-                    ClearUmbracoContext();
+                {
+                    var umbracoContext = _umbracoContextAccessor.UmbracoContext;
+                    umbracoContext?.Dispose();
+                }
                 _umbracoContextAccessor = null;
             };
         }
@@ -56,35 +59,23 @@ namespace Umbraco.Web.Composing
         }
 
         /// <summary>
-        /// Gets the DI container.
+        /// Gets the factory.
         /// </summary>
-        internal static IServiceContainer Container
-            => CoreCurrent.Container;
+        public static IFactory Factory
+            => CoreCurrent.Factory;
 
         #region Temp & Special
 
-        // fixme - have to keep this until tests are refactored
+        // TODO: have to keep this until tests are refactored
         // but then, it should all be managed properly in the container
         public static IUmbracoContextAccessor UmbracoContextAccessor
         {
             get
             {
                 if (_umbracoContextAccessor != null) return _umbracoContextAccessor;
-                return _umbracoContextAccessor = Container.GetInstance<IUmbracoContextAccessor>();
+                return _umbracoContextAccessor = Factory.GetInstance<IUmbracoContextAccessor>();
             }
             set => _umbracoContextAccessor = value; // for tests
-        }
-
-        // clears the "current" umbraco context
-        // at the moment the "current" umbraco context can end up being disposed and should get cleared
-        // in the accessor - this should be done differently but for the time being we have to support it
-        public static void ClearUmbracoContext()
-        {
-            lock (Locker)
-            {
-                UmbracoContextAccessor.UmbracoContext?.Dispose(); // dispose the one that is being cleared, if any
-                UmbracoContextAccessor.UmbracoContext = null;
-            }
         }
 
         #endregion
@@ -94,47 +85,56 @@ namespace Umbraco.Web.Composing
         public static UmbracoContext UmbracoContext
             => UmbracoContextAccessor.UmbracoContext;
 
+        public static UmbracoHelper UmbracoHelper
+            => Factory.GetInstance<UmbracoHelper>();
+
         public static DistributedCache DistributedCache
-            => Container.GetInstance<DistributedCache>();
+            => Factory.GetInstance<DistributedCache>();
 
         public static IPublishedSnapshot PublishedSnapshot
-            => Container.GetInstance<IPublishedSnapshotAccessor>().PublishedSnapshot;
+            => Factory.GetInstance<IPublishedSnapshotAccessor>().PublishedSnapshot;
 
         public static EventMessages EventMessages
-            => Container.GetInstance<IEventMessagesFactory>().GetOrDefault();
+            => Factory.GetInstance<IEventMessagesFactory>().GetOrDefault();
 
         public static UrlProviderCollection UrlProviders
-            => Container.GetInstance<UrlProviderCollection>();
+            => Factory.GetInstance<UrlProviderCollection>();
 
         public static HealthCheckCollectionBuilder HealthCheckCollectionBuilder
-            => Container.GetInstance<HealthCheckCollectionBuilder>();
+            => Factory.GetInstance<HealthCheckCollectionBuilder>();
 
         internal static ActionCollectionBuilder ActionCollectionBuilder
-            => Container.GetInstance<ActionCollectionBuilder>();
+            => Factory.GetInstance<ActionCollectionBuilder>();
 
         public static ActionCollection Actions
-            => Container.GetInstance<ActionCollection>();
+            => Factory.GetInstance<ActionCollection>();
 
         public static ContentFinderCollection ContentFinders
-            => Container.GetInstance<ContentFinderCollection>();
+            => Factory.GetInstance<ContentFinderCollection>();
 
         public static IContentLastChanceFinder LastChanceContentFinder
-            => Container.GetInstance<IContentLastChanceFinder>();
+            => Factory.GetInstance<IContentLastChanceFinder>();
 
         internal static EditorValidatorCollection EditorValidators
-            => Container.GetInstance<EditorValidatorCollection>();
-        
+            => Factory.GetInstance<EditorValidatorCollection>();
+
         internal static UmbracoApiControllerTypeCollection UmbracoApiControllerTypes
-            => Container.GetInstance<UmbracoApiControllerTypeCollection>();
+            => Factory.GetInstance<UmbracoApiControllerTypeCollection>();
 
         internal static SurfaceControllerTypeCollection SurfaceControllerTypes
-            => Container.GetInstance<SurfaceControllerTypeCollection>();
+            => Factory.GetInstance<SurfaceControllerTypeCollection>();
 
         public static FilteredControllerFactoryCollection FilteredControllerFactories
-            => Container.GetInstance<FilteredControllerFactoryCollection>();
+            => Factory.GetInstance<FilteredControllerFactoryCollection>();
 
         internal static IPublishedSnapshotService PublishedSnapshotService
-            => Container.GetInstance<IPublishedSnapshotService>();
+            => Factory.GetInstance<IPublishedSnapshotService>();
+
+        public static ITreeService TreeService
+            => Factory.GetInstance<ITreeService>();
+
+        public static ISectionService SectionService
+            => Factory.GetInstance<ISectionService>();
 
         #endregion
 
@@ -160,41 +160,6 @@ namespace Umbraco.Web.Composing
 
         #endregion
 
-        #region Web Actions
-
-        public static void RestartAppPool()
-        {
-            // see notes in overload
-
-            var httpContext = HttpContext.Current;
-            if (httpContext != null)
-            {
-                httpContext.Application.Add("AppPoolRestarting", true);
-                httpContext.User = null;
-            }
-            Thread.CurrentPrincipal = null;
-            HttpRuntime.UnloadAppDomain();
-        }
-
-        public static void RestartAppPool(HttpContextBase httpContext)
-        {
-            // we're going to put an application wide flag to show that the application is about to restart.
-            // we're doing this because if there is a script checking if the app pool is fully restarted, then
-            // it can check if this flag exists...  if it does it means the app pool isn't restarted yet.
-            httpContext.Application.Add("AppPoolRestarting", true);
-
-            // unload app domain - we must null out all identities otherwise we get serialization errors
-            // http://www.zpqrtbnk.net/posts/custom-iidentity-serialization-issue
-            httpContext.User = null;
-            if (HttpContext.Current != null)
-                HttpContext.Current.User = null;
-            Thread.CurrentPrincipal = null;
-
-            HttpRuntime.UnloadAppDomain();
-        }
-
-        #endregion
-
         #region Core Getters
 
         // proxy Core for convenience
@@ -202,6 +167,8 @@ namespace Umbraco.Web.Composing
         public static IRuntimeState RuntimeState => CoreCurrent.RuntimeState;
 
         public static TypeLoader TypeLoader => CoreCurrent.TypeLoader;
+
+        public static Configs Configs => CoreCurrent.Configs;
 
         public static UrlSegmentProviderCollection UrlSegmentProviders => CoreCurrent.UrlSegmentProviders;
 
@@ -214,6 +181,8 @@ namespace Umbraco.Web.Composing
         public static ParameterEditorCollection ParameterEditors => CoreCurrent.ParameterEditors;
 
         internal static ManifestValueValidatorCollection ManifestValidators => CoreCurrent.ManifestValidators;
+
+        internal static IPackageActionRunner PackageActionRunner => CoreCurrent.PackageActionRunner;
 
         internal static PackageActionCollection PackageActions => CoreCurrent.PackageActions;
 
@@ -233,21 +202,23 @@ namespace Umbraco.Web.Composing
 
         public static IProfiler Profiler => CoreCurrent.Profiler;
 
-        public static ProfilingLogger ProfilingLogger => CoreCurrent.ProfilingLogger;
+        public static IProfilingLogger ProfilingLogger => CoreCurrent.ProfilingLogger;
 
-        public static CacheHelper ApplicationCache => CoreCurrent.ApplicationCache;
+        public static AppCaches AppCaches => CoreCurrent.AppCaches;
 
         public static ServiceContext Services => CoreCurrent.Services;
 
         public static IScopeProvider ScopeProvider => CoreCurrent.ScopeProvider;
 
-        public static FileSystems FileSystems => CoreCurrent.FileSystems;
+        public static IFileSystems FileSystems => CoreCurrent.FileSystems;
 
         public static ISqlContext SqlContext=> CoreCurrent.SqlContext;
 
         public static IPublishedContentTypeFactory PublishedContentTypeFactory => CoreCurrent.PublishedContentTypeFactory;
 
         public static IPublishedValueFallback PublishedValueFallback => CoreCurrent.PublishedValueFallback;
+
+        public static IVariationContextAccessor VariationContextAccessor => CoreCurrent.VariationContextAccessor;
 
         #endregion
     }

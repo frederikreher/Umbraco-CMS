@@ -35,11 +35,6 @@ namespace Umbraco.Core
                 public const string ContentPicker = "Umbraco.ContentPicker";
 
                 /// <summary>
-                /// Date.
-                /// </summary>
-                public const string Date = "Umbraco.Date";
-
-                /// <summary>
                 /// DateTime.
                 /// </summary>
                 public const string DateTime = "Umbraco.DateTime";
@@ -47,35 +42,16 @@ namespace Umbraco.Core
                 /// <summary>
                 /// DropDown List.
                 /// </summary>
-                public const string DropDownList = "Umbraco.DropDown";
-
-                /// <summary>
-                /// DropDown List, Publish Keys.
-                /// </summary>
-                public const string DropdownlistPublishKeys = "Umbraco.DropdownlistPublishingKeys";
-
-                /// <summary>
-                /// DropDown List Multiple.
-                /// </summary>
-                public const string DropDownListMultiple = "Umbraco.DropDownMultiple";
-
-                /// <summary>
-                /// DropDown List Multiple, Publish Keys.
-                /// </summary>
-                public const string DropdownlistMultiplePublishKeys = "Umbraco.DropdownlistMultiplePublishKeys";
-            
-                /// <summary>
-                /// DropDown List.
-                /// </summary>
                 public const string DropDownListFlexible = "Umbraco.DropDown.Flexible";
-                
+
                 /// <summary>
                 /// Grid.
                 /// </summary>
                 public const string Grid = "Umbraco.Grid";
 
+
                 /// <summary>
-                /// Grid.
+                /// Grid v2
                 /// </summary>
                 public const string Grid2 = "Umbraco.Grid2";
 
@@ -130,9 +106,9 @@ namespace Umbraco.Core
                 public const string MultipleTextstring = "Umbraco.MultipleTextstring";
 
                 /// <summary>
-                /// NoEdit.
+                /// Label.
                 /// </summary>
-                public const string NoEdit = "Umbraco.NoEdit";
+                public const string Label = "Umbraco.Label";
 
                 /// <summary>
                 /// Picker Relations.
@@ -143,11 +119,6 @@ namespace Umbraco.Core
                 /// RadioButton list.
                 /// </summary>
                 public const string RadioButtonList = "Umbraco.RadioButtonList";
-
-                /// <summary>
-                /// Related Links.
-                /// </summary>
-                public const string RelatedLinks = "Umbraco.RelatedLinks";
 
                 /// <summary>
                 /// Slider.
@@ -172,7 +143,7 @@ namespace Umbraco.Core
                 /// <summary>
                 /// TinyMCE
                 /// </summary>
-                public const string TinyMce = "Umbraco.TinyMCEv3";
+                public const string TinyMce = "Umbraco.TinyMCE";
 
                 /// <summary>
                 /// Boolean.
@@ -193,7 +164,7 @@ namespace Umbraco.Core
                 /// Upload Field.
                 /// </summary>
                 public const string UploadField = "Umbraco.UploadField";
-                
+
                 /// <summary>
                 /// Email Address.
                 /// </summary>
@@ -203,6 +174,11 @@ namespace Umbraco.Core
                 /// Nested Content.
                 /// </summary>
                 public const string NestedContent = "Umbraco.NestedContent";
+
+                /// <summary>
+                /// Alias for the multi url picker editor.
+                /// </summary>
+                public const string MultiUrlPicker = "Umbraco.MultiUrlPicker";
             }
 
             /// <summary>

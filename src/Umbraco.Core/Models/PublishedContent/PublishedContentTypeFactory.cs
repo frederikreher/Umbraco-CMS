@@ -31,16 +31,16 @@ namespace Umbraco.Core.Models.PublishedContent
             return new PublishedContentType(contentType, this);
         }
 
-        // for tests - fixme what's the point of the factory here?
-        internal PublishedContentType CreateContentType(int id, string alias, IEnumerable<PublishedPropertyType> propertyTypes, ContentVariation variations = ContentVariation.InvariantNeutral)
+        // for tests
+        internal PublishedContentType CreateContentType(int id, string alias, IEnumerable<PublishedPropertyType> propertyTypes, ContentVariation variations = ContentVariation.Nothing, bool isElement = false)
         {
-            return new PublishedContentType(id, alias, PublishedItemType.Content, Enumerable.Empty<string>(), propertyTypes, variations);
+            return new PublishedContentType(id, alias, PublishedItemType.Content, Enumerable.Empty<string>(), propertyTypes, variations, isElement);
         }
 
-        // for tests - fixme what's the point of the factory here?
-        internal PublishedContentType CreateContentType(int id, string alias, IEnumerable<string> compositionAliases, IEnumerable<PublishedPropertyType> propertyTypes, ContentVariation variations = ContentVariation.InvariantNeutral)
+        // for tests
+        internal PublishedContentType CreateContentType(int id, string alias, IEnumerable<string> compositionAliases, IEnumerable<PublishedPropertyType> propertyTypes, ContentVariation variations = ContentVariation.Nothing, bool isElement = false)
         {
-            return new PublishedContentType(id, alias, PublishedItemType.Content, compositionAliases, propertyTypes, variations);
+            return new PublishedContentType(id, alias, PublishedItemType.Content, compositionAliases, propertyTypes, variations, isElement);
         }
 
         /// <inheritdoc />
@@ -50,13 +50,13 @@ namespace Umbraco.Core.Models.PublishedContent
         }
 
         /// <inheritdoc />
-        public PublishedPropertyType CreatePropertyType(PublishedContentType contentType, string propertyTypeAlias, int dataTypeId, ContentVariation variations = ContentVariation.InvariantNeutral)
+        public PublishedPropertyType CreatePropertyType(PublishedContentType contentType, string propertyTypeAlias, int dataTypeId, ContentVariation variations = ContentVariation.Nothing)
         {
             return new PublishedPropertyType(contentType, propertyTypeAlias, dataTypeId, true, variations, _propertyValueConverters, _publishedModelFactory, this);
         }
 
         // for tests
-        internal PublishedPropertyType CreatePropertyType(string propertyTypeAlias, int dataTypeId, bool umbraco = false, ContentVariation variations = ContentVariation.InvariantNeutral)
+        internal PublishedPropertyType CreatePropertyType(string propertyTypeAlias, int dataTypeId, bool umbraco = false, ContentVariation variations = ContentVariation.Nothing)
         {
             return new PublishedPropertyType(propertyTypeAlias, dataTypeId, umbraco, variations, _propertyValueConverters, _publishedModelFactory, this);
         }
@@ -70,27 +70,16 @@ namespace Umbraco.Core.Models.PublishedContent
                 if (_publishedDataTypes == null)
                 {
                     var dataTypes = _dataTypeService.GetAll();
-                    _publishedDataTypes = dataTypes.ToDictionary(
-                        x => x.Id,
-                        x => new PublishedDataType(x.Id, x.EditorAlias, x is DataType d ? d.GetLazyConfiguration() : new Lazy<object>(() => x.Configuration)));
+                    _publishedDataTypes = dataTypes.ToDictionary(x => x.Id, CreatePublishedDataType);
                 }
 
                 publishedDataTypes = _publishedDataTypes;
             }
 
             if (!publishedDataTypes.TryGetValue(id, out var dataType))
-                throw new ArgumentException("Not a valid datatype identifier.", nameof(id));
+                throw new ArgumentException($"Could not find a datatype with identifier {id}.", nameof(id));
 
             return dataType;
-        }
-
-        /// <inheritdoc />
-        public void NotifyDataTypeChanges()
-        {
-            lock (_publishedDataTypesLocker)
-            {
-                _publishedDataTypes = null;
-            }
         }
 
         /// <inheritdoc />
@@ -98,12 +87,24 @@ namespace Umbraco.Core.Models.PublishedContent
         {
             lock (_publishedDataTypesLocker)
             {
-                foreach (var id in ids)
-                    _publishedDataTypes.Remove(id);
-                var dataTypes = _dataTypeService.GetAll(ids);
-                foreach (var dataType in dataTypes)
-                    _publishedDataTypes[dataType.Id] = new PublishedDataType(dataType.Id, dataType.EditorAlias, dataType is DataType d ? d.GetLazyConfiguration() : new Lazy<object>(() => dataType.Configuration));
+                if (_publishedDataTypes == null)
+                {
+                    var dataTypes = _dataTypeService.GetAll();
+                    _publishedDataTypes = dataTypes.ToDictionary(x => x.Id, CreatePublishedDataType);
+                }
+                else
+                {
+                    foreach (var id in ids)
+                        _publishedDataTypes.Remove(id);
+
+                    var dataTypes = _dataTypeService.GetAll(ids);
+                    foreach (var dataType in dataTypes)
+                        _publishedDataTypes[dataType.Id] = CreatePublishedDataType(dataType);
+                }
             }
         }
+
+        private PublishedDataType CreatePublishedDataType(IDataType dataType)
+            => new PublishedDataType(dataType.Id, dataType.EditorAlias, dataType is DataType d ? d.GetLazyConfiguration() : new Lazy<object>(() => dataType.Configuration));
     }
 }

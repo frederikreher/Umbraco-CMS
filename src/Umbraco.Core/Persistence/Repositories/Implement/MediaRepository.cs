@@ -8,11 +8,12 @@ using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.Exceptions;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
-using Umbraco.Core.Persistence.DatabaseModelDefinitions;
 using Umbraco.Core.Persistence.Dtos;
 using Umbraco.Core.Persistence.Factories;
 using Umbraco.Core.Persistence.Querying;
 using Umbraco.Core.Scoping;
+using Umbraco.Core.Services;
+using static Umbraco.Core.Persistence.NPocoSqlExtensions.Statics;
 
 namespace Umbraco.Core.Persistence.Repositories.Implement
 {
@@ -25,18 +26,16 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         private readonly ITagRepository _tagRepository;
         private readonly MediaByGuidReadRepository _mediaByGuidReadRepository;
 
-        public MediaRepository(IScopeAccessor scopeAccessor, CacheHelper cache, ILogger logger, IMediaTypeRepository mediaTypeRepository, ITagRepository tagRepository, IContentSection contentSection, ILanguageRepository languageRepository)
+        public MediaRepository(IScopeAccessor scopeAccessor, AppCaches cache, ILogger logger, IMediaTypeRepository mediaTypeRepository, ITagRepository tagRepository, ILanguageRepository languageRepository)
             : base(scopeAccessor, cache, languageRepository, logger)
         {
             _mediaTypeRepository = mediaTypeRepository ?? throw new ArgumentNullException(nameof(mediaTypeRepository));
             _tagRepository = tagRepository ?? throw new ArgumentNullException(nameof(tagRepository));
             _mediaByGuidReadRepository = new MediaByGuidReadRepository(this, scopeAccessor, cache, logger);
-            EnsureUniqueNaming = contentSection.EnsureUniqueNaming;
         }
 
         protected override MediaRepository This => this;
 
-        public bool EnsureUniqueNaming { get; set; }
 
         #region Repository Base
 
@@ -71,7 +70,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             var translator = new SqlTranslator<IMedia>(sqlClause, query);
             var sql = translator.Translate();
 
-            sql // fixme why?
+            sql
                 .OrderBy<NodeDto>(x => x.Level)
                 .OrderBy<NodeDto>(x => x.SortOrder);
 
@@ -99,7 +98,11 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                 case QueryType.Many:
                     sql = sql.Select<ContentDto>(r =>
                         r.Select(x => x.NodeDto)
-                         .Select(x => x.ContentVersionDto));
+                         .Select(x => x.ContentVersionDto))
+
+                        // ContentRepositoryBase expects a variantName field to order by name
+                        // for now, just return the plain invariant node name
+                        .AndSelect<NodeDto>(x => Alias(x.Text, "variantName"));
                     break;
             }
 
@@ -119,13 +122,11 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             return sql;
         }
 
-        // fixme - kill, eventually
         protected override Sql<ISqlContext> GetBaseQuery(bool isCount)
         {
             return GetBaseQuery(isCount ? QueryType.Count : QueryType.Single);
         }
 
-        // fixme - kill, eventually
         // ah maybe not, that what's used for eg Exists in base repo
         protected override string GetBaseWhereClause()
         {
@@ -136,7 +137,6 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         {
             var list = new List<string>
             {
-                "DELETE FROM " + Constants.DatabaseSchema.Tables.Task + " WHERE nodeId = @id",
                 "DELETE FROM " + Constants.DatabaseSchema.Tables.User2NodeNotify + " WHERE nodeId = @id",
                 "DELETE FROM " + Constants.DatabaseSchema.Tables.UserGroup2NodePermission + " WHERE nodeId = @id",
                 "DELETE FROM " + Constants.DatabaseSchema.Tables.UserStartNode + " WHERE startNode = @id",
@@ -223,7 +223,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             entity.Name = EnsureUniqueNodeName(entity.ParentId, entity.Name);
 
             // ensure that strings don't contain characters that are invalid in xml
-            // fixme - do we really want to keep doing this here?
+            // TODO: do we really want to keep doing this here?
             entity.SanitizeEntityPropertiesForXmlStorage();
 
             // create the dto
@@ -279,7 +279,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             Database.Insert(mediaVersionDto);
 
             // persist the property data
-            var propertyDataDtos = PropertyFactory.BuildDtos(media.VersionId, 0, entity.Properties, LanguageRepository, out _, out _);
+            var propertyDataDtos = PropertyFactory.BuildDtos(media.ContentType.Variations, media.VersionId, 0, entity.Properties, LanguageRepository, out _, out _);
             foreach (var propertyDataDto in propertyDataDtos)
                 Database.Insert(propertyDataDto);
 
@@ -302,7 +302,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             entity.Name = EnsureUniqueNodeName(entity.ParentId, entity.Name, entity.Id);
 
             // ensure that strings don't contain characters that are invalid in xml
-            // fixme - do we really want to keep doing this here?
+            // TODO: do we really want to keep doing this here?
             entity.SanitizeEntityPropertiesForXmlStorage();
 
             // if parent has changed, get path, level and sort order
@@ -336,7 +336,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             // replace the property data
             var deletePropertyDataSql = SqlContext.Sql().Delete<PropertyDataDto>().Where<PropertyDataDto>(x => x.VersionId == media.VersionId);
             Database.Execute(deletePropertyDataSql);
-            var propertyDataDtos = PropertyFactory.BuildDtos(media.VersionId, 0, entity.Properties, LanguageRepository, out _, out _);
+            var propertyDataDtos = PropertyFactory.BuildDtos(media.ContentType.Variations, media.VersionId, 0, entity.Properties, LanguageRepository, out _, out _);
             foreach (var propertyDataDto in propertyDataDtos)
                 Database.Insert(propertyDataDto);
 
@@ -390,7 +390,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         {
             private readonly MediaRepository _outerRepo;
 
-            public MediaByGuidReadRepository(MediaRepository outerRepo, IScopeAccessor scopeAccessor, CacheHelper cache, ILogger logger)
+            public MediaByGuidReadRepository(MediaRepository outerRepo, IScopeAccessor scopeAccessor, AppCaches cache, ILogger logger)
                 : base(scopeAccessor, cache, logger)
             {
                 _outerRepo = outerRepo;
@@ -455,11 +455,10 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
         #endregion
 
-        /// <summary>
-        /// Gets paged media results.
-        /// </summary>
-        public override IEnumerable<IMedia> GetPage(IQuery<IMedia> query, long pageIndex, int pageSize, out long totalRecords,
-            string orderBy, Direction orderDirection, bool orderBySystemField, IQuery<IMedia> filter = null)
+        /// <inheritdoc />
+        public override IEnumerable<IMedia> GetPage(IQuery<IMedia> query,
+            long pageIndex, int pageSize, out long totalRecords,
+            IQuery<IMedia> filter, Ordering ordering)
         {
             Sql<ISqlContext> filterSql = null;
 
@@ -471,8 +470,9 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             }
 
             return GetPage<ContentDto>(query, pageIndex, pageSize, out totalRecords,
-                x => MapDtosToContent(x), orderBy, orderDirection, orderBySystemField,
-                filterSql);
+                x => MapDtosToContent(x),
+                filterSql,
+                ordering);
         }
 
         private IEnumerable<IMedia> MapDtosToContent(List<ContentDto> dtos, bool withCache = false)
@@ -491,7 +491,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                     var cached = IsolatedCache.GetCacheItem<IMedia>(RepositoryCacheKeys.GetKey<IMedia>(dto.NodeId));
                     if (cached != null && cached.VersionId == dto.ContentVersionDto.Id)
                     {
-                        content[i] = (Models.Media) cached; // fixme should we just cache Media not IMedia?
+                        content[i] = (Models.Media) cached;
                         continue;
                     }
                 }
@@ -541,10 +541,6 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             media.ResetDirtyProperties(false);
             return media;
         }
-
-        protected override string EnsureUniqueNodeName(int parentId, string nodeName, int id = 0)
-        {
-            return EnsureUniqueNaming == false ? nodeName : base.EnsureUniqueNodeName(parentId, nodeName, id);
-        }
+        
     }
 }

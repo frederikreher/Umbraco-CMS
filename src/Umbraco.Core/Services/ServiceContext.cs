@@ -8,7 +8,6 @@ namespace Umbraco.Core.Services
     public class ServiceContext
     {
         private readonly Lazy<IPublicAccessService> _publicAccessService;
-        private readonly Lazy<ITaskService> _taskService;
         private readonly Lazy<IDomainService> _domainService;
         private readonly Lazy<IAuditService> _auditService;
         private readonly Lazy<ILocalizedTextService> _localizedTextService;
@@ -26,8 +25,6 @@ namespace Umbraco.Core.Services
         private readonly Lazy<IServerRegistrationService> _serverRegistrationService;
         private readonly Lazy<IEntityService> _entityService;
         private readonly Lazy<IRelationService> _relationService;
-        private readonly Lazy<IApplicationTreeService> _treeService;
-        private readonly Lazy<ISectionService> _sectionService;
         private readonly Lazy<IMacroService> _macroService;
         private readonly Lazy<IMemberTypeService> _memberTypeService;
         private readonly Lazy<IMemberGroupService> _memberGroupService;
@@ -35,15 +32,14 @@ namespace Umbraco.Core.Services
         private readonly Lazy<IExternalLoginService> _externalLoginService;
         private readonly Lazy<IRedirectUrlService> _redirectUrlService;
         private readonly Lazy<IConsentService> _consentService;
+        private readonly Lazy<IContentTypeBaseServiceProvider> _contentTypeBaseServiceProvider;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ServiceContext"/> class with lazy services.
         /// </summary>
-        /// <remarks>Used by IoC. Note that LightInject will favor lazy args when picking a constructor.</remarks>
-        public ServiceContext(Lazy<IPublicAccessService> publicAccessService, Lazy<ITaskService> taskService, Lazy<IDomainService> domainService, Lazy<IAuditService> auditService, Lazy<ILocalizedTextService> localizedTextService, Lazy<ITagService> tagService, Lazy<IContentService> contentService, Lazy<IUserService> userService, Lazy<IMemberService> memberService, Lazy<IMediaService> mediaService, Lazy<IContentTypeService> contentTypeService, Lazy<IMediaTypeService> mediaTypeService, Lazy<IDataTypeService> dataTypeService, Lazy<IFileService> fileService, Lazy<ILocalizationService> localizationService, Lazy<IPackagingService> packagingService, Lazy<IServerRegistrationService> serverRegistrationService, Lazy<IEntityService> entityService, Lazy<IRelationService> relationService, Lazy<IApplicationTreeService> treeService, Lazy<ISectionService> sectionService, Lazy<IMacroService> macroService, Lazy<IMemberTypeService> memberTypeService, Lazy<IMemberGroupService> memberGroupService, Lazy<INotificationService> notificationService, Lazy<IExternalLoginService> externalLoginService, Lazy<IRedirectUrlService> redirectUrlService, Lazy<IConsentService> consentService)
+        public ServiceContext(Lazy<IPublicAccessService> publicAccessService, Lazy<IDomainService> domainService, Lazy<IAuditService> auditService, Lazy<ILocalizedTextService> localizedTextService, Lazy<ITagService> tagService, Lazy<IContentService> contentService, Lazy<IUserService> userService, Lazy<IMemberService> memberService, Lazy<IMediaService> mediaService, Lazy<IContentTypeService> contentTypeService, Lazy<IMediaTypeService> mediaTypeService, Lazy<IDataTypeService> dataTypeService, Lazy<IFileService> fileService, Lazy<ILocalizationService> localizationService, Lazy<IPackagingService> packagingService, Lazy<IServerRegistrationService> serverRegistrationService, Lazy<IEntityService> entityService, Lazy<IRelationService> relationService, Lazy<IMacroService> macroService, Lazy<IMemberTypeService> memberTypeService, Lazy<IMemberGroupService> memberGroupService, Lazy<INotificationService> notificationService, Lazy<IExternalLoginService> externalLoginService, Lazy<IRedirectUrlService> redirectUrlService, Lazy<IConsentService> consentService, Lazy<IContentTypeBaseServiceProvider> contentTypeBaseServiceProvider)
         {
             _publicAccessService = publicAccessService;
-            _taskService = taskService;
             _domainService = domainService;
             _auditService = auditService;
             _localizedTextService = localizedTextService;
@@ -61,8 +57,6 @@ namespace Umbraco.Core.Services
             _serverRegistrationService = serverRegistrationService;
             _entityService = entityService;
             _relationService = relationService;
-            _treeService = treeService;
-            _sectionService = sectionService;
             _macroService = macroService;
             _memberTypeService = memberTypeService;
             _memberGroupService = memberGroupService;
@@ -70,13 +64,17 @@ namespace Umbraco.Core.Services
             _externalLoginService = externalLoginService;
             _redirectUrlService = redirectUrlService;
             _consentService = consentService;
+            _contentTypeBaseServiceProvider = contentTypeBaseServiceProvider;
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ServiceContext"/> class with services.
+        /// Creates a partial service context with only some services (for tests).
         /// </summary>
-        /// <remarks>Used in tests. All items are optional and remain null if not specified.</remarks>
-        public ServiceContext(IContentService contentService = null,
+        /// <remarks>
+        /// <para>Using a true constructor for this confuses DI containers.</para>
+        /// </remarks>
+        public static ServiceContext CreatePartial(
+            IContentService contentService = null,
             IMediaService mediaService = null,
             IContentTypeService contentTypeService = null,
             IMediaTypeService mediaTypeService = null,
@@ -90,60 +88,55 @@ namespace Umbraco.Core.Services
             IMemberTypeService memberTypeService = null,
             IMemberService memberService = null,
             IUserService userService = null,
-            ISectionService sectionService = null,
-            IApplicationTreeService treeService = null,
             ITagService tagService = null,
             INotificationService notificationService = null,
             ILocalizedTextService localizedTextService = null,
             IAuditService auditService = null,
             IDomainService domainService = null,
-            ITaskService taskService = null,
             IMacroService macroService = null,
             IPublicAccessService publicAccessService = null,
             IExternalLoginService externalLoginService = null,
             IServerRegistrationService serverRegistrationService = null,
             IRedirectUrlService redirectUrlService = null,
-            IConsentService consentService = null)
+            IConsentService consentService = null,
+            IContentTypeBaseServiceProvider contentTypeBaseServiceProvider = null)
         {
-            if (serverRegistrationService != null) _serverRegistrationService = new Lazy<IServerRegistrationService>(() => serverRegistrationService);
-            if (externalLoginService != null) _externalLoginService = new Lazy<IExternalLoginService>(() => externalLoginService);
-            if (auditService != null) _auditService = new Lazy<IAuditService>(() => auditService);
-            if (localizedTextService != null) _localizedTextService = new Lazy<ILocalizedTextService>(() => localizedTextService);
-            if (tagService != null) _tagService = new Lazy<ITagService>(() => tagService);
-            if (contentService != null) _contentService = new Lazy<IContentService>(() => contentService);
-            if (mediaService != null) _mediaService = new Lazy<IMediaService>(() => mediaService);
-            if (contentTypeService != null) _contentTypeService = new Lazy<IContentTypeService>(() => contentTypeService);
-            if (mediaTypeService != null) _mediaTypeService = new Lazy<IMediaTypeService>(() => mediaTypeService);
-            if (dataTypeService != null) _dataTypeService = new Lazy<IDataTypeService>(() => dataTypeService);
-            if (fileService != null) _fileService = new Lazy<IFileService>(() => fileService);
-            if (localizationService != null) _localizationService = new Lazy<ILocalizationService>(() => localizationService);
-            if (packagingService != null) _packagingService = new Lazy<IPackagingService>(() => packagingService);
-            if (entityService != null) _entityService = new Lazy<IEntityService>(() => entityService);
-            if (relationService != null) _relationService = new Lazy<IRelationService>(() => relationService);
-            if (sectionService != null) _sectionService = new Lazy<ISectionService>(() => sectionService);
-            if (memberGroupService != null) _memberGroupService = new Lazy<IMemberGroupService>(() => memberGroupService);
-            if (memberTypeService != null) _memberTypeService = new Lazy<IMemberTypeService>(() => memberTypeService);
-            if (treeService != null) _treeService = new Lazy<IApplicationTreeService>(() => treeService);
-            if (memberService != null) _memberService = new Lazy<IMemberService>(() => memberService);
-            if (userService != null) _userService = new Lazy<IUserService>(() => userService);
-            if (notificationService != null) _notificationService = new Lazy<INotificationService>(() => notificationService);
-            if (domainService != null) _domainService = new Lazy<IDomainService>(() => domainService);
-            if (taskService != null) _taskService = new Lazy<ITaskService>(() => taskService);
-            if (macroService != null) _macroService = new Lazy<IMacroService>(() => macroService);
-            if (publicAccessService != null) _publicAccessService = new Lazy<IPublicAccessService>(() => publicAccessService);
-            if (redirectUrlService != null) _redirectUrlService = new Lazy<IRedirectUrlService>(() => redirectUrlService);
-            if (consentService != null) _consentService = new Lazy<IConsentService>(() => consentService);
+            Lazy<T> Lazy<T>(T service) => service == null ? null : new Lazy<T>(() => service);
+
+            return new ServiceContext(
+                Lazy(publicAccessService),
+                Lazy(domainService),
+                Lazy(auditService),
+                Lazy(localizedTextService),
+                Lazy(tagService),
+                Lazy(contentService),
+                Lazy(userService),
+                Lazy(memberService),
+                Lazy(mediaService),
+                Lazy(contentTypeService),
+                Lazy(mediaTypeService),
+                Lazy(dataTypeService),
+                Lazy(fileService),
+                Lazy(localizationService),
+                Lazy(packagingService),
+                Lazy(serverRegistrationService),
+                Lazy(entityService),
+                Lazy(relationService),
+                Lazy(macroService),
+                Lazy(memberTypeService),
+                Lazy(memberGroupService),
+                Lazy(notificationService),
+                Lazy(externalLoginService),
+                Lazy(redirectUrlService),
+                Lazy(consentService),
+                Lazy(contentTypeBaseServiceProvider)
+                );
         }
-        
+
         /// <summary>
         /// Gets the <see cref="IPublicAccessService"/>
         /// </summary>
         public IPublicAccessService PublicAccessService => _publicAccessService.Value;
-
-        /// <summary>
-        /// Gets the <see cref="ITaskService"/>
-        /// </summary>
-        public ITaskService TaskService => _taskService.Value;
 
         /// <summary>
         /// Gets the <see cref="IDomainService"/>
@@ -241,16 +234,6 @@ namespace Umbraco.Core.Services
         public IMemberService MemberService => _memberService.Value;
 
         /// <summary>
-        /// Gets the <see cref="SectionService"/>
-        /// </summary>
-        public ISectionService SectionService => _sectionService.Value;
-
-        /// <summary>
-        /// Gets the <see cref="ApplicationTreeService"/>
-        /// </summary>
-        public IApplicationTreeService ApplicationTreeService => _treeService.Value;
-
-        /// <summary>
         /// Gets the MemberTypeService
         /// </summary>
         public IMemberTypeService MemberTypeService => _memberTypeService.Value;
@@ -274,5 +257,10 @@ namespace Umbraco.Core.Services
         /// Gets the ConsentService.
         /// </summary>
         public IConsentService ConsentService => _consentService.Value;
+
+        /// <summary>
+        /// Gets the ContentTypeServiceBaseFactory.
+        /// </summary>
+        public IContentTypeBaseServiceProvider ContentTypeBaseServices => _contentTypeBaseServiceProvider.Value;
     }
 }

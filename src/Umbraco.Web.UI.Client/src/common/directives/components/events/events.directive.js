@@ -3,54 +3,6 @@
 **/
 angular.module('umbraco.directives')
 
-.directive('onKeyup', function () {
-    return {
-        link: function (scope, elm, attrs) {
-            var f = function () {
-                scope.$apply(attrs.onKeyup);
-            };
-            elm.on("keyup", f);
-            scope.$on("$destroy", function(){ elm.off("keyup", f);} );
-        }
-    };
-})
-
-.directive('onKeydown', function () {
-    return {
-        link: function (scope, elm, attrs) {
-            var f = function () {
-                scope.$apply(attrs.onKeydown);
-            };
-            elm.on("keydown", f);
-            scope.$on("$destroy", function(){ elm.off("keydown", f);} );
-        }
-    };
-})
-
-.directive('onBlur', function () {
-    return {
-        link: function (scope, elm, attrs) {
-            var f = function () {
-                scope.$apply(attrs.onBlur);
-            };
-            elm.on("blur", f);
-            scope.$on("$destroy", function(){ elm.off("blur", f);} );
-        }
-    };
-})
-
-.directive('onFocus', function () {
-    return {
-        link: function (scope, elm, attrs) {
-            var f = function () {
-                scope.$apply(attrs.onFocus);
-            };
-            elm.on("focus", f);
-            scope.$on("$destroy", function(){ elm.off("focus", f);} );
-        }
-    };
-})
-
 .directive('onDragEnter', function () {
     return {
         link: function (scope, elm, attrs) {
@@ -143,7 +95,7 @@ angular.module('umbraco.directives')
     };
 })
 
-.directive('onOutsideClick', function ($timeout) {
+.directive('onOutsideClick', function ($timeout, angularHelper) {
     return function (scope, element, attrs) {
 
         var eventBindings = [];
@@ -170,6 +122,12 @@ angular.module('umbraco.directives')
                 // ignore clicks in tinyMCE dropdown(floatpanel)
                 var floatpanel = $(event.target).closest(".mce-floatpanel");
                 if (floatpanel.length === 1) {
+                    return;
+                }
+
+                // ignore clicks in flatpickr datepicker
+                var flatpickr = $(event.target).closest(".flatpickr-calendar");
+                if (flatpickr.length === 1) {
                     return;
                 }
 
@@ -230,7 +188,7 @@ angular.module('umbraco.directives')
             e.stopPropagation();
             var fn = $parse(attrs.onRightClick);
             scope.$apply(function () {
-                fn(scope, { $event: event });
+                fn(scope, { $event: e });
             });
             return false;
         });

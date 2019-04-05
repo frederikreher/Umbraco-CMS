@@ -1,13 +1,10 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Web;
-using LightInject;
-using Semver;
 using Umbraco.Core;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.IO;
@@ -15,28 +12,25 @@ using Umbraco.Core.Logging;
 using Umbraco.Core.Migrations.Install;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.SqlSyntax;
-using Umbraco.Core.Scoping;
-using Umbraco.Core.Services;
-using Umbraco.Web.Cache;
 using Umbraco.Web.Composing;
-using Umbraco.Web.Install.InstallSteps;
 using Umbraco.Web.Install.Models;
 
 namespace Umbraco.Web.Install
 {
     public sealed class InstallHelper
     {
+        private static HttpClient _httpClient;
         private readonly DatabaseBuilder _databaseBuilder;
         private readonly HttpContextBase _httpContext;
         private readonly ILogger _logger;
         private readonly IGlobalSettings _globalSettings;
         private InstallationType? _installationType;
 
-        public InstallHelper(UmbracoContext umbracoContext,
+        public InstallHelper(IUmbracoContextAccessor umbracoContextAccessor,
             DatabaseBuilder databaseBuilder,
             ILogger logger, IGlobalSettings globalSettings)
         {
-            _httpContext = umbracoContext.HttpContext;
+            _httpContext = umbracoContextAccessor.UmbracoContext.HttpContext;
             _logger = logger;
             _globalSettings = globalSettings;
             _databaseBuilder = databaseBuilder;
@@ -45,31 +39,6 @@ namespace Umbraco.Web.Install
         public InstallationType GetInstallationType()
         {
             return _installationType ?? (_installationType = IsBrandNewInstall ? InstallationType.NewInstall : InstallationType.Upgrade).Value;
-        }
-
-        internal static void DeleteLegacyInstaller()
-        {
-            if (Directory.Exists(IOHelper.MapPath(SystemDirectories.Install)))
-            {
-                if (Directory.Exists(IOHelper.MapPath("~/app_data/temp/install_backup")))
-                {
-                    //this means the backup already exists with files but there's no files in it, so we'll delete the backup and re-run it
-                    if (Directory.GetFiles(IOHelper.MapPath("~/app_data/temp/install_backup")).Any() == false)
-                    {
-                        Directory.Delete(IOHelper.MapPath("~/app_data/temp/install_backup"), true);
-                        Directory.Move(IOHelper.MapPath(SystemDirectories.Install), IOHelper.MapPath("~/app_data/temp/install_backup"));
-                    }
-                }
-                else
-                {
-                    Directory.Move(IOHelper.MapPath(SystemDirectories.Install), IOHelper.MapPath("~/app_data/temp/install_backup"));
-                }
-            }
-
-            if (Directory.Exists(IOHelper.MapPath("~/Areas/UmbracoInstall")))
-            {
-                Directory.Delete(IOHelper.MapPath("~/Areas/UmbracoInstall"), true);
-            }
         }
 
         internal void InstallStatus(bool isCompleted, string errorMsg)
@@ -109,14 +78,14 @@ namespace Umbraco.Web.Install
                     UmbracoVersion.Current.Major,
                     UmbracoVersion.Current.Minor,
                     UmbracoVersion.Current.Build,
-                    UmbracoVersion.CurrentComment,
+                    UmbracoVersion.Comment,
                     errorMsg,
                     userAgent,
                     dbProvider);
             }
             catch (Exception ex)
             {
-                _logger.Error<InstallHelper>("An error occurred in InstallStatus trying to check upgrades", ex);
+                _logger.Error<InstallHelper>(ex, "An error occurred in InstallStatus trying to check upgrades");
             }
         }
 
@@ -131,8 +100,6 @@ namespace Umbraco.Web.Install
             var syntax = sqlContext.SqlSyntax;
             if (syntax is SqlCeSyntaxProvider)
                 dbProvider = "SqlServerCE";
-            else if (syntax is MySqlSyntaxProvider)
-                dbProvider = "MySql";
             else if (syntax is SqlServerSyntaxProvider)
                 dbProvider = (syntax as SqlServerSyntaxProvider).ServerVersion.IsAzure ? "SqlAzure" : "SqlServer";
 
@@ -168,22 +135,23 @@ namespace Umbraco.Web.Install
 
         internal IEnumerable<Package> GetStarterKits()
         {
-            var packages = new List<Package>();
+            if (_httpClient == null)
+                _httpClient = new HttpClient();
 
+            var packages = new List<Package>();
             try
             {
-                var requestUri = $"http://our.umbraco.org/webapi/StarterKit/Get/?umbracoVersion={UmbracoVersion.Current}";
+                var requestUri = $"https://our.umbraco.com/webapi/StarterKit/Get/?umbracoVersion={UmbracoVersion.Current}";
 
                 using (var request = new HttpRequestMessage(HttpMethod.Get, requestUri))
-                using (var httpClient = new HttpClient())
-                using (var response = httpClient.SendAsync(request).Result)
                 {
+                    var response = _httpClient.SendAsync(request).Result;
                     packages = response.Content.ReadAsAsync<IEnumerable<Package>>().Result.ToList();
                 }
             }
             catch (AggregateException ex)
             {
-                _logger.Error<InstallHelper>("Could not download list of available starter kits", ex);
+                _logger.Error<InstallHelper>(ex, "Could not download list of available starter kits");
             }
 
             return packages;

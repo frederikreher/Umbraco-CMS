@@ -8,28 +8,30 @@
                 name="vm.page.name"
                 name-locked="true"
                 on-back="vm.back()"
-                show-back-button="true"
+                show-back-button="vm.showBackButton"
                 hide-icon="true"
                 hide-description="true"
                 hide-alias="true">
             </umb-editor-header>
     
-            <umb-editor-container>
+            <umb-editor-container class="form-horizontal">
 
                 <umb-load-indicator ng-if="vm.loading"></umb-load-indicator>
 
-                <umb-box ng-if="!vm.loading" class="block-form">
+                <umb-box ng-if="!vm.loading">
                     <umb-box-content>
 
                         <umb-control-group label="@general_language" ng-if="vm.availableCultures">
                             <select name="newLang"
                                     class="input-block-level"
                                     ng-model="vm.language.culture"
-                                    ng-options="key as value for (key, value) in vm.availableCultures"
+                                    ng-options="culture.name as culture.displayName for culture in vm.availableCultures"
                                     val-server-field="IsoCode"
                                     required></select>
-                            <span class="help-inline" val-msg-for="newLang" val-toggle-msg="required">Required</span>
-                            <span class="help-inline" val-msg-for="newLang" val-toggle-msg="valServerField"></span>
+                            <span ng-messages="editLanguageForm.newLang.$error" show-validation-on-submit >
+                                <span class="help-inline" ng-message="required">Required</span>
+                                <span class="help-inline" ng-message="valServerField">{{editLanguageForm.newLang.errorMsg}}</span>
+                            </span>                            
                         </umb-control-group>
 
                         <umb-control-group label="@general_settings">
@@ -37,7 +39,8 @@
                             <div class="umb-permission" ng-click="vm.toggleDefault()" ng-class="{'umb-permission--disabled': vm.initIsDefault}">
                                 <umb-toggle
                                     class="umb-permission__toggle"
-                                    checked="vm.language.isDefault">
+                                    checked="vm.language.isDefault"
+                                    disabled="vm.initIsDefault">
                                 </umb-toggle>
                                 <div class="umb-permission__content" >
                                     <div>{{vm.labels.defaultLanguage}}</div>
@@ -45,7 +48,7 @@
                                 </div>
                             </div>
 
-                            <div class="umb-permission" ng-click="vm.toggleMandatory()" ng-class="{'umb-permission--disabled': vm.language.isDefault}">
+                            <div class="umb-permission" ng-click="vm.toggleMandatory()">
                                 <umb-toggle
                                     class="umb-permission__toggle"
                                     checked="vm.language.isMandatory">
@@ -61,6 +64,16 @@
                             </div>
 
                         </umb-control-group>
+
+                        <umb-property property="properties.fallbackLanguage">
+                            <div>
+                                <select name="fallbackLanguage"
+                                        ng-model="vm.language.fallbackLanguageId"
+                                        ng-options="l.id as l.name for l in vm.availableLanguages">
+                                    <option value="">{{vm.labels.noFallbackLanguageOption}}</option>
+                                </select>
+                            </div>
+                        </umb-property>
 
                     </umb-box-content>
                 </umb-box>

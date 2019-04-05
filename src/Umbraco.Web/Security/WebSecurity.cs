@@ -1,33 +1,29 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
 using System.Security;
 using System.Web;
-using System.Web.Security;
-using AutoMapper;
 using Umbraco.Core;
 using Umbraco.Core.Services;
-using Umbraco.Core.Logging;
 using Umbraco.Core.Models.Membership;
 using Umbraco.Core.Security;
 using Microsoft.AspNet.Identity.Owin;
 using Microsoft.Owin;
 using Umbraco.Core.Configuration;
+using Umbraco.Core.Composing;
 using Umbraco.Core.IO;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.Identity;
-using Umbraco.Web.Composing;
-using GlobalSettings = Umbraco.Core.Configuration.GlobalSettings;
+using Current = Umbraco.Web.Composing.Current;
 
 namespace Umbraco.Web.Security
 {
     /// <summary>
     /// A utility class used for dealing with USER security in Umbraco
     /// </summary>
-    public class WebSecurity : DisposableObjectSlim
+    public class WebSecurity
     {
-        private HttpContextBase _httpContext;
+        private readonly HttpContextBase _httpContext;
         private readonly IUserService _userService;
         private readonly IGlobalSettings _globalSettings;
 
@@ -37,30 +33,7 @@ namespace Umbraco.Web.Security
             _userService = userService;
             _globalSettings = globalSettings;
         }
-
-        /// <summary>
-        /// Returns true or false if the currently logged in member is authorized based on the parameters provided
-        /// </summary>
-        /// <param name="allowAll"></param>
-        /// <param name="allowTypes"></param>
-        /// <param name="allowGroups"></param>
-        /// <param name="allowMembers"></param>
-        /// <returns></returns>
-        [Obsolete("Use MembershipHelper.IsMemberAuthorized instead")]
-        public bool IsMemberAuthorized(
-            bool allowAll = false,
-            IEnumerable<string> allowTypes = null,
-            IEnumerable<string> allowGroups = null,
-            IEnumerable<int> allowMembers = null)
-        {
-            if (Current.UmbracoContext == null)
-            {
-                return false;
-            }
-            var helper = new MembershipHelper(Current.UmbracoContext);
-            return helper.IsMemberAuthorized(allowAll, allowTypes, allowGroups, allowMembers);
-        }
-
+        
         private IUser _currentUser;
 
         /// <summary>
@@ -175,7 +148,7 @@ namespace Umbraco.Web.Security
         }
 
         /// <summary>
-        /// Gets the currnet user's id.
+        /// Gets the current user's id.
         /// </summary>
         /// <returns></returns>
         public virtual Attempt<int> GetUserId()
@@ -227,7 +200,7 @@ namespace Umbraco.Web.Security
             // Check for console access
             if (user == null || (requiresApproval && user.IsApproved == false) || (user.IsLockedOut && RequestIsInUmbracoApplication(_httpContext)))
             {
-                if (throwExceptions) throw new ArgumentException("You have no priviledges to the umbraco console. Please contact your administrator");
+                if (throwExceptions) throw new ArgumentException("You have no privileges to the umbraco console. Please contact your administrator");
                 return ValidateRequestAttempt.FailedNoPrivileges;
             }
             return ValidateRequestAttempt.Success;
@@ -288,12 +261,8 @@ namespace Umbraco.Web.Security
         /// <returns></returns>
         public bool IsAuthenticated()
         {
-            return _httpContext.User.Identity.IsAuthenticated && _httpContext.GetCurrentIdentity(false) != null;
+            return _httpContext.User != null && _httpContext.User.Identity.IsAuthenticated && _httpContext.GetCurrentIdentity(false) != null;
         }
-
-        protected override void DisposeResources()
-        {
-            _httpContext = null;
-        }
+        
     }
 }

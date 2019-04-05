@@ -18,10 +18,24 @@ namespace Umbraco.Core.Migrations
             AddColumn(table, table.Name, columnName);
         }
 
+        protected void AddColumnIfNotExists<T>(IEnumerable<ColumnInfo> columns, string columnName)
+        {
+            var table = DefinitionFactory.GetTableDefinition(typeof(T), SqlSyntax);
+            if (columns.Any(x => x.TableName.InvariantEquals(table.Name) && !x.ColumnName.InvariantEquals(columnName)))
+                AddColumn(table, table.Name, columnName);
+        }
+
         protected void AddColumn<T>(string tableName, string columnName)
         {
             var table = DefinitionFactory.GetTableDefinition(typeof(T), SqlSyntax);
             AddColumn(table, tableName, columnName);
+        }
+
+        protected void AddColumnIfNotExists<T>(IEnumerable<ColumnInfo> columns, string tableName, string columnName)
+        {
+            var table = DefinitionFactory.GetTableDefinition(typeof(T), SqlSyntax);
+            if (columns.Any(x => x.TableName.InvariantEquals(tableName) && !x.ColumnName.InvariantEquals(columnName)))
+                AddColumn(table, tableName, columnName);
         }
 
         private void AddColumn(TableDefinition table, string tableName, string columnName)
@@ -82,16 +96,20 @@ namespace Umbraco.Core.Migrations
             return tables.Any(x => x.InvariantEquals(tableName));
         }
 
+        protected bool IndexExists(string indexName)
+        {
+            var indexes = SqlSyntax.GetDefinedIndexes(Context.Database);
+            return indexes.Any(x => x.Item2.InvariantEquals(indexName));
+        }
+
         protected bool ColumnExists(string tableName, string columnName)
         {
-            // that's ok even on MySql
             var columns = SqlSyntax.GetColumnsInSchema(Context.Database).Distinct().ToArray();
             return columns.Any(x => x.TableName.InvariantEquals(tableName) && x.ColumnName.InvariantEquals(columnName));
         }
 
         protected string ColumnType(string tableName, string columnName)
         {
-            // that's ok even on MySql
             var columns = SqlSyntax.GetColumnsInSchema(Context.Database).Distinct().ToArray();
             var column = columns.FirstOrDefault(x => x.TableName.InvariantEquals(tableName) && x.ColumnName.InvariantEquals(columnName));
             return column?.DataType;

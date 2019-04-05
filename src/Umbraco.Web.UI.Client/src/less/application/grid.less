@@ -41,9 +41,9 @@ body {
 
 #mainwrapper {
   position: absolute;
-  top: 0; 
-  left: 0; 
-  right: 0; 
+  top: 0;
+  left: 0;
+  right: 0;
   bottom: 0;
   margin: 0;
 }
@@ -56,14 +56,10 @@ body.umb-drawer-is-visible #mainwrapper{
   position: absolute;
   top: 0px;
   bottom: 0px;
-  right: 0px; 
+  right: 0px;
   left: 0px;
   z-index: 10;
-  margin: 0
-}
-
-#umb-notifications-wrapper {
-    left: 80px;
+  margin: 0;
 }
 
 #contentcolumn {
@@ -124,10 +120,6 @@ body.umb-drawer-is-visible #mainwrapper{
   height: 100%;
 }
 
-#tree .umb-tree {
-    padding: 0px 0px 20px 0px;
-}
-
 #search-results {
   z-index: 200;
 }
@@ -155,26 +147,31 @@ body.umb-drawer-is-visible #mainwrapper{
 }
 
 .ui-resizable-e {
-    cursor: e-resize;
-    width: 4px;
+    cursor: col-resize;
+    width: 10px;
     right: -5px;
     top: 0;
     bottom: 0;
-    background-color: @gray-10;
-    border: solid 1px @purple-l3;
-    border-top: none;
-    border-bottom: none;
     position:absolute;
     z-index:9999 !important;
+
+    &:hover::after {
+        content: '';
+        position: absolute;
+        background-color: @gray-8;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        right: 5px;
+    }
 }
 
 @media (min-width: 1101px) {
-  #contentwrapper, #umb-notifications-wrapper {left: 360px;}
-  #speechbubble {left: 360px;}
+  #contentwrapper, #speechbubble {left: 360px;}
+  .emptySection #contentwrapper {left:0px;}
 }
 
 //empty section modification
-.emptySection #umb-notifications-wrapper {left: 80px;}
 .emptySection #speechbubble {left: 0;}
 .emptySection #navigation {display: none}
 

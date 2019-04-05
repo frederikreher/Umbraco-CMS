@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Web.Mvc;
-using Umbraco.Core;
 using Umbraco.Core.Cache;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models.PublishedContent;
 using Umbraco.Core.Services;
@@ -23,10 +23,16 @@ namespace Umbraco.Web.Mvc
             ActionInvoker = new RenderActionInvoker();
         }
 
+        public RenderMvcController(IGlobalSettings globalSettings, IUmbracoContextAccessor umbracoContextAccessor, ServiceContext services, AppCaches appCaches, IProfilingLogger profilingLogger, UmbracoHelper umbracoHelper)
+            : base(globalSettings, umbracoContextAccessor, services, appCaches, profilingLogger, umbracoHelper)
+        {
+            ActionInvoker = new RenderActionInvoker();
+        }
+
         /// <summary>
         /// Gets the Umbraco context.
         /// </summary>
-        public override UmbracoContext UmbracoContext => PublishedRequest.UmbracoContext;
+        public override UmbracoContext UmbracoContext => PublishedRequest.UmbracoContext; //TODO: Why?
 
         /// <summary>
         /// Gets the current content item.
@@ -60,7 +66,7 @@ namespace Umbraco.Web.Mvc
             var result = ViewEngines.Engines.FindView(ControllerContext, template, null);
             if (result.View != null) return true;
 
-            Logger.Warn<RenderMvcController>("No physical template file was found for template " + template);
+            Logger.Warn<RenderMvcController>("No physical template file was found for template {Template}", template);
             return false;
         }
 

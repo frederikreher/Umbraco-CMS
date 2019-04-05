@@ -227,7 +227,7 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="dictionaryItem"><see cref="IDictionaryItem"/> to save</param>
         /// <param name="userId">Optional id of the user saving the dictionary item</param>
-        public void Save(IDictionaryItem dictionaryItem, int userId = 0)
+        public void Save(IDictionaryItem dictionaryItem, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -245,7 +245,7 @@ namespace Umbraco.Core.Services.Implement
                 EnsureDictionaryItemLanguageCallback(dictionaryItem);
                 scope.Events.Dispatch(SavedDictionaryItem, this, new SaveEventArgs<IDictionaryItem>(dictionaryItem, false));
 
-                Audit(AuditType.Save, "Save DictionaryItem performed by user", userId, dictionaryItem.Id);
+                Audit(AuditType.Save, "Save DictionaryItem", userId, dictionaryItem.Id, "DictionaryItem");
                 scope.Complete();
             }
         }
@@ -256,7 +256,7 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="dictionaryItem"><see cref="IDictionaryItem"/> to delete</param>
         /// <param name="userId">Optional id of the user deleting the dictionary item</param>
-        public void Delete(IDictionaryItem dictionaryItem, int userId = 0)
+        public void Delete(IDictionaryItem dictionaryItem, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -271,7 +271,7 @@ namespace Umbraco.Core.Services.Implement
                 deleteEventArgs.CanCancel = false;
                 scope.Events.Dispatch(DeletedDictionaryItem, this, deleteEventArgs);
 
-                Audit(AuditType.Delete, "Delete DictionaryItem performed by user", userId, dictionaryItem.Id);
+                Audit(AuditType.Delete, "Delete DictionaryItem", userId, dictionaryItem.Id, "DictionaryItem");
 
                 scope.Complete();
             }
@@ -356,10 +356,23 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="language"><see cref="ILanguage"/> to save</param>
         /// <param name="userId">Optional id of the user saving the language</param>
-        public void Save(ILanguage language, int userId = 0)
+        public void Save(ILanguage language, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
+                // write-lock languages to guard against race conds when dealing with default language
+                scope.WriteLock(Constants.Locks.Languages);
+
+                // look for cycles - within write-lock
+                if (language.FallbackLanguageId.HasValue)
+                {
+                    var languages = _languageRepository.GetMany().ToDictionary(x => x.Id, x => x);
+                    if (!languages.ContainsKey(language.FallbackLanguageId.Value))
+                        throw new InvalidOperationException($"Cannot save language {language.IsoCode} with fallback id={language.FallbackLanguageId.Value} which is not a valid language id.");
+                    if (CreatesCycle(language, languages))
+                        throw new InvalidOperationException($"Cannot save language {language.IsoCode} with fallback {languages[language.FallbackLanguageId.Value].IsoCode} as it would create a fallback cycle.");
+                }
+
                 var saveEventArgs = new SaveEventArgs<ILanguage>(language);
                 if (scope.Events.DispatchCancelable(SavingLanguage, this, saveEventArgs))
                 {
@@ -371,9 +384,23 @@ namespace Umbraco.Core.Services.Implement
                 saveEventArgs.CanCancel = false;
                 scope.Events.Dispatch(SavedLanguage, this, saveEventArgs);
 
-                Audit(AuditType.Save, "Save Language performed by user", userId, language.Id);
+                Audit(AuditType.Save, "Save Language", userId, language.Id, ObjectTypes.GetName(UmbracoObjectTypes.Language));
 
                 scope.Complete();
+            }
+        }
+
+        private bool CreatesCycle(ILanguage language, IDictionary<int, ILanguage> languages)
+        {
+            // a new language is not referenced yet, so cannot be part of a cycle
+            if (!language.HasIdentity) return false;
+
+            var id = language.FallbackLanguageId;
+            while (true) // assuming languages does not already contains a cycle, this must end
+            {
+                if (!id.HasValue) return false; // no fallback means no cycle
+                if (id.Value == language.Id) return true; // back to language = cycle!
+                id = languages[id.Value].FallbackLanguageId; // else keep chaining
             }
         }
 
@@ -382,10 +409,13 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="language"><see cref="ILanguage"/> to delete</param>
         /// <param name="userId">Optional id of the user deleting the language</param>
-        public void Delete(ILanguage language, int userId = 0)
+        public void Delete(ILanguage language, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
+                // write-lock languages to guard against race conds when dealing with default language
+                scope.WriteLock(Constants.Locks.Languages);
+
                 var deleteEventArgs = new DeleteEventArgs<ILanguage>(language);
                 if (scope.Events.DispatchCancelable(DeletingLanguage, this, deleteEventArgs))
                 {
@@ -393,27 +423,26 @@ namespace Umbraco.Core.Services.Implement
                     return;
                 }
 
-                //NOTE: There isn't any constraints in the db, so possible references aren't deleted
-
+                // NOTE: Other than the fall-back language, there aren't any other constraints in the db, so possible references aren't deleted
                 _languageRepository.Delete(language);
                 deleteEventArgs.CanCancel = false;
 
                 scope.Events.Dispatch(DeletedLanguage, this, deleteEventArgs);
 
-                Audit(AuditType.Delete, "Delete Language performed by user", userId, language.Id);
+                Audit(AuditType.Delete, "Delete Language", userId, language.Id, ObjectTypes.GetName(UmbracoObjectTypes.Language));
                 scope.Complete();
             }
         }
 
-        private void Audit(AuditType type, string message, int userId, int objectId)
+        private void Audit(AuditType type, string message, int userId, int objectId, string entityType)
         {
-            _auditRepository.Save(new AuditItem(objectId, message, type, userId));
+            _auditRepository.Save(new AuditItem(objectId, type, userId, entityType, message));
         }
 
         /// <summary>
         /// This is here to take care of a hack - the DictionaryTranslation model contains an ILanguage reference which we don't want but
         /// we cannot remove it because it would be a large breaking change, so we need to make sure it's resolved lazily. This is because
-        /// if developers have a lot of dictionary items and translations, the caching and cloning size gets much much larger because of
+        /// if developers have a lot of dictionary items and translations, the caching and cloning size gets much larger because of
         /// the large object graphs. So now we don't cache or clone the attached ILanguage
         /// </summary>
         private void EnsureDictionaryItemLanguageCallback(IDictionaryItem d)

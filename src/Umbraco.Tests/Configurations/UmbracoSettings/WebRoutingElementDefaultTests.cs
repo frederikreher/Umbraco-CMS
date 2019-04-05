@@ -14,13 +14,19 @@ namespace Umbraco.Tests.Configurations.UmbracoSettings
         [Test]
         public override void UrlProviderMode()
         {
-            Assert.IsTrue(SettingsSection.WebRouting.UrlProviderMode == "AutoLegacy");
+            Assert.IsTrue(SettingsSection.WebRouting.UrlProviderMode == "Auto");
         }
 
         [Test]
         public void DisableAlternativeTemplates()
         {
             Assert.IsTrue(SettingsSection.WebRouting.DisableAlternativeTemplates == false);
+        }
+
+        [Test]
+        public void ValidateAlternativeTemplates()
+        {
+            Assert.IsTrue(SettingsSection.WebRouting.ValidateAlternativeTemplates == false);
         }
 
         [Test]

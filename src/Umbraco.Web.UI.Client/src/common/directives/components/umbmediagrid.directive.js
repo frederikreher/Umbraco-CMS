@@ -125,12 +125,26 @@ Use this directive to generate a thumbnail grid of media items.
                         i--;
                     }
 
-                }
 
+                    // If subfolder search is not enabled remove the media items that's not needed
+                    // Make sure that includeSubFolder is not undefined since the directive is used
+                    // in contexts where it should not be used. Currently only used when we trigger
+                    // a media picker
+                    if(scope.includeSubFolders !== undefined){
+                        if (scope.includeSubFolders !== 'true') {
+                            if (item.parentId !== parseInt(scope.currentFolderId)) {
+                                scope.items.splice(i, 1);
+                                i--;
+                            }
+                        }
+                    }
+
+                }
+                
                 if (scope.items.length > 0) {
                     setFlexValues(scope.items);
                 }
-
+                
             }
 
             function setItemData(item) {
@@ -143,8 +157,9 @@ Use this directive to generate a thumbnail grid of media items.
                     item.isFolder = !mediaHelper.hasFilePropertyType(item);
                 }
 
-                if (!item.isFolder) {
-                    
+                // if it's not a folder, get the thumbnail, extension etc. if we haven't already
+                if (!item.isFolder && !item.thumbnail) {
+
                     // handle entity
                     if(item.image) {
                         item.thumbnail = mediaHelper.resolveFileFromEntity(item, true);
@@ -153,7 +168,7 @@ Use this directive to generate a thumbnail grid of media items.
                     } else {
                         item.thumbnail = mediaHelper.resolveFile(item, true);
                         item.image = mediaHelper.resolveFile(item, false);
-                        
+
                         var fileProp = _.find(item.properties, function (v) {
                             return (v.alias === "umbracoFile");
                         });
@@ -221,7 +236,7 @@ Use this directive to generate a thumbnail grid of media items.
                 }
 
             }
-
+            
             function setFlexValues(mediaItems) {
 
                 var flexSortArray = mediaItems;
@@ -255,12 +270,12 @@ Use this directive to generate a thumbnail grid of media items.
                         "min-height": itemMinHeight + "px"
                     };
 
-                    mediaItem.flexStyle = flexStyle;
+                        mediaItem.flexStyle = flexStyle;
 
                 }
 
             }
-
+            
             scope.clickItem = function(item, $event, $index) {
                 if (scope.onClick) {
                     scope.onClick(item, $event, $index);
@@ -316,7 +331,9 @@ Use this directive to generate a thumbnail grid of media items.
                 itemMaxHeight: "@",
                 itemMinWidth: "@",
                 itemMinHeight: "@",
-                onlyImages: "@"
+                onlyImages: "@",
+                includeSubFolders: "@",
+                currentFolderId: "@"
             },
             link: link
         };

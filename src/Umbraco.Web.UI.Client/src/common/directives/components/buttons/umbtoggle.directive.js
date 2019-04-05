@@ -18,6 +18,7 @@
 
         <umb-toggle
             checked="vm.checked"
+            disabled="vm.disabled"
             on-click="vm.toggle()"
             show-labels="true"
             label-on="Start"
@@ -38,6 +39,7 @@
 
             var vm = this;
             vm.checked = false;
+            vm.disabled = false;
 
             vm.toggle = toggle;
 
@@ -64,7 +66,7 @@
 (function () {
     'use strict';
 
-    function ToggleDirective(localizationService) {
+    function ToggleDirective(localizationService, eventsService) {
 
         function link(scope, el, attr, ctrl) {
 
@@ -73,6 +75,7 @@
 
             function onInit() {
                 setLabelText();
+                eventsService.emit("toggleValue", { value: scope.checked });
             }
 
             function setLabelText() {
@@ -98,7 +101,8 @@
             }
 
             scope.click = function() {
-                if(scope.onClick) {
+                if (scope.onClick) {
+                    eventsService.emit("toggleValue", { value: !scope.checked });
                     scope.onClick();
                 }
             };
@@ -113,6 +117,7 @@
             templateUrl: 'views/components/buttons/umb-toggle.html',
             scope: {
                 checked: "=",
+                disabled: "=",
                 onClick: "&",
                 labelOn: "@?",
                 labelOff: "@?",

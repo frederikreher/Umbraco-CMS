@@ -5,8 +5,9 @@ using System.ComponentModel.DataAnnotations;
 using System.Web;
 using System.Web.Mvc;
 using Umbraco.Core;
-using Umbraco.Web.Composing;
+using Umbraco.Core.Composing;
 using Umbraco.Web.Security;
+using Current = Umbraco.Web.Composing.Current;
 
 namespace Umbraco.Web.Models
 {
@@ -31,19 +32,15 @@ namespace Umbraco.Web.Models
             CreatePersistentLoginCookie = true;
             if (doLookup && Current.UmbracoContext != null)
             {
-                var helper = new MembershipHelper(Current.UmbracoContext);
+                var helper = Current.Factory.GetInstance<MembershipHelper>();
                 var model = helper.CreateRegistrationModel(MemberTypeAlias);
                 MemberProperties = model.MemberProperties;
             }
         }
 
-        [Obsolete("Do not use this ctor as it will perform business logic lookups. Use the MembershipHelper.CreateRegistrationModel or the static RegisterModel.CreateModel() to create an empty model.")]
-        public RegisterModel()
-            : this(true)
-        { }
 
         [Required]
-        [RegularExpression(@"[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?",
+        [RegularExpression(@"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?",
             ErrorMessage = "Please enter a valid e-mail address")]
         public string Email { get; set; }
 
@@ -80,7 +77,7 @@ namespace Umbraco.Web.Models
         public bool UsernameIsEmail { get; set; }
 
         /// <summary>
-        /// Specifies if the member should be logged in if they are succesfully created
+        /// Specifies if the member should be logged in if they are successfully created
         /// </summary>
         public bool LoginOnSuccess { get; set; }
 

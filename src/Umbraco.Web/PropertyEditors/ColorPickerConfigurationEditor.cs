@@ -17,38 +17,84 @@ namespace Umbraco.Web.PropertyEditors
 
             // customize the items field
             items.View = "views/propertyeditors/colorpicker/colorpicker.prevalues.html";
-            items.Description = "Add and remove colors";
-            items.Name = "Add color";
+            items.Description = "Add, remove or sort colors";
+            items.Name = "Colors";
             items.Validators.Add(new ColorListValidator());
         }
 
         public override Dictionary<string, object> ToConfigurationEditor(ColorPickerConfiguration configuration)
         {
-            var items = configuration?.Items.ToDictionary(x => x.Id.ToString(), x => GetItemValue(x, configuration.UseLabel)) ?? new object();
+            var configuredItems = configuration?.Items; // ordered
+            object editorItems;
+
+            if (configuredItems == null)
+            {
+                editorItems = new object();
+            }
+            else
+            {
+                var d = new Dictionary<string, object>();
+                editorItems = d;
+                var sortOrder = 0;
+                foreach (var item in configuredItems)
+                   d[item.Id.ToString()] = GetItemValue(item, configuration.UseLabel, sortOrder++);
+            }
+
             var useLabel = configuration?.UseLabel ?? false;
 
             return new Dictionary<string, object>
             {
-                { "items", items },
+                { "items", editorItems },
                 { "useLabel", useLabel }
             };
         }
 
-        private object GetItemValue(ValueListConfiguration.ValueListItem item, bool useLabel)
+        private object GetItemValue(ValueListConfiguration.ValueListItem item, bool useLabel, int sortOrder)
         {
-            if (useLabel)
+            // in:  ValueListItem, Id = <id>, Value = <color> | { "value": "<color>", "label": "<label>" }
+            //                                        (depending on useLabel)
+            // out: { "value": "<color>", "label": "<label>", "sortOrder": <sortOrder> }
+
+            var v = new ItemValue
             {
-                return item.Value.DetectIsJson()
-                    ? JsonConvert.DeserializeObject(item.Value)
-                    : new JObject { { "color", item.Value }, { "label", item.Value } };
+                Color = item.Value,
+                Label = item.Value,
+                SortOrder = sortOrder
+            };
+
+            if (item.Value.DetectIsJson())
+            {
+                try
+                {
+                    var o = JsonConvert.DeserializeObject<ItemValue>(item.Value);
+                    o.SortOrder = sortOrder;
+                    return o;
+                }
+                catch
+                {
+                    // parsing Json failed, don't do anything, get the value (sure?)
+                    return new ItemValue { Color = item.Value, Label = item.Value, SortOrder = sortOrder };
+                }
             }
 
-            if (!item.Value.DetectIsJson())
-                return item.Value;
-
-            var jobject = (JObject) JsonConvert.DeserializeObject(item.Value);
-            return jobject.Property("color").Value.Value<string>();
+            return new ItemValue { Color = item.Value, Label = item.Value, SortOrder = sortOrder };
         }
+
+        // represents an item we are exchanging with the editor
+        private class ItemValue
+        {
+            [JsonProperty("value")]
+            public string Color { get; set; }
+
+            [JsonProperty("label")]
+            public string Label { get; set; }
+
+            [JsonProperty("sortOrder")]
+            public int SortOrder { get; set; }
+        }
+
+        // send: { "items": { "<id>": { "value": "<color>", "label": "<label>", "sortOrder": <sortOrder> } , ... }, "useLabel": <bool> }
+        // recv: { "items": ..., "useLabel": <bool> }
 
         public override ColorPickerConfiguration FromConfigurationEditor(IDictionary<string, object> editorValues, ColorPickerConfiguration configuration)
         {
@@ -59,29 +105,32 @@ namespace Umbraco.Web.PropertyEditors
 
             // handle useLabel
             if (editorValues.TryGetValue("useLabel", out var useLabelObj))
-                output.UseLabel = useLabelObj.TryConvertTo<bool>();
+            {
+                var convertBool = useLabelObj.TryConvertTo<bool>();
+                if (convertBool.Success)
+                    output.UseLabel = convertBool.Result;
+            }   
 
             // auto-assigning our ids, get next id from existing values
             var nextId = 1;
             if (configuration?.Items != null && configuration.Items.Count > 0)
                 nextId = configuration.Items.Max(x => x.Id) + 1;
 
-            // create ValueListItem instances - sortOrder is ignored here
+            // create ValueListItem instances - ordered (items get submitted in the sorted order)
             foreach (var item in jItems.OfType<JObject>())
             {
+                // in:  { "value": "<color>", "id": <id>, "label": "<label>" }
+                // out: ValueListItem, Id = <id>, Value = <color> | { "value": "<color>", "label": "<label>" }
+                //                                        (depending on useLabel)
+
                 var value = item.Property("value")?.Value?.Value<string>();
                 if (string.IsNullOrWhiteSpace(value)) continue;
 
                 var id = item.Property("id")?.Value?.Value<int>() ?? 0;
                 if (id >= nextId) nextId = id + 1;
 
-                // if using a label, replace color by json blob
-                // (a pity we have to serialize here!)
-                if (output.UseLabel)
-                {
-                    var label = item.Property("label")?.Value?.Value<string>();
-                    value = JsonConvert.SerializeObject(new { value, label });
-                }
+                var label = item.Property("label")?.Value?.Value<string>();
+                value = JsonConvert.SerializeObject(new { value, label });
 
                 output.Items.Add(new ValueListConfiguration.ValueListItem { Id = id, Value = value });
             }

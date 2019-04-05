@@ -2,9 +2,9 @@
 using System.Web.Mvc;
 using Umbraco.Web.Routing;
 using Umbraco.Core;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Models.PublishedContent;
-using LightInject;
-using Umbraco.Web.Composing;
+using Current = Umbraco.Web.Composing.Current;
 
 namespace Umbraco.Web.Mvc
 {
@@ -14,7 +14,7 @@ namespace Umbraco.Web.Mvc
     /// </summary>
     /// <remarks>
     /// This is inspired from this discussion:
-    /// http://our.umbraco.org/forum/developers/extending-umbraco/41367-Umbraco-6-MVC-Custom-MVC-Route?p=3
+    /// https://our.umbraco.com/forum/developers/extending-umbraco/41367-Umbraco-6-MVC-Custom-MVC-Route?p=3
     ///
     /// which is based on custom routing found here:
     /// http://shazwazza.com/post/Custom-MVC-routing-in-Umbraco
@@ -22,19 +22,18 @@ namespace Umbraco.Web.Mvc
     public class EnsurePublishedContentRequestAttribute : ActionFilterAttribute
     {
         private readonly string _dataTokenName;
-        private UmbracoContext _umbracoContext;
+        private IUmbracoContextAccessor _umbracoContextAccessor;
         private readonly int? _contentId;
         private UmbracoHelper _helper;
 
         /// <summary>
         /// Constructor - can be used for testing
         /// </summary>
-        /// <param name="umbracoContext"></param>
+        /// <param name="umbracoContextAccessor"></param>
         /// <param name="contentId"></param>
-        public EnsurePublishedContentRequestAttribute(UmbracoContext umbracoContext, int contentId)
+        public EnsurePublishedContentRequestAttribute(IUmbracoContextAccessor umbracoContextAccessor, int contentId)
         {
-            if (umbracoContext == null) throw new ArgumentNullException(nameof(umbracoContext));
-            _umbracoContext = umbracoContext;
+            _umbracoContextAccessor = umbracoContextAccessor ?? throw new ArgumentNullException(nameof(umbracoContextAccessor));
             _contentId = contentId;
         }
 
@@ -59,41 +58,39 @@ namespace Umbraco.Web.Mvc
         /// <summary>
         /// Constructor - can be used for testing
         /// </summary>
-        /// <param name="umbracoContext"></param>
+        /// <param name="umbracoContextAccessor"></param>
         /// <param name="dataTokenName"></param>
-        public EnsurePublishedContentRequestAttribute(UmbracoContext umbracoContext, string dataTokenName)
+        public EnsurePublishedContentRequestAttribute(IUmbracoContextAccessor umbracoContextAccessor, string dataTokenName)
         {
-            if (umbracoContext == null) throw new ArgumentNullException(nameof(umbracoContext));
-            _umbracoContext = umbracoContext;
+            _umbracoContextAccessor = umbracoContextAccessor ?? throw new ArgumentNullException(nameof(umbracoContextAccessor));
             _dataTokenName = dataTokenName;
         }
 
         /// <summary>
         /// Exposes the UmbracoContext
         /// </summary>
-        protected UmbracoContext UmbracoContext => _umbracoContext ?? (_umbracoContext = UmbracoContext.Current);
+        protected UmbracoContext UmbracoContext => _umbracoContextAccessor?.UmbracoContext ?? Current.UmbracoContext;
 
-        // todo - try lazy property injection?
-        private PublishedRouter PublishedRouter => Core.Composing.Current.Container.GetInstance<PublishedRouter>();
+        // TODO: try lazy property injection?
+        private IPublishedRouter PublishedRouter => Core.Composing.Current.Factory.GetInstance<IPublishedRouter>();
 
         /// <summary>
         /// Exposes an UmbracoHelper
         /// </summary>
-        protected UmbracoHelper Umbraco => _helper
-            ?? (_helper = new UmbracoHelper(Current.UmbracoContext, Current.Services, Current.ApplicationCache));
+        protected UmbracoHelper Umbraco => _helper ?? (_helper = Current.Factory.GetInstance<UmbracoHelper>());
 
         public override void OnActionExecuted(ActionExecutedContext filterContext)
         {
             base.OnActionExecuted(filterContext);
 
-            //First we need to check if the pcr has been set, if it has we're going to ignore this and not actually do anything
-            if (UmbracoContext.Current.PublishedRequest != null)
+            // First we need to check if the published content request has been set, if it has we're going to ignore this and not actually do anything
+            if (Current.UmbracoContext.PublishedRequest != null)
             {
                 return;
             }
 
-            UmbracoContext.Current.PublishedRequest = PublishedRouter.CreateRequest(UmbracoContext.Current);
-            ConfigurePublishedContentRequest(UmbracoContext.Current.PublishedRequest, filterContext);
+            Current.UmbracoContext.PublishedRequest = PublishedRouter.CreateRequest(Current.UmbracoContext);
+            ConfigurePublishedContentRequest(Current.UmbracoContext.PublishedRequest, filterContext);
         }
 
         /// <summary>

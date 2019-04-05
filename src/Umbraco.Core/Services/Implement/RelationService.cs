@@ -217,7 +217,6 @@ namespace Umbraco.Core.Services.Implement
         {
             using (var scope = ScopeProvider.CreateScope(autoComplete: true))
             {
-
                 var rtQuery = Query<IRelationType>().Where(x => x.Alias == relationTypeAlias);
                 var relationType = _relationTypeRepository.Get(rtQuery).FirstOrDefault();
                 if (relationType == null)
@@ -374,6 +373,38 @@ namespace Umbraco.Core.Services.Implement
         }
 
         /// <summary>
+        /// Relates two objects by their entity Ids.
+        /// </summary>
+        /// <param name="parentId">Id of the parent</param>
+        /// <param name="childId">Id of the child</param>
+        /// <param name="relationType">The type of relation to create</param>
+        /// <returns>The created <see cref="Relation"/></returns>
+        public IRelation Relate(int parentId, int childId, IRelationType relationType)
+        {
+            // Ensure that the RelationType has an identity before using it to relate two entities
+            if (relationType.HasIdentity == false)
+                Save(relationType);
+
+            var relation = new Relation(parentId, childId, relationType);
+
+            using (var scope = ScopeProvider.CreateScope())
+            {
+                var saveEventArgs = new SaveEventArgs<IRelation>(relation);
+                if (scope.Events.DispatchCancelable(SavingRelation, this, saveEventArgs))
+                {
+                    scope.Complete();
+                    return relation; // TODO: returning sth that does not exist here?!
+                }
+
+                _relationRepository.Save(relation);
+                saveEventArgs.CanCancel = false;
+                scope.Events.Dispatch(SavedRelation, this, saveEventArgs);
+                scope.Complete();
+                return relation;
+            }
+        }
+
+        /// <summary>
         /// Relates two objects that are based on the <see cref="IUmbracoEntity"/> interface.
         /// </summary>
         /// <param name="parent">Parent entity</param>
@@ -382,28 +413,23 @@ namespace Umbraco.Core.Services.Implement
         /// <returns>The created <see cref="Relation"/></returns>
         public IRelation Relate(IUmbracoEntity parent, IUmbracoEntity child, IRelationType relationType)
         {
-            //Ensure that the RelationType has an indentity before using it to relate two entities
-            if (relationType.HasIdentity == false)
-                Save(relationType);
+            return Relate(parent.Id, child.Id, relationType);
+        }
 
-            var relation = new Relation(parent.Id, child.Id, relationType);
+        /// <summary>
+        /// Relates two objects by their entity Ids.
+        /// </summary>
+        /// <param name="parentId">Id of the parent</param>
+        /// <param name="childId">Id of the child</param>
+        /// <param name="relationTypeAlias">Alias of the type of relation to create</param>
+        /// <returns>The created <see cref="Relation"/></returns>
+        public IRelation Relate(int parentId, int childId, string relationTypeAlias)
+        {
+            var relationType = GetRelationTypeByAlias(relationTypeAlias);
+            if (relationType == null || string.IsNullOrEmpty(relationType.Alias))
+                throw new ArgumentNullException(string.Format("No RelationType with Alias '{0}' exists.", relationTypeAlias));
 
-            using (var scope = ScopeProvider.CreateScope())
-            {
-                var saveEventArgs = new SaveEventArgs<IRelation>(relation);
-                if (scope.Events.DispatchCancelable(SavingRelation, this, saveEventArgs))
-                {
-                    scope.Complete();
-                    return relation; // fixme - returning sth that does not exist here?! // fixme - returning sth that does not exist here?!
-                }
-
-                _relationRepository.Save(relation);
-                saveEventArgs.CanCancel = false;
-                scope.Events.Dispatch(SavedRelation, this, saveEventArgs);
-                scope.Complete();
-            }
-
-            return relation;
+            return Relate(parentId, childId, relationType);
         }
 
         /// <summary>
@@ -417,26 +443,9 @@ namespace Umbraco.Core.Services.Implement
         {
             var relationType = GetRelationTypeByAlias(relationTypeAlias);
             if (relationType == null || string.IsNullOrEmpty(relationType.Alias))
-                throw new ArgumentNullException($"No RelationType with Alias '{relationTypeAlias}' exists.");
+                throw new ArgumentNullException(string.Format("No RelationType with Alias '{0}' exists.", relationTypeAlias));
 
-            var relation = new Relation(parent.Id, child.Id, relationType);
-
-            using (var scope = ScopeProvider.CreateScope())
-            {
-                var saveEventArgs = new SaveEventArgs<IRelation>(relation);
-                if (scope.Events.DispatchCancelable(SavingRelation, this, saveEventArgs))
-                {
-                    scope.Complete();
-                    return relation; // fixme - returning sth that does not exist here?! // fixme - returning sth that does not exist here?!
-                }
-
-                _relationRepository.Save(relation);
-                saveEventArgs.CanCancel = false;
-                scope.Events.Dispatch(SavedRelation, this, saveEventArgs);
-                scope.Complete();
-            }
-
-            return relation;
+            return Relate(parent.Id, child.Id, relationType);
         }
 
         /// <summary>

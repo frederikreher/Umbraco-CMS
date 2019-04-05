@@ -1,5 +1,4 @@
-﻿using umbraco;
-using Umbraco.Core.IO;
+﻿using Umbraco.Core.IO;
 using Umbraco.Web.Composing;
 using Umbraco.Web.Models.Trees;
 using Umbraco.Web.Mvc;
@@ -11,7 +10,7 @@ namespace Umbraco.Web.Trees
     /// <summary>
     /// Tree for displaying partial views in the settings app
     /// </summary>
-    [Tree(Constants.Applications.Settings, Constants.Trees.PartialViews, null, sortOrder: 2)]
+    [Tree(Constants.Applications.Settings, Constants.Trees.PartialViews, SortOrder = 7, TreeGroup = Constants.Trees.Groups.Templating)]
     [UmbracoTreeAuthorize(Constants.Trees.PartialViews)]
     [PluginController("UmbracoTrees")]
     [CoreTree]
@@ -24,12 +23,5 @@ namespace Umbraco.Web.Trees
         protected override string[] Extensions => ExtensionsStatic;
 
         protected override string FileIcon => "icon-article";
-
-        protected override void OnRenderFolderNode(ref TreeNode treeNode)
-        {
-            //TODO: This isn't the best way to ensure a noop process for clicking a node but it works for now.
-            treeNode.AdditionalData["jsClickCallback"] = "javascript:void(0);";
-            treeNode.Icon = "icon-article";
-        }
     }
 }

@@ -73,11 +73,11 @@ namespace Umbraco.Core.IO
             }
             catch (UnauthorizedAccessException ex)
             {
-                Current.Logger.Error<PhysicalFileSystem>("Not authorized to get directories", ex);
+                Current.Logger.Error<PhysicalFileSystem>(ex, "Not authorized to get directories for '{Path}'", fullPath);
             }
             catch (DirectoryNotFoundException ex)
             {
-                Current.Logger.Error<PhysicalFileSystem>("Directory not found", ex);
+                Current.Logger.Error<PhysicalFileSystem>(ex, "Directory not found for '{Path}'", fullPath);
             }
 
             return Enumerable.Empty<string>();
@@ -109,7 +109,7 @@ namespace Umbraco.Core.IO
             }
             catch (DirectoryNotFoundException ex)
             {
-                Current.Logger.Error<PhysicalFileSystem>("Directory not found", ex);
+                Current.Logger.Error<PhysicalFileSystem>(ex, "Directory not found for '{Path}'", fullPath);
             }
         }
 
@@ -153,7 +153,7 @@ namespace Umbraco.Core.IO
             if (directory == null) throw new InvalidOperationException("Could not get directory.");
             Directory.CreateDirectory(directory); // ensure it exists
 
-            if (stream.CanSeek) // fixme - what else?
+            if (stream.CanSeek) // TODO: what if we cannot?
                 stream.Seek(0, 0);
 
             using (var destination = (Stream) File.Create(fullPath))
@@ -189,11 +189,11 @@ namespace Umbraco.Core.IO
             }
             catch (UnauthorizedAccessException ex)
             {
-                Current.Logger.Error<PhysicalFileSystem>("Not authorized to get directories", ex);
+                Current.Logger.Error<PhysicalFileSystem>(ex, "Not authorized to get directories for '{Path}'", fullPath);
             }
             catch (DirectoryNotFoundException ex)
             {
-                Current.Logger.Error<PhysicalFileSystem>("Directory not found", ex);
+                Current.Logger.Error<PhysicalFileSystem>(ex, "Directory not found for '{FullPath}'", fullPath);
             }
 
             return Enumerable.Empty<string>();
@@ -226,7 +226,7 @@ namespace Umbraco.Core.IO
             }
             catch (FileNotFoundException ex)
             {
-                Current.Logger.Info<PhysicalFileSystem>(string.Format("DeleteFile failed with FileNotFoundException: {0}", ex.InnerException));
+                Current.Logger.Error<PhysicalFileSystem>(ex.InnerException, "DeleteFile failed with FileNotFoundException for '{Path}'", fullPath);
             }
         }
 
@@ -284,7 +284,7 @@ namespace Umbraco.Core.IO
             var opath = path;
             path = EnsureDirectorySeparatorChar(path);
 
-            // fixme - this part should go!
+            // FIXME: this part should go!
             // not sure what we are doing here - so if input starts with a (back) slash,
             // we assume it's not a FS relative path and we try to convert it... but it
             // really makes little sense?
@@ -304,7 +304,13 @@ namespace Umbraco.Core.IO
             // permissions to reach that path, but it may nevertheless be outside of
             // our root path, due to relative segments, so better check
             if (IOHelper.PathStartsWith(path, _rootPath, Path.DirectorySeparatorChar))
+            {
+                // this says that 4.7.2 supports long paths - but Windows does not
+                // https://docs.microsoft.com/en-us/dotnet/api/system.io.pathtoolongexception?view=netframework-4.7.2
+                if (path.Length > 260)
+                    throw new PathTooLongException($"Path {path} is too long.");
                 return path;
+            }
 
             // nothing prevents us to reach the file, security-wise, yet it is outside
             // this filesystem's root - throw

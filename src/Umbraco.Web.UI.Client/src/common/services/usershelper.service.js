@@ -8,17 +8,18 @@
             { "value": 0, "name": "Active", "key": "Active", "color": "success" },
             { "value": 1, "name": "Disabled", "key": "Disabled", "color": "danger" },
             { "value": 2, "name": "Locked out", "key": "LockedOut", "color": "danger" },
-            { "value": 3, "name": "Invited", "key": "Invited", "color": "warning" }
+            { "value": 3, "name": "Invited", "key": "Invited", "color": "warning" },
+            { "value": 4, "name": "Inactive", "key": "Inactive", "color": "warning" }
         ];
 
-        angular.forEach(userStates, function (userState) {
-            var key = "user_state" + userState.key;
-            localizationService.localize(key).then(function (value) {
-                var reg = /^\[[\S\s]*]$/g;
-                var result = reg.test(value);
-                if (result === false) {
+        localizationService.localizeMany(_.map(userStates, function (userState) {
+            return "user_state" + userState.key;
+        })).then(function (data) {
+            var reg = /^\[[\S\s]*]$/g;
+            _.each(data, function (value, index) {
+                if (!reg.test(value)) {
                     // Only translate if key exists
-                    userState.name = value;
+                    userStates[index].name = value;
                 }
             });
         });

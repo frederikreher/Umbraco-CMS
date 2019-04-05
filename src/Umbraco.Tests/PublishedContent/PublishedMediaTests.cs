@@ -1,7 +1,6 @@
 ﻿using System.Web;
 using System.Xml.Linq;
 using System.Xml.XPath;
-using Lucene.Net.Store;
 using NUnit.Framework;
 using Umbraco.Core;
 using Umbraco.Core.Models;
@@ -9,7 +8,6 @@ using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.TestHelpers.Entities;
 using Umbraco.Tests.UmbracoExamine;
 using Umbraco.Web;
-using Umbraco.Web.PublishedCache.XmlPublishedCache;
 using System.Linq;
 using System.Threading;
 using System.Xml;
@@ -20,8 +18,12 @@ using Umbraco.Core.Strings;
 using Umbraco.Examine;
 using Current = Umbraco.Web.Composing.Current;
 using Umbraco.Tests.Testing;
-using LightInject;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Models.Membership;
+using Umbraco.Core.PropertyEditors;
+using Umbraco.Core.Services;
+using Umbraco.Tests.LegacyXmlPublishedCache;
+using Umbraco.Tests.Testing.Objects.Accessors;
 
 namespace Umbraco.Tests.PublishedContent
 {
@@ -40,9 +42,11 @@ namespace Umbraco.Tests.PublishedContent
         {
             base.Compose();
 
-            Container.GetInstance<UrlSegmentProviderCollectionBuilder>()
+            Composition.WithCollectionBuilder<UrlSegmentProviderCollectionBuilder>()
                 .Clear()
                 .Append<DefaultUrlSegmentProvider>();
+
+            Composition.RegisterUnique<IUmbracoContextAccessor, TestUmbracoContextAccessor>();
         }
 
         private IMediaType MakeNewMediaType(IUser user, string text, int parentId = -1)
@@ -66,7 +70,9 @@ namespace Umbraco.Tests.PublishedContent
         /// <returns></returns>
         internal IPublishedContent GetNode(int id, UmbracoContext umbracoContext)
         {
-            var cache = new PublishedMediaCache(new XmlStore((XmlDocument)null, null, null, null), Current.Services.MediaService, Current.Services.UserService, new StaticCacheProvider(), ContentTypesCache);
+            var cache = new PublishedMediaCache(new XmlStore((XmlDocument)null, null, null, null),
+                ServiceContext.MediaService, ServiceContext.UserService, new DictionaryAppCache(), ContentTypesCache,
+                Factory.GetInstance<IEntityXmlSerializer>(), Factory.GetInstance<IUmbracoContextAccessor>());
             var doc = cache.GetById(id);
             Assert.IsNotNull(doc);
             return doc;
@@ -111,15 +117,19 @@ namespace Umbraco.Tests.PublishedContent
         [Test]
         public void Ensure_Children_Sorted_With_Examine()
         {
-            using (var luceneDir = new RandomIdRamDirectory())
-            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir, ScopeProvider.SqlContext, options: new UmbracoContentIndexerOptions(true, false, null)))
-            {
+            var rebuilder = IndexInitializer.GetMediaIndexRebuilder(Factory.GetInstance<PropertyEditorCollection>(), IndexInitializer.GetMockMediaService());
 
-                indexer.RebuildIndex();
+            using (var luceneDir = new RandomIdRamDirectory())
+            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir,
+                validator: new ContentValueSetValidator(true)))
+            using (indexer.ProcessNonAsync())
+            {
+                rebuilder.RegisterIndex(indexer.Name);
+                rebuilder.Populate(indexer);
 
                 var searcher = indexer.GetSearcher();
                 var ctx = GetUmbracoContext("/test");
-                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, indexer, new StaticCacheProvider(), ContentTypesCache);
+                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, new DictionaryAppCache(), ContentTypesCache, Factory.GetInstance<IEntityXmlSerializer>(), Factory.GetInstance<IUmbracoContextAccessor>());
 
                 //we are using the media.xml media to test the examine results implementation, see the media.xml file in the ExamineHelpers namespace
                 var publishedMedia = cache.GetById(1111);
@@ -136,18 +146,20 @@ namespace Umbraco.Tests.PublishedContent
         [Test]
         public void Do_Not_Find_In_Recycle_Bin()
         {
+            var rebuilder = IndexInitializer.GetMediaIndexRebuilder(Factory.GetInstance<PropertyEditorCollection>(), IndexInitializer.GetMockMediaService());
+
             using (var luceneDir = new RandomIdRamDirectory())
-            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir, ScopeProvider.SqlContext,
+            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir,
                 //include unpublished content since this uses the 'internal' indexer, it's up to the media cache to filter
-                options: new UmbracoContentIndexerOptions(true, false, null)))
+                validator: new ContentValueSetValidator(false)))
             using (indexer.ProcessNonAsync())
             {
-                indexer.RebuildIndex();
-
+                rebuilder.RegisterIndex(indexer.Name);
+                rebuilder.Populate(indexer);
 
                 var searcher = indexer.GetSearcher();
                 var ctx = GetUmbracoContext("/test");
-                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, indexer, new StaticCacheProvider(), ContentTypesCache);
+                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, new DictionaryAppCache(), ContentTypesCache, Factory.GetInstance<IEntityXmlSerializer>(), Factory.GetInstance<IUmbracoContextAccessor>());
 
                 //ensure it is found
                 var publishedMedia = cache.GetById(3113);
@@ -165,9 +177,9 @@ namespace Umbraco.Tests.PublishedContent
 
 
                 //ensure it still exists in the index (raw examine search)
-                var criteria = searcher.CreateCriteria();
+                var criteria = searcher.CreateQuery();
                 var filter = criteria.Id(3113);
-                var found = searcher.Search(filter.Compile());
+                var found = filter.Execute();
                 Assert.IsNotNull(found);
                 Assert.AreEqual(1, found.TotalItemCount);
 
@@ -182,16 +194,19 @@ namespace Umbraco.Tests.PublishedContent
         [Test]
         public void Children_With_Examine()
         {
+            var rebuilder = IndexInitializer.GetMediaIndexRebuilder(Factory.GetInstance<PropertyEditorCollection>(), IndexInitializer.GetMockMediaService());
+
             using (var luceneDir = new RandomIdRamDirectory())
-            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir, ScopeProvider.SqlContext, options: new UmbracoContentIndexerOptions(true, false, null)))
+            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir,
+                validator: new ContentValueSetValidator(true)))
             using (indexer.ProcessNonAsync())
             {
-                indexer.RebuildIndex();
-
+                rebuilder.RegisterIndex(indexer.Name);
+                rebuilder.Populate(indexer);
 
                 var searcher = indexer.GetSearcher();
                 var ctx = GetUmbracoContext("/test");
-                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, indexer, new StaticCacheProvider(), ContentTypesCache);
+                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, new DictionaryAppCache(), ContentTypesCache, Factory.GetInstance<IEntityXmlSerializer>(), Factory.GetInstance<IUmbracoContextAccessor>());
 
                 //we are using the media.xml media to test the examine results implementation, see the media.xml file in the ExamineHelpers namespace
                 var publishedMedia = cache.GetById(1111);
@@ -207,16 +222,19 @@ namespace Umbraco.Tests.PublishedContent
         [Test]
         public void Descendants_With_Examine()
         {
+            var rebuilder = IndexInitializer.GetMediaIndexRebuilder(Factory.GetInstance<PropertyEditorCollection>(), IndexInitializer.GetMockMediaService());
+
             using (var luceneDir = new RandomIdRamDirectory())
-            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir, ScopeProvider.SqlContext, options: new UmbracoContentIndexerOptions(true, false, null)))
+            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir,
+                validator: new ContentValueSetValidator(true)))
             using (indexer.ProcessNonAsync())
             {
-                indexer.RebuildIndex();
-
+                rebuilder.RegisterIndex(indexer.Name);
+                rebuilder.Populate(indexer);
 
                 var searcher = indexer.GetSearcher();
                 var ctx = GetUmbracoContext("/test");
-                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, indexer, new StaticCacheProvider(), ContentTypesCache);
+                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, new DictionaryAppCache(), ContentTypesCache, Factory.GetInstance<IEntityXmlSerializer>(), Factory.GetInstance<IUmbracoContextAccessor>());
 
                 //we are using the media.xml media to test the examine results implementation, see the media.xml file in the ExamineHelpers namespace
                 var publishedMedia = cache.GetById(1111);
@@ -232,16 +250,19 @@ namespace Umbraco.Tests.PublishedContent
         [Test]
         public void DescendantsOrSelf_With_Examine()
         {
+            var rebuilder = IndexInitializer.GetMediaIndexRebuilder(Factory.GetInstance<PropertyEditorCollection>(), IndexInitializer.GetMockMediaService());
+
             using (var luceneDir = new RandomIdRamDirectory())
-            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir, ScopeProvider.SqlContext, options: new UmbracoContentIndexerOptions(true, false, null)))
+            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir,
+                validator: new ContentValueSetValidator(true)))
             using (indexer.ProcessNonAsync())
             {
-                indexer.RebuildIndex();
-
+                rebuilder.RegisterIndex(indexer.Name);
+                rebuilder.Populate(indexer);
 
                 var searcher = indexer.GetSearcher();
                 var ctx = GetUmbracoContext("/test");
-                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, indexer, new StaticCacheProvider(), ContentTypesCache);
+                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, new DictionaryAppCache(), ContentTypesCache, Factory.GetInstance<IEntityXmlSerializer>(), Factory.GetInstance<IUmbracoContextAccessor>());
 
                 //we are using the media.xml media to test the examine results implementation, see the media.xml file in the ExamineHelpers namespace
                 var publishedMedia = cache.GetById(1111);
@@ -257,16 +278,20 @@ namespace Umbraco.Tests.PublishedContent
         [Test]
         public void Ancestors_With_Examine()
         {
+            var rebuilder = IndexInitializer.GetMediaIndexRebuilder(Factory.GetInstance<PropertyEditorCollection>(), IndexInitializer.GetMockMediaService());
+
+
             using (var luceneDir = new RandomIdRamDirectory())
-            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir, ScopeProvider.SqlContext, options: new UmbracoContentIndexerOptions(true, false, null)))
+            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir,
+                validator: new ContentValueSetValidator(true)))
             using (indexer.ProcessNonAsync())
             {
-                indexer.RebuildIndex();
-
+                rebuilder.RegisterIndex(indexer.Name);
+                rebuilder.Populate(indexer);
 
                 var ctx = GetUmbracoContext("/test");
                 var searcher = indexer.GetSearcher();
-                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, indexer, new StaticCacheProvider(), ContentTypesCache);
+                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, new DictionaryAppCache(), ContentTypesCache, Factory.GetInstance<IEntityXmlSerializer>(), Factory.GetInstance<IUmbracoContextAccessor>());
 
                 //we are using the media.xml media to test the examine results implementation, see the media.xml file in the ExamineHelpers namespace
                 var publishedMedia = cache.GetById(3113);
@@ -279,16 +304,20 @@ namespace Umbraco.Tests.PublishedContent
         [Test]
         public void AncestorsOrSelf_With_Examine()
         {
+            var rebuilder = IndexInitializer.GetMediaIndexRebuilder(Factory.GetInstance<PropertyEditorCollection>(), IndexInitializer.GetMockMediaService());
+
             using (var luceneDir = new RandomIdRamDirectory())
-            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir, ScopeProvider.SqlContext, options: new UmbracoContentIndexerOptions(true, false, null)))
+            using (var indexer = IndexInitializer.GetUmbracoIndexer(ProfilingLogger, luceneDir,
+                validator: new ContentValueSetValidator(true)))
             using (indexer.ProcessNonAsync())
             {
-                indexer.RebuildIndex();
+                rebuilder.RegisterIndex(indexer.Name);
+                rebuilder.Populate(indexer);
 
 
                 var ctx = GetUmbracoContext("/test");
                 var searcher = indexer.GetSearcher();
-                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, indexer, new StaticCacheProvider(), ContentTypesCache);
+                var cache = new PublishedMediaCache(ServiceContext.MediaService, ServiceContext.UserService, searcher, new DictionaryAppCache(), ContentTypesCache, Factory.GetInstance<IEntityXmlSerializer>(), Factory.GetInstance<IUmbracoContextAccessor>());
 
                 //we are using the media.xml media to test the examine results implementation, see the media.xml file in the ExamineHelpers namespace
                 var publishedMedia = cache.GetById(3113);
@@ -438,10 +467,6 @@ namespace Umbraco.Tests.PublishedContent
         [Test]
         public void Convert_From_Standard_Xml()
         {
-            var config = SettingsForTests.GenerateMockUmbracoSettings();
-
-            SettingsForTests.ConfigureSettings(config);
-
             var nodeId = 2112;
 
             var xml = XElement.Parse(@"<Image id=""2112"" version=""5b3e46ab-3e37-4cfa-ab70-014234b5bd39"" parentID=""2222"" level=""3"" writerID=""0"" nodeType=""1032"" template=""0"" sortOrder=""1"" createDate=""2010-05-19T17:32:46"" updateDate=""2010-05-19T17:32:46"" nodeName=""Sam's Umbraco Image"" urlName=""acnestressscrub"" writerName=""Administrator"" nodeTypeAlias=""Image"" path=""-1,1111,2222,2112"" isDoc="""">
@@ -460,7 +485,7 @@ namespace Umbraco.Tests.PublishedContent
             </Image>");
             var node = xml.DescendantsAndSelf("Image").Single(x => (int)x.Attribute("id") == nodeId);
 
-            var publishedMedia = new PublishedMediaCache(new XmlStore((XmlDocument)null, null, null, null), ServiceContext.MediaService, ServiceContext.UserService, new StaticCacheProvider(), ContentTypesCache);
+            var publishedMedia = new PublishedMediaCache(new XmlStore((XmlDocument)null, null, null, null), ServiceContext.MediaService, ServiceContext.UserService, new DictionaryAppCache(), ContentTypesCache, Factory.GetInstance<IEntityXmlSerializer>(), Factory.GetInstance<IUmbracoContextAccessor>());
 
             var nav = node.CreateNavigator();
 
@@ -480,7 +505,7 @@ namespace Umbraco.Tests.PublishedContent
             var errorXml = new XElement("error", string.Format("No media is maching '{0}'", 1234));
             var nav = errorXml.CreateNavigator();
 
-            var publishedMedia = new PublishedMediaCache(new XmlStore((XmlDocument)null, null, null, null), ServiceContext.MediaService, ServiceContext.UserService, new StaticCacheProvider(), ContentTypesCache);
+            var publishedMedia = new PublishedMediaCache(new XmlStore((XmlDocument)null, null, null, null), ServiceContext.MediaService, ServiceContext.UserService, new DictionaryAppCache(), ContentTypesCache, Factory.GetInstance<IEntityXmlSerializer>(), Factory.GetInstance<IUmbracoContextAccessor>());
             var converted = publishedMedia.ConvertFromXPathNodeIterator(nav.Select("/"), 1234);
 
             Assert.IsNull(converted);

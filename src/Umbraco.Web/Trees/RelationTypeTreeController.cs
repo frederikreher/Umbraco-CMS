@@ -1,18 +1,15 @@
-﻿using System;
-using System.Linq;
+﻿using System.Linq;
 using System.Net.Http.Formatting;
 using Umbraco.Web.Models.Trees;
 using Umbraco.Web.WebApi.Filters;
 using Umbraco.Core;
-using Umbraco.Web._Legacy.Actions;
 using Umbraco.Core.Services;
-using Umbraco.Core.Models;
-using Umbraco.Core.Models.Entities;
+using Umbraco.Web.Actions;
 
 namespace Umbraco.Web.Trees
 {
     [UmbracoTreeAuthorize(Constants.Trees.RelationTypes)]
-    [Tree(Constants.Applications.Developer, Constants.Trees.RelationTypes, null, sortOrder: 4)]
+    [Tree(Constants.Applications.Settings, Constants.Trees.RelationTypes, SortOrder = 5, TreeGroup = Constants.Trees.Groups.Settings)]
     [Mvc.PluginController("UmbracoTrees")]
     [CoreTree]
     public class RelationTypeTreeController : TreeController
@@ -21,15 +18,13 @@ namespace Umbraco.Web.Trees
         {
             var menu = new MenuItemCollection();
 
-            if (id == Constants.System.Root.ToInvariantString())
+            if (id == Constants.System.RootString)
             {
                 //Create the normal create action
-                menu.Items.Add<ActionNew>(Services.TextService.Localize("actions", ActionNew.Instance.Alias))
-                //Since we haven't implemented anything for relationtypes in angular, this needs to be converted to
-                //use the legacy format
-                .ConvertLegacyMenuItem(null, "initrelationTypes", queryStrings.GetValue<string>("application"));
+                menu.Items.Add<ActionNew>(Services.TextService.Localize("actions", ActionNew.ActionAlias));
+
                 //refresh action
-                menu.Items.Add<RefreshNode, ActionRefresh>(Services.TextService.Localize("actions", ActionRefresh.Instance.Alias), true);
+                menu.Items.Add(new RefreshNode(Services.TextService, true));
 
                 return menu;
             }
@@ -37,17 +32,7 @@ namespace Umbraco.Web.Trees
             var relationType = Services.RelationService.GetRelationTypeById(int.Parse(id));
             if (relationType == null) return new MenuItemCollection();
 
-            //add delete option for all macros
-            menu.Items.Add<ActionDelete>(Services.TextService.Localize("actions", ActionDelete.Instance.Alias))
-                //Since we haven't implemented anything for relationtypes in angular, this needs to be converted to
-                //use the legacy format
-                .ConvertLegacyMenuItem(new EntitySlim
-                {
-                    Id = relationType.Id,
-                    Level = 1,
-                    ParentId = -1,
-                    Name = relationType.Name
-                }, "relationTypes", queryStrings.GetValue<string>("application"));
+            menu.Items.Add<ActionDelete>(Services.TextService.Localize("actions", ActionDelete.ActionAlias));
 
             return menu;
         }
@@ -56,21 +41,13 @@ namespace Umbraco.Web.Trees
         {
             var nodes = new TreeNodeCollection();
 
-            if (id == Constants.System.Root.ToInvariantString())
+            if (id == Constants.System.RootString)
             {
-                nodes.AddRange(Services.RelationService
-                .GetAllRelationTypes().Select(rt => CreateTreeNode(
-                    rt.Id.ToString(),
-                    id,
-                    queryStrings,
-                    rt.Name,
-                    "icon-trafic",
-                    false,
-                    //TODO: Rebuild the macro editor in angular, then we dont need to have this at all (which is just a path to the legacy editor)
-                    "/" + queryStrings.GetValue<string>("application") + "/framed/" +
-                    Uri.EscapeDataString("/umbraco/developer/RelationTypes/EditRelationType.aspx?id=" + rt.Id)
-                    )));
+                nodes.AddRange(Services.RelationService.GetAllRelationTypes()
+                    .Select(rt => CreateTreeNode(rt.Id.ToString(), id, queryStrings, rt.Name,
+                        "icon-trafic", false)));
             }
+
             return nodes;
         }
     }

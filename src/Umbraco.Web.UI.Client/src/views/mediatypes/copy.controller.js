@@ -1,8 +1,9 @@
 angular.module("umbraco")
 .controller("Umbraco.Editors.MediaTypes.CopyController",
     function ($scope, mediaTypeResource, treeService, navigationService, notificationsService, appState, eventsService) {
-        var dialogOptions = $scope.dialogOptions;
+
         $scope.dialogTreeApi = {};
+        $scope.source = _.clone($scope.currentNode);
 
         function nodeSelectHandler(args) {
             args.event.preventDefault();
@@ -22,7 +23,7 @@ angular.module("umbraco")
             $scope.busy = true;
             $scope.error = false;
 
-            mediaTypeResource.copy({ parentId: $scope.target.id, id: dialogOptions.currentNode.id })
+            mediaTypeResource.copy({ parentId: $scope.target.id, id: $scope.source.id })
                 .then(function (path) {
                     $scope.error = false;
                     $scope.success = true;
@@ -46,17 +47,16 @@ angular.module("umbraco")
                     $scope.success = false;
                     $scope.error = err;
                     $scope.busy = false;
-                    //show any notifications
-                    if (angular.isArray(err.data.notifications)) {
-                        for (var i = 0; i < err.data.notifications.length; i++) {
-                            notificationsService.showNotification(err.data.notifications[i]);
-                        }
-                    }
+                    
                 });
         };
 
         $scope.onTreeInit = function () {
             $scope.dialogTreeApi.callbacks.treeNodeSelect(nodeSelectHandler);
-        }
+        };
+
+        $scope.close = function() {
+            navigationService.hideDialog();
+        };
         
     });

@@ -2,6 +2,7 @@
 using System.Reflection;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.Persistence.Dtos;
 using Umbraco.Core.PropertyEditors;
@@ -10,10 +11,14 @@ namespace Umbraco.Core.Persistence.Factories
 {
     internal static class DataTypeFactory
     {
-        public static IDataType BuildEntity(DataTypeDto dto, PropertyEditorCollection editors)
+        public static IDataType BuildEntity(DataTypeDto dto, PropertyEditorCollection editors, ILogger logger)
         {
             if (!editors.TryGet(dto.EditorAlias, out var editor))
-                throw new InvalidOperationException($"Could not find an editor with alias \"{dto.EditorAlias}\".");
+            {
+                logger.Warn(typeof(DataTypeFactory), "Could not find an editor with alias {EditorAlias}, converting to label", dto.EditorAlias);
+                //convert to label
+                editor = new LabelPropertyEditor(logger);
+            }
 
             var dataType = new DataType(editor);
 
@@ -32,7 +37,7 @@ namespace Umbraco.Core.Persistence.Factories
                 dataType.Path = dto.NodeDto.Path;
                 dataType.SortOrder = dto.NodeDto.SortOrder;
                 dataType.Trashed = dto.NodeDto.Trashed;
-                dataType.CreatorId = dto.NodeDto.UserId ?? 0;
+                dataType.CreatorId = dto.NodeDto.UserId ?? Constants.Security.UnknownUserId;
 
                 dataType.SetLazyConfiguration(dto.Configuration);
 
@@ -53,7 +58,7 @@ namespace Umbraco.Core.Persistence.Factories
                 EditorAlias = entity.EditorAlias,
                 NodeId = entity.Id,
                 DbType = entity.DatabaseType.ToString(),
-                Configuration = entity.Configuration == null ? null : JsonConvert.SerializeObject(entity.Configuration, ConfigurationEditor.ConfigurationJsonSettings),
+                Configuration = ConfigurationEditor.ToDatabase(entity.Configuration),
                 NodeDto = BuildNodeDto(entity)
             };
 

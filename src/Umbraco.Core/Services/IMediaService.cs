@@ -10,52 +10,7 @@ using Umbraco.Core.Persistence.Querying;
 
 namespace Umbraco.Core.Services
 {
-    /// <summary>
-    /// A temporary interface until we are in v8, this is used to return a different result for the same method and this interface gets implemented
-    /// explicitly. These methods will replace the normal ones in IContentService in v8 and this will be removed.
-    /// </summary>
-    public interface IMediaServiceOperations
-    {
-        //TODO: Remove this class in v8
-
-        //TODO: There's probably more that needs to be added like the EmptyRecycleBin, etc...
-
         /// <summary>
-        /// Deletes an <see cref="IMedia"/> object by moving it to the Recycle Bin
-        /// </summary>
-        /// <param name="media">The <see cref="IMedia"/> to delete</param>
-        /// <param name="userId">Id of the User deleting the Media</param>
-        Attempt<OperationResult> MoveToRecycleBin(IMedia media, int userId = 0);
-
-        /// <summary>
-        /// Permanently deletes an <see cref="IMedia"/> object
-        /// </summary>
-        /// <remarks>
-        /// Please note that this method will completely remove the Media from the database,
-        /// but current not from the file system.
-        /// </remarks>
-        /// <param name="media">The <see cref="IMedia"/> to delete</param>
-        /// <param name="userId">Id of the User deleting the Media</param>
-        Attempt<OperationResult> Delete(IMedia media, int userId = 0);
-
-        /// <summary>
-        /// Saves a single <see cref="IMedia"/> object
-        /// </summary>
-        /// <param name="media">The <see cref="IMedia"/> to save</param>
-        /// <param name="userId">Id of the User saving the Media</param>
-        /// <param name="raiseEvents">Optional boolean indicating whether or not to raise events.</param>
-        Attempt<OperationResult> Save(IMedia media, int userId = 0, bool raiseEvents = true);
-
-        /// <summary>
-        /// Saves a collection of <see cref="IMedia"/> objects
-        /// </summary>
-        /// <param name="medias">Collection of <see cref="IMedia"/> to save</param>
-        /// <param name="userId">Id of the User saving the Media</param>
-        /// <param name="raiseEvents">Optional boolean indicating whether or not to raise events.</param>
-        Attempt<OperationResult> Save(IEnumerable<IMedia> medias, int userId = 0, bool raiseEvents = true);
-    }
-
-    /// <summary>
     /// Defines the Media Service, which is an easy access to operations involving <see cref="IMedia"/>
     /// </summary>
     public interface IMediaService : IContentServiceBase
@@ -82,7 +37,7 @@ namespace Umbraco.Core.Services
         /// <param name="mediaTypeAlias">Alias of the <see cref="IMediaType"/></param>
         /// <param name="userId">Optional id of the user creating the media item</param>
         /// <returns><see cref="IMedia"/></returns>
-        IMedia CreateMedia(string name, Guid parentId, string mediaTypeAlias, int userId = 0);
+        IMedia CreateMedia(string name, Guid parentId, string mediaTypeAlias, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Creates an <see cref="IMedia"/> object using the alias of the <see cref="IMediaType"/>
@@ -98,7 +53,7 @@ namespace Umbraco.Core.Services
         /// <param name="mediaTypeAlias">Alias of the <see cref="IMediaType"/></param>
         /// <param name="userId">Optional id of the user creating the media item</param>
         /// <returns><see cref="IMedia"/></returns>
-        IMedia CreateMedia(string name, int parentId, string mediaTypeAlias, int userId = 0);
+        IMedia CreateMedia(string name, int parentId, string mediaTypeAlias, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Creates an <see cref="IMedia"/> object using the alias of the <see cref="IMediaType"/>
@@ -114,7 +69,7 @@ namespace Umbraco.Core.Services
         /// <param name="mediaTypeAlias">Alias of the <see cref="IMediaType"/></param>
         /// <param name="userId">Optional id of the user creating the media item</param>
         /// <returns><see cref="IMedia"/></returns>
-        IMedia CreateMedia(string name, IMedia parent, string mediaTypeAlias, int userId = 0);
+        IMedia CreateMedia(string name, IMedia parent, string mediaTypeAlias, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Gets an <see cref="IMedia"/> object by Id
@@ -127,27 +82,6 @@ namespace Umbraco.Core.Services
         /// Gets a collection of <see cref="IMedia"/> objects by Parent Id
         /// </summary>
         /// <param name="id">Id of the Parent to retrieve Children from</param>
-        /// <returns>An Enumerable list of <see cref="IMedia"/> objects</returns>
-        IEnumerable<IMedia> GetChildren(int id);
-
-        /// <summary>
-        /// Gets a collection of <see cref="IMedia"/> objects by Parent Id
-        /// </summary>
-        /// <param name="id">Id of the Parent to retrieve Children from</param>
-        /// <param name="pageIndex">Page number</param>
-        /// <param name="pageSize">Page size</param>
-        /// <param name="totalRecords">Total records query would return without paging</param>
-        /// <param name="orderBy">Field to order by</param>
-        /// <param name="orderDirection">Direction to order by</param>
-        /// <param name="filter">Search text filter</param>
-        /// <returns>An Enumerable list of <see cref="IContent"/> objects</returns>
-        IEnumerable<IMedia> GetPagedChildren(int id, long pageIndex, int pageSize, out long totalRecords,
-            string orderBy = "SortOrder", Direction orderDirection = Direction.Ascending, string filter = "");
-
-        /// <summary>
-        /// Gets a collection of <see cref="IMedia"/> objects by Parent Id
-        /// </summary>
-        /// <param name="id">Id of the Parent to retrieve Children from</param>
         /// <param name="pageIndex">Page number</param>
         /// <param name="pageSize">Page size</param>
         /// <param name="totalRecords">Total records query would return without paging</param>
@@ -157,23 +91,7 @@ namespace Umbraco.Core.Services
         /// <param name="filter"></param>
         /// <returns>An Enumerable list of <see cref="IContent"/> objects</returns>
         IEnumerable<IMedia> GetPagedChildren(int id, long pageIndex, int pageSize, out long totalRecords,
-            string orderBy, Direction orderDirection, bool orderBySystemField, IQuery<IMedia> filter);
-
-        /// <summary>
-        /// Gets a collection of <see cref="IMedia"/> objects by Parent Id
-        /// </summary>
-        /// <param name="id">Id of the Parent to retrieve Children from</param>
-        /// <param name="pageIndex">Page number</param>
-        /// <param name="pageSize">Page size</param>
-        /// <param name="totalRecords">Total records query would return without paging</param>
-        /// <param name="orderBy">Field to order by</param>
-        /// <param name="orderDirection">Direction to order by</param>
-        /// <param name="orderBySystemField">Flag to indicate when ordering by system field</param>
-        /// <param name="filter">Search text filter</param>
-        /// <param name="contentTypeFilter">A list of content type Ids to filter the list by</param>
-        /// <returns>An Enumerable list of <see cref="IContent"/> objects</returns>
-        IEnumerable<IMedia> GetPagedChildren(int id, long pageIndex, int pageSize, out long totalRecords,
-            string orderBy, Direction orderDirection, bool orderBySystemField, string filter, int[] contentTypeFilter);
+            IQuery<IMedia> filter = null, Ordering ordering = null);
 
         /// <summary>
         /// Gets a collection of <see cref="IMedia"/> objects by Parent Id
@@ -182,41 +100,35 @@ namespace Umbraco.Core.Services
         /// <param name="pageIndex">Page number</param>
         /// <param name="pageSize">Page size</param>
         /// <param name="totalRecords">Total records query would return without paging</param>
-        /// <param name="orderBy">Field to order by</param>
-        /// <param name="orderDirection">Direction to order by</param>
-        /// <param name="filter">Search text filter</param>
-        /// <returns>An Enumerable list of <see cref="IContent"/> objects</returns>
-        IEnumerable<IMedia> GetPagedDescendants(int id, long pageIndex, int pageSize, out long totalRecords,
-            string orderBy = "path", Direction orderDirection = Direction.Ascending, string filter = "");
-
-        /// <summary>
-        /// Gets a collection of <see cref="IMedia"/> objects by Parent Id
-        /// </summary>
-        /// <param name="id">Id of the Parent to retrieve Descendants from</param>
-        /// <param name="pageIndex">Page number</param>
-        /// <param name="pageSize">Page size</param>
-        /// <param name="totalRecords">Total records query would return without paging</param>
-        /// <param name="orderBy">Field to order by</param>
-        /// <param name="orderDirection">Direction to order by</param>
-        /// <param name="orderBySystemField">Flag to indicate when ordering by system field</param>
+        /// <param name="ordering"></param>
         /// <param name="filter"></param>
         /// <returns>An Enumerable list of <see cref="IContent"/> objects</returns>
         IEnumerable<IMedia> GetPagedDescendants(int id, long pageIndex, int pageSize, out long totalRecords,
-            string orderBy, Direction orderDirection, bool orderBySystemField, IQuery<IMedia> filter);
+            IQuery<IMedia> filter = null, Ordering ordering = null);
 
         /// <summary>
-        /// Gets descendants of a <see cref="IMedia"/> object by its Id
+        /// Gets paged documents of a content
         /// </summary>
-        /// <param name="id">Id of the Parent to retrieve descendants from</param>
-        /// <returns>An Enumerable flat list of <see cref="IMedia"/> objects</returns>
-        IEnumerable<IMedia> GetDescendants(int id);
+        /// <param name="contentTypeId">The page number.</param>
+        /// <param name="pageIndex">The page number.</param>
+        /// <param name="pageSize">The page size.</param>
+        /// <param name="totalRecords">Total number of documents.</param>
+        /// <param name="filter">Search text filter.</param>
+        /// <param name="ordering">Ordering infos.</param>
+        IEnumerable<IMedia> GetPagedOfType(int contentTypeId, long pageIndex, int pageSize, out long totalRecords,
+            IQuery<IMedia> filter = null, Ordering ordering = null);
 
         /// <summary>
-        /// Gets a collection of <see cref="IMedia"/> objects by the Id of the <see cref="IContentType"/>
+        /// Gets paged documents for specified content types
         /// </summary>
-        /// <param name="id">Id of the <see cref="IMediaType"/></param>
-        /// <returns>An Enumerable list of <see cref="IMedia"/> objects</returns>
-        IEnumerable<IMedia> GetMediaOfMediaType(int id);
+        /// <param name="contentTypeIds">The page number.</param>
+        /// <param name="pageIndex">The page number.</param>
+        /// <param name="pageSize">The page size.</param>
+        /// <param name="totalRecords">Total number of documents.</param>
+        /// <param name="filter">Search text filter.</param>
+        /// <param name="ordering">Ordering infos.</param>
+        IEnumerable<IMedia> GetPagedOfTypes(int[] contentTypeIds, long pageIndex, int pageSize, out long totalRecords,
+            IQuery<IMedia> filter = null, Ordering ordering = null);
 
         /// <summary>
         /// Gets a collection of <see cref="IMedia"/> objects, which reside at the first level / root
@@ -228,7 +140,8 @@ namespace Umbraco.Core.Services
         /// Gets a collection of an <see cref="IMedia"/> objects, which resides in the Recycle Bin
         /// </summary>
         /// <returns>An Enumerable list of <see cref="IMedia"/> objects</returns>
-        IEnumerable<IMedia> GetMediaInRecycleBin();
+        IEnumerable<IMedia> GetPagedMediaInRecycleBin(long pageIndex, int pageSize, out long totalRecords,
+            IQuery<IMedia> filter = null, Ordering ordering = null);
 
         /// <summary>
         /// Moves an <see cref="IMedia"/> object to a new location
@@ -236,14 +149,15 @@ namespace Umbraco.Core.Services
         /// <param name="media">The <see cref="IMedia"/> to move</param>
         /// <param name="parentId">Id of the Media's new Parent</param>
         /// <param name="userId">Id of the User moving the Media</param>
-        void Move(IMedia media, int parentId, int userId = 0);
+        /// <returns>True if moving succeeded, otherwise False</returns>
+        Attempt<OperationResult> Move(IMedia media, int parentId, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Deletes an <see cref="IMedia"/> object by moving it to the Recycle Bin
         /// </summary>
         /// <param name="media">The <see cref="IMedia"/> to delete</param>
         /// <param name="userId">Id of the User deleting the Media</param>
-        void MoveToRecycleBin(IMedia media, int userId = 0);
+        Attempt<OperationResult> MoveToRecycleBin(IMedia media, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Empties the Recycle Bin by deleting all <see cref="IMedia"/> that resides in the bin
@@ -256,16 +170,16 @@ namespace Umbraco.Core.Services
         /// <remarks>This needs extra care and attention as its potentially a dangerous and extensive operation</remarks>
         /// <param name="mediaTypeId">Id of the <see cref="IMediaType"/></param>
         /// <param name="userId">Optional Id of the user deleting Media</param>
-        void DeleteMediaOfType(int mediaTypeId, int userId = 0);
+        void DeleteMediaOfType(int mediaTypeId, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Deletes all media of the specified types. All Descendants of deleted media that is not of these types is moved to Recycle Bin.
         /// </summary>
         /// <remarks>This needs extra care and attention as its potentially a dangerous and extensive operation</remarks>
         /// <param name="mediaTypeIds">Ids of the <see cref="IMediaType"/>s</param>
-        /// <param name="userId">Optional Id of the user issueing the delete operation</param>
-        void DeleteMediaOfTypes(IEnumerable<int> mediaTypeIds, int userId = 0);
-
+        /// <param name="userId">Optional Id of the user issuing the delete operation</param>
+        void DeleteMediaOfTypes(IEnumerable<int> mediaTypeIds, int userId = Constants.Security.SuperUserId);
+        
         /// <summary>
         /// Permanently deletes an <see cref="IMedia"/> object
         /// </summary>
@@ -275,7 +189,7 @@ namespace Umbraco.Core.Services
         /// </remarks>
         /// <param name="media">The <see cref="IMedia"/> to delete</param>
         /// <param name="userId">Id of the User deleting the Media</param>
-        void Delete(IMedia media, int userId = 0);
+        Attempt<OperationResult> Delete(IMedia media, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Saves a single <see cref="IMedia"/> object
@@ -283,7 +197,7 @@ namespace Umbraco.Core.Services
         /// <param name="media">The <see cref="IMedia"/> to save</param>
         /// <param name="userId">Id of the User saving the Media</param>
         /// <param name="raiseEvents">Optional boolean indicating whether or not to raise events.</param>
-        void Save(IMedia media, int userId = 0, bool raiseEvents = true);
+        Attempt<OperationResult> Save(IMedia media, int userId = Constants.Security.SuperUserId, bool raiseEvents = true);
 
         /// <summary>
         /// Saves a collection of <see cref="IMedia"/> objects
@@ -291,7 +205,7 @@ namespace Umbraco.Core.Services
         /// <param name="medias">Collection of <see cref="IMedia"/> to save</param>
         /// <param name="userId">Id of the User saving the Media</param>
         /// <param name="raiseEvents">Optional boolean indicating whether or not to raise events.</param>
-        void Save(IEnumerable<IMedia> medias, int userId = 0, bool raiseEvents = true);
+        Attempt<OperationResult> Save(IEnumerable<IMedia> medias, int userId = Constants.Security.SuperUserId, bool raiseEvents = true);
 
         /// <summary>
         /// Gets an <see cref="IMedia"/> object by its 'UniqueId'
@@ -334,7 +248,7 @@ namespace Umbraco.Core.Services
         /// <param name="id">Id of the <see cref="IMedia"/> object to delete versions from</param>
         /// <param name="versionDate">Latest version date</param>
         /// <param name="userId">Optional Id of the User deleting versions of a Content object</param>
-        void DeleteVersions(int id, DateTime versionDate, int userId = 0);
+        void DeleteVersions(int id, DateTime versionDate, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Permanently deletes specific version(s) from an <see cref="IMedia"/> object.
@@ -343,7 +257,7 @@ namespace Umbraco.Core.Services
         /// <param name="versionId">Id of the version to delete</param>
         /// <param name="deletePriorVersions">Boolean indicating whether to delete versions prior to the versionId</param>
         /// <param name="userId">Optional Id of the User deleting versions of a Content object</param>
-        void DeleteVersion(int id, int versionId, bool deletePriorVersions, int userId = 0);
+        void DeleteVersion(int id, int versionId, bool deletePriorVersions, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Gets an <see cref="IMedia"/> object from the path stored in the 'umbracoFile' property.
@@ -367,13 +281,6 @@ namespace Umbraco.Core.Services
         IEnumerable<IMedia> GetAncestors(IMedia media);
 
         /// <summary>
-        /// Gets descendants of a <see cref="IMedia"/> object by its Id
-        /// </summary>
-        /// <param name="media">The Parent <see cref="IMedia"/> object to retrieve descendants from</param>
-        /// <returns>An Enumerable flat list of <see cref="IMedia"/> objects</returns>
-        IEnumerable<IMedia> GetDescendants(IMedia media);
-
-        /// <summary>
         /// Gets the parent of the current media as an <see cref="IMedia"/> item.
         /// </summary>
         /// <param name="id">Id of the <see cref="IMedia"/> to retrieve the parent from</param>
@@ -395,7 +302,7 @@ namespace Umbraco.Core.Services
         /// <param name="userId"></param>
         /// <param name="raiseEvents"></param>
         /// <returns>True if sorting succeeded, otherwise False</returns>
-        bool Sort(IEnumerable<IMedia> items, int userId = 0, bool raiseEvents = true);
+        bool Sort(IEnumerable<IMedia> items, int userId = Constants.Security.SuperUserId, bool raiseEvents = true);
 
         /// <summary>
         /// Creates an <see cref="IMedia"/> object using the alias of the <see cref="IMediaType"/>
@@ -410,7 +317,7 @@ namespace Umbraco.Core.Services
         /// <param name="mediaTypeAlias">Alias of the <see cref="IMediaType"/></param>
         /// <param name="userId">Optional id of the user creating the media item</param>
         /// <returns><see cref="IMedia"/></returns>
-        IMedia CreateMediaWithIdentity(string name, IMedia parent, string mediaTypeAlias, int userId = 0);
+        IMedia CreateMediaWithIdentity(string name, IMedia parent, string mediaTypeAlias, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Creates an <see cref="IMedia"/> object using the alias of the <see cref="IMediaType"/>
@@ -425,7 +332,7 @@ namespace Umbraco.Core.Services
         /// <param name="mediaTypeAlias">Alias of the <see cref="IMediaType"/></param>
         /// <param name="userId">Optional id of the user creating the media item</param>
         /// <returns><see cref="IMedia"/></returns>
-        IMedia CreateMediaWithIdentity(string name, int parentId, string mediaTypeAlias, int userId = 0);
+        IMedia CreateMediaWithIdentity(string name, int parentId, string mediaTypeAlias, int userId = Constants.Security.SuperUserId);
 
         /// <summary>
         /// Gets the content of a media as a stream.

@@ -8,13 +8,14 @@ using Umbraco.Core;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.Entities;
 using Umbraco.Core.Services;
+using Umbraco.Web.Actions;
 using Umbraco.Web.Models.Trees;
 using Umbraco.Web.Mvc;
 using Umbraco.Web.WebApi.Filters;
-using Umbraco.Web._Legacy.Actions;
 using Umbraco.Web.Models.ContentEditing;
 using Umbraco.Web.Search;
 using Constants = Umbraco.Core.Constants;
+using Umbraco.Core.Services.Implement;
 
 namespace Umbraco.Web.Trees
 {
@@ -24,7 +25,7 @@ namespace Umbraco.Web.Trees
         Constants.Applications.Content,
         Constants.Applications.Media,
         Constants.Applications.Settings,
-        Constants.Applications.Developer,
+        Constants.Applications.Packages,
         Constants.Applications.Members)]
     [Tree(Constants.Applications.Media, Constants.Trees.Media)]
     [PluginController("UmbracoTrees")]
@@ -32,7 +33,12 @@ namespace Umbraco.Web.Trees
     [SearchableTree("searchResultFormatter", "configureMediaResult")]
     public class MediaTreeController : ContentTreeControllerBase, ISearchableTree
     {
-        private readonly UmbracoTreeSearcher _treeSearcher = new UmbracoTreeSearcher();
+        private readonly UmbracoTreeSearcher _treeSearcher;
+
+        public MediaTreeController(UmbracoTreeSearcher treeSearcher)
+        {
+            _treeSearcher = treeSearcher;
+        }
 
         protected override int RecycleBinId => Constants.System.RecycleBinMedia;
 
@@ -51,18 +57,15 @@ namespace Umbraco.Web.Trees
         /// <returns></returns>
         protected override TreeNode GetSingleTreeNode(IEntitySlim entity, string parentId, FormDataCollection queryStrings)
         {
-            //Special check to see if it ia a container, if so then we'll hide children.
-            var isContainer = entity.IsContainer; // && (queryStrings.Get("isDialog") != "true");
-
             var node = CreateTreeNode(
                 entity,
                 Constants.ObjectTypes.Media,
                 parentId,
                 queryStrings,
-                entity.HasChildren && !isContainer);
+                entity.HasChildren);
 
             // entity is either a container, or a media
-            if (isContainer)
+            if (entity.IsContainer)
             {
                 node.SetContainerStyle();
                 node.AdditionalData.Add("isContainer", true);
@@ -81,28 +84,25 @@ namespace Umbraco.Web.Trees
             var menu = new MenuItemCollection();
 
             //set the default
-            menu.DefaultMenuAlias = ActionNew.Instance.Alias;
+            menu.DefaultMenuAlias = ActionNew.ActionAlias;
 
-            if (id == Constants.System.Root.ToInvariantString())
+            if (id == Constants.System.RootString)
             {
                 // if the user's start node is not the root then the only menu item to display is refresh
                 if (UserStartNodes.Contains(Constants.System.Root) == false)
                 {
-                    menu.Items.Add<RefreshNode, ActionRefresh>(
-                        Services.TextService.Localize(string.Concat("actions/", ActionRefresh.Instance.Alias)),
-                        true);
+                    menu.Items.Add(new RefreshNode(Services.TextService, true));
                     return menu;
                 }
 
                 // root actions
-                menu.Items.Add<ActionNew>(Services.TextService.Localize("actions", ActionNew.Instance.Alias));
-                menu.Items.Add<ActionSort>(Services.TextService.Localize("actions", ActionSort.Instance.Alias), true).ConvertLegacyMenuItem(null, "media", "media");
-                menu.Items.Add<RefreshNode, ActionRefresh>(Services.TextService.Localize("actions", ActionRefresh.Instance.Alias), true);
+                menu.Items.Add<ActionNew>(Services.TextService, opensDialog: true);
+                menu.Items.Add<ActionSort>(Services.TextService, true);
+                menu.Items.Add(new RefreshNode(Services.TextService, true));
                 return menu;
             }
 
-            int iid;
-            if (int.TryParse(id, out iid) == false)
+            if (int.TryParse(id, out var iid) == false)
             {
                 throw new HttpResponseException(HttpStatusCode.NotFound);
             }
@@ -113,25 +113,35 @@ namespace Umbraco.Web.Trees
             }
 
             //if the user has no path access for this node, all they can do is refresh
-            if (Security.CurrentUser.HasPathAccess(item, Services.EntityService, RecycleBinId) == false)
+            if (!Security.CurrentUser.HasMediaPathAccess(item, Services.EntityService))
             {
-                menu.Items.Add<RefreshNode, ActionRefresh>(
-                    Services.TextService.Localize(string.Concat("actions/", ActionRefresh.Instance.Alias)),
-                    true);
+                menu.Items.Add(new RefreshNode(Services.TextService, true));
                 return menu;
             }
 
-            //return a normal node menu:
-            menu.Items.Add<ActionNew>(Services.TextService.Localize("actions", ActionNew.Instance.Alias));
-            menu.Items.Add<ActionMove>(Services.TextService.Localize("actions", ActionMove.Instance.Alias));
-            menu.Items.Add<ActionDelete>(Services.TextService.Localize("actions", ActionDelete.Instance.Alias));
-            menu.Items.Add<ActionSort>(Services.TextService.Localize("actions", ActionSort.Instance.Alias)).ConvertLegacyMenuItem(item, "media", "media");
-            menu.Items.Add<ActionRefresh>(Services.TextService.Localize("actions", ActionRefresh.Instance.Alias), true);
 
-            //if the media item is in the recycle bin, don't have a default menu, just show the regular menu
+            //if the media item is in the recycle bin, we don't have a default menu and we need to show a limited menu
             if (item.Path.Split(new[] {','}, StringSplitOptions.RemoveEmptyEntries).Contains(RecycleBinId.ToInvariantString()))
             {
+                menu.Items.Add<ActionRestore>(Services.TextService, opensDialog: true);
+                menu.Items.Add<ActionMove>(Services.TextService, opensDialog: true);
+                menu.Items.Add<ActionDelete>(Services.TextService, opensDialog: true);
+                menu.Items.Add(new RefreshNode(Services.TextService, true));
+
                 menu.DefaultMenuAlias = null;
+                
+            }
+            else
+            {
+                //return a normal node menu:
+                menu.Items.Add<ActionNew>(Services.TextService, opensDialog: true);
+                menu.Items.Add<ActionMove>(Services.TextService, opensDialog: true);
+                menu.Items.Add<ActionDelete>(Services.TextService, opensDialog: true);
+                menu.Items.Add<ActionSort>(Services.TextService);
+                menu.Items.Add(new RefreshNode(Services.TextService, true));
+
+                //set the default to create
+                menu.DefaultMenuAlias = ActionNew.ActionAlias;
             }
 
             return menu;
@@ -152,9 +162,16 @@ namespace Umbraco.Web.Trees
             return HasPathAccess(entity, queryStrings);
         }
 
-        public IEnumerable<SearchResultItem> Search(string query, int pageSize, long pageIndex, out long totalFound, string searchFrom = null)
+        public IEnumerable<SearchResultEntity> Search(string query, int pageSize, long pageIndex, out long totalFound, string searchFrom = null)
         {
-            return _treeSearcher.ExamineSearch(Umbraco, query, UmbracoEntityTypes.Media, pageSize, pageIndex, out totalFound, searchFrom);
+            return _treeSearcher.ExamineSearch(query, UmbracoEntityTypes.Media, pageSize, pageIndex, out totalFound, searchFrom);
         }
+
+        internal override IEnumerable<IEntitySlim> GetChildrenFromEntityService(int entityId)
+            // Not pretty having to cast the service, but it is the only way to get to use an internal method that we
+            // do not want to make public on the interface. Unfortunately also prevents this from being unit tested.
+            // See this issue for details on why we need this:
+            // https://github.com/umbraco/Umbraco-CMS/issues/3457
+            => ((EntityService)Services.EntityService).GetMediaChildrenWithoutPropertyData(entityId).ToList();        
     }
 }

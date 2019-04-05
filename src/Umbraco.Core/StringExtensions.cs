@@ -8,16 +8,13 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Web;
-using System.Xml;
+using System.Web.Security;
 using Newtonsoft.Json;
 using Umbraco.Core.Configuration;
-using System.Web.Security;
-using Umbraco.Core.Strings;
-using Umbraco.Core.CodeAnnotations;
 using Umbraco.Core.Composing;
 using Umbraco.Core.Exceptions;
 using Umbraco.Core.IO;
+using Umbraco.Core.Strings;
 
 namespace Umbraco.Core
 {
@@ -85,7 +82,7 @@ namespace Umbraco.Core
         }
 
         /// <summary>
-        /// Based on the input string, this will detect if the strnig is a JS path or a JS snippet.
+        /// Based on the input string, this will detect if the string is a JS path or a JS snippet.
         /// If a path cannot be determined, then it is assumed to be a snippet the original text is returned
         /// with an invalid attempt, otherwise a valid attempt is returned with the resolved path
         /// </summary>
@@ -190,7 +187,6 @@ namespace Umbraco.Core
                 outputArray[i] = char.IsLetterOrDigit(inputArray[i]) ? inputArray[i] : replacement;
             return new string(outputArray);
         }
-
         private static readonly char[] CleanForXssChars = "*?(){}[];:%<>/\\|&'\"".ToCharArray();
 
         /// <summary>
@@ -201,7 +197,7 @@ namespace Umbraco.Core
         /// <returns></returns>
         public static string CleanForXss(this string input, params char[] ignoreFromClean)
         {
-            //remove any html
+            //remove any HTML
             input = input.StripHtml();
             //strip out any potential chars involved with XSS
             return input.ExceptChars(new HashSet<char>(CleanForXssChars.Except(ignoreFromClean)));
@@ -318,7 +314,7 @@ namespace Umbraco.Core
             return decryptedValue.ToString();
         }
 
-        //this is from SqlMetal and just makes it a bit of fun to allow pluralisation
+        //this is from SqlMetal and just makes it a bit of fun to allow pluralization
         public static string MakePluralName(this string name)
         {
             if ((name.EndsWith("x", StringComparison.OrdinalIgnoreCase) || name.EndsWith("ch", StringComparison.OrdinalIgnoreCase)) || (name.EndsWith("s", StringComparison.OrdinalIgnoreCase) || name.EndsWith("sh", StringComparison.OrdinalIgnoreCase)))
@@ -471,13 +467,13 @@ namespace Umbraco.Core
             return ch.ToString(CultureInfo.InvariantCulture) == ch.ToString(CultureInfo.InvariantCulture).ToUpperInvariant();
         }
 
-        /// <summary>Is null or white space.</summary>
-        /// <param name="str">The str.</param>
-        /// <returns>The is null or white space.</returns>
-        public static bool IsNullOrWhiteSpace(this string str)
-        {
-            return string.IsNullOrWhiteSpace(str);
-        }
+        /// <summary>Indicates whether a specified string is null, empty, or
+        /// consists only of white-space characters.</summary>
+        /// <param name="value">The value to check.</param>
+        /// <returns>Returns <see langword="true"/> if the value is null,
+        /// empty, or consists only of white-space characters, otherwise
+        /// returns <see langword="false"/>.</returns>
+        public static bool IsNullOrWhiteSpace(this string value) => string.IsNullOrWhiteSpace(value);
 
         public static string IfNullOrWhiteSpace(this string str, string defaultValue)
         {
@@ -536,14 +532,14 @@ namespace Umbraco.Core
         }
 
         /// <summary>
-        /// Strips all html from a string.
+        /// Strips all HTML from a string.
         /// </summary>
         /// <param name="text">The text.</param>
-        /// <returns>Returns the string without any html tags.</returns>
+        /// <returns>Returns the string without any HTML tags.</returns>
         public static string StripHtml(this string text)
         {
             const string pattern = @"<(.|\n)*?>";
-            return Regex.Replace(text, pattern, String.Empty);
+            return Regex.Replace(text, pattern, string.Empty, RegexOptions.Compiled);
         }
 
         /// <summary>
@@ -597,13 +593,14 @@ namespace Umbraco.Core
         ///<returns></returns>
         public static string ToUrlBase64(this string input)
         {
-            if (input == null) throw new ArgumentNullException("input");
+            if (input == null) throw new ArgumentNullException(nameof(input));
 
-            if (String.IsNullOrEmpty(input)) return String.Empty;
+            if (string.IsNullOrEmpty(input))
+                return string.Empty;
 
+            //return Convert.ToBase64String(bytes).Replace(".", "-").Replace("/", "_").Replace("=", ",");
             var bytes = Encoding.UTF8.GetBytes(input);
             return UrlTokenEncode(bytes);
-            //return Convert.ToBase64String(bytes).Replace(".", "-").Replace("/", "_").Replace("=", ",");
         }
 
         /// <summary>
@@ -613,14 +610,14 @@ namespace Umbraco.Core
         /// <returns></returns>
         public static string FromUrlBase64(this string input)
         {
-            if (input == null) throw new ArgumentNullException("input");
+            if (input == null) throw new ArgumentNullException(nameof(input));
 
             //if (input.IsInvalidBase64()) return null;
 
             try
             {
                 //var decodedBytes = Convert.FromBase64String(input.Replace("-", ".").Replace("_", "/").Replace(",", "="));
-                byte[] decodedBytes = UrlTokenDecode(input);
+                var decodedBytes = UrlTokenDecode(input);
                 return decodedBytes != null ? Encoding.UTF8.GetString(decodedBytes) : null;
             }
             catch (FormatException)
@@ -696,13 +693,6 @@ namespace Umbraco.Core
             return s.LastIndexOf(value, StringComparison.OrdinalIgnoreCase);
         }
 
-        [Obsolete("Use Guid.TryParse instead")]
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        public static bool IsGuid(this string str, bool withHyphens)
-        {
-            Guid g;
-            return Guid.TryParse(str, out g);
-        }
 
         /// <summary>
         /// Tries to parse a string into the supplied type by finding and using the Type's "Parse" method
@@ -734,7 +724,7 @@ namespace Umbraco.Core
         /// <summary>
         /// Generates a hash of a string based on the FIPS compliance setting.
         /// </summary>
-        /// <param name="str">Referrs to itself</param>
+        /// <param name="str">Refers to itself</param>
         /// <returns>The hashed string</returns>
         public static string GenerateHash(this string str)
         {
@@ -746,9 +736,10 @@ namespace Umbraco.Core
         /// <summary>
         /// Converts the string to MD5
         /// </summary>
-        /// <param name="stringToConvert">Referrs to itself</param>
+        /// <param name="stringToConvert">Refers to itself</param>
         /// <returns>The MD5 hashed string</returns>
-        public static string ToMd5(this string stringToConvert)
+        [Obsolete("Please use the GenerateHash method instead. This may be removed in future versions")]
+        internal static string ToMd5(this string stringToConvert)
         {
             return stringToConvert.GenerateHash("MD5");
         }
@@ -756,16 +747,17 @@ namespace Umbraco.Core
         /// <summary>
         /// Converts the string to SHA1
         /// </summary>
-        /// <param name="stringToConvert">referrs to itself</param>
+        /// <param name="stringToConvert">refers to itself</param>
         /// <returns>The SHA1 hashed string</returns>
-        public static string ToSHA1(this string stringToConvert)
+        [Obsolete("Please use the GenerateHash method instead. This may be removed in future versions")]
+        internal static string ToSHA1(this string stringToConvert)
         {
             return stringToConvert.GenerateHash("SHA1");
         }
 
         /// <summary>Generate a hash of a string based on the hashType passed in
         /// </summary>
-        /// <param name="str">Referrs to itself</param>
+        /// <param name="str">Refers to itself</param>
         /// <param name="hashType">String with the hash type.  See remarks section of the CryptoConfig Class in MSDN docs for a list of possible values.</param>
         /// <returns>The hashed string</returns>
         private static string GenerateHash(this string str, string hashType)
@@ -784,7 +776,7 @@ namespace Umbraco.Core
                 //create a StringBuilder object
                 var stringBuilder = new StringBuilder();
 
-                //loop to each each byte
+                //loop to each byte
                 foreach (var b in hashedByteArray)
                 {
                     //append it to our StringBuilder
@@ -804,42 +796,40 @@ namespace Umbraco.Core
         internal static byte[] UrlTokenDecode(string input)
         {
             if (input == null)
+                throw new ArgumentNullException(nameof(input));
+
+            if (input.Length == 0)
+                return Array.Empty<byte>();
+
+            // calc array size - must be groups of 4
+            var arrayLength = input.Length;
+            var remain = arrayLength % 4;
+            if (remain != 0) arrayLength += 4 - remain;
+
+            var inArray = new char[arrayLength];
+            for (var i = 0; i < input.Length; i++)
             {
-                throw new ArgumentNullException("input");
-            }
-            int length = input.Length;
-            if (length < 1)
-            {
-                return new byte[0];
-            }
-            int num2 = input[length - 1] - '0';
-            if ((num2 < 0) || (num2 > 10))
-            {
-                return null;
-            }
-            char[] inArray = new char[(length - 1) + num2];
-            for (int i = 0; i < (length - 1); i++)
-            {
-                char ch = input[i];
+                var ch = input[i];
                 switch (ch)
                 {
-                    case '-':
+                    case '-': // restore '-' as '+'
                         inArray[i] = '+';
                         break;
 
-                    case '_':
+                    case '_': // restore '_' as '/'
                         inArray[i] = '/';
                         break;
 
-                    default:
+                    default: // keep char unchanged
                         inArray[i] = ch;
                         break;
                 }
             }
-            for (int j = length - 1; j < inArray.Length; j++)
-            {
+
+            // pad with '='
+            for (var j = input.Length; j < inArray.Length; j++)
                 inArray[j] = '=';
-            }
+
             return Convert.FromBase64CharArray(inArray, 0, inArray.Length);
         }
 
@@ -851,59 +841,45 @@ namespace Umbraco.Core
         internal static string UrlTokenEncode(byte[] input)
         {
             if (input == null)
+                throw new ArgumentNullException(nameof(input));
+
+            if (input.Length == 0)
+                return string.Empty;
+
+            // base-64 digits are A-Z, a-z, 0-9, + and /
+            // the = char is used for trailing padding
+
+            var str = Convert.ToBase64String(input);
+
+            var pos = str.IndexOf('=');
+            if (pos < 0) pos = str.Length;
+
+            // replace chars that would cause problems in urls
+            var chArray = new char[pos];
+            for (var i = 0; i < pos; i++)
             {
-                throw new ArgumentNullException("input");
-            }
-            if (input.Length < 1)
-            {
-                return String.Empty;
-            }
-            string str = null;
-            int index = 0;
-            char[] chArray = null;
-            str = Convert.ToBase64String(input);
-            if (str == null)
-            {
-                return null;
-            }
-            index = str.Length;
-            while (index > 0)
-            {
-                if (str[index - 1] != '=')
-                {
-                    break;
-                }
-                index--;
-            }
-            chArray = new char[index + 1];
-            chArray[index] = (char)((0x30 + str.Length) - index);
-            for (int i = 0; i < index; i++)
-            {
-                char ch = str[i];
+                var ch = str[i];
                 switch (ch)
                 {
-                    case '+':
+                    case '+': // replace '+' with '-'
                         chArray[i] = '-';
                         break;
 
-                    case '/':
+                    case '/': // replace '/' with '_'
                         chArray[i] = '_';
                         break;
 
-                    case '=':
-                        chArray[i] = ch;
-                        break;
-
-                    default:
+                    default: // keep char unchanged
                         chArray[i] = ch;
                         break;
                 }
             }
+
             return new string(chArray);
         }
 
         /// <summary>
-        /// Ensures that the folder path ends with a DirectorySeperatorChar
+        /// Ensures that the folder path ends with a DirectorySeparatorChar
         /// </summary>
         /// <param name="currentFolder"></param>
         /// <returns></returns>
@@ -1045,7 +1021,7 @@ namespace Umbraco.Core
         }
 
         /// <summary>
-        /// Returns a new string in which all occurences of specified strings are replaced by other specified strings.
+        /// Returns a new string in which all occurrences of specified strings are replaced by other specified strings.
         /// </summary>
         /// <param name="text">The string to filter.</param>
         /// <param name="replacements">The replacements definition.</param>
@@ -1063,7 +1039,7 @@ namespace Umbraco.Core
         }
 
         /// <summary>
-        /// Returns a new string in which all occurences of specified characters are replaced by a specified character.
+        /// Returns a new string in which all occurrences of specified characters are replaced by a specified character.
         /// </summary>
         /// <param name="text">The string to filter.</param>
         /// <param name="chars">The characters to replace.</param>
@@ -1115,29 +1091,6 @@ namespace Umbraco.Core
         public static string ToSafeAlias(this string alias, string culture)
         {
             return Current.ShortStringHelper.CleanStringForSafeAlias(alias, culture);
-        }
-
-        /// <summary>
-        /// Cleans (but only if required) a string to produce a string that can safely be used in an alias.
-        /// </summary>
-        /// <param name="alias">The text to filter.</param>
-        /// <returns>The safe alias.</returns>
-        /// <remarks>Checks <c>UmbracoSettings.ForceSafeAliases</c> to determine whether it should filter the text.</remarks>
-        public static string ToSafeAliasWithForcingCheck(this string alias)
-        {
-            return UmbracoConfig.For.UmbracoSettings().Content.ForceSafeAliases ? alias.ToSafeAlias() : alias;
-        }
-
-        /// <summary>
-        /// Cleans (but only if required) a string, in the context of a specified culture, to produce a string that can safely be used in an alias.
-        /// </summary>
-        /// <param name="alias">The text to filter.</param>
-        /// <param name="culture">The culture.</param>
-        /// <returns>The safe alias.</returns>
-        /// <remarks>Checks <c>UmbracoSettings.ForceSafeAliases</c> to determine whether it should filter the text.</remarks>
-        public static string ToSafeAliasWithForcingCheck(this string alias, string culture)
-        {
-            return UmbracoConfig.For.UmbracoSettings().Content.ForceSafeAliases ? alias.ToSafeAlias(culture) : alias;
         }
 
         // the new methods to get a url segment
@@ -1230,7 +1183,7 @@ namespace Umbraco.Core
         /// Splits a Pascal cased string into a phrase separated by spaces.
         /// </summary>
         /// <param name="phrase">The text to split.</param>
-        /// <returns>The splitted text.</returns>
+        /// <returns>The split text.</returns>
         public static string SplitPascalCasing(this string phrase)
         {
             return Current.ShortStringHelper.SplitPascalCasing(phrase, ' ');
@@ -1281,7 +1234,7 @@ namespace Umbraco.Core
         /// <returns>Updated string</returns>
         public static string Replace(this string source, string oldString, string newString, StringComparison stringComparison)
         {
-            // This initialisation ensures the first check starts at index zero of the source. On successive checks for
+            // This initialization ensures the first check starts at index zero of the source. On successive checks for
             // a match, the source is skipped to immediately after the last replaced occurrence for efficiency
             // and to avoid infinite loops when oldString and newString compare equal.
             int index = -1 * newString.Length;
@@ -1292,7 +1245,7 @@ namespace Umbraco.Core
                 // Remove the old text.
                 source = source.Remove(index, oldString.Length);
 
-                // Add the replacemenet text.
+                // Add the replacement text.
                 source = source.Insert(index, newString);
             }
 
@@ -1363,14 +1316,25 @@ namespace Umbraco.Core
             return ReplaceMany(text, regexSpecialCharacters);
         }
 
+        /// <summary>
+        /// Checks whether a string "haystack" contains within it any of the strings in the "needles" collection and returns true if it does or false if it doesn't
+        /// </summary>
+        /// <param name="haystack">The string to check</param>
+        /// <param name="needles">The collection of strings to check are contained within the first string</param>
+        /// <param name="comparison">The type of comparison to perform - defaults to <see cref="StringComparison.CurrentCulture"/></param>
+        /// <returns>True if any of the needles are contained with haystack; otherwise returns false</returns>
+        /// Added fix to ensure the comparison is used - see http://issues.umbraco.org/issue/U4-11313
         public static bool ContainsAny(this string haystack, IEnumerable<string> needles, StringComparison comparison = StringComparison.CurrentCulture)
         {
-            if (haystack == null) throw new ArgumentNullException("haystack");
-            if (string.IsNullOrEmpty(haystack) == false || needles.Any())
+            if (haystack == null)
+                throw new ArgumentNullException("haystack");
+
+            if (string.IsNullOrEmpty(haystack) || needles == null || !needles.Any())
             {
-                return needles.Any(value => haystack.IndexOf(value) >= 0);
+                return false;
             }
-            return false;
+
+            return needles.Any(value => haystack.IndexOf(value, comparison) >= 0);
         }
 
         public static bool CsvContains(this string csv, string value)
@@ -1381,6 +1345,30 @@ namespace Umbraco.Core
             }
             var idCheckList = csv.Split(new[] { "," }, StringSplitOptions.RemoveEmptyEntries);
             return idCheckList.Contains(value);
+        }
+
+        /// <summary>
+        /// Converts a file name to a friendly name for a content item
+        /// </summary>
+        /// <param name="fileName"></param>
+        /// <returns></returns>
+        public static string ToFriendlyName(this string fileName)
+        {
+            // strip the file extension
+            fileName = fileName.StripFileExtension();
+
+            // underscores and dashes to spaces
+            fileName = fileName.ReplaceMany(new[] { '_', '-' }, ' ');
+
+            // any other conversions ?
+
+            // Pascalcase (to be done last)
+            fileName = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(fileName);
+
+            // Replace multiple consecutive spaces with a single space
+            fileName = string.Join(" ", fileName.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
+
+            return fileName;
         }
 
         // From: http://stackoverflow.com/a/961504/5018
@@ -1496,7 +1484,7 @@ namespace Umbraco.Core
         /// <summary>
         /// Turns an null-or-whitespace string into a null string.
         /// </summary>
-        public static string NullEmpty(this string text)
+        public static string NullOrWhiteSpaceAsNull(this string text)
             => string.IsNullOrWhiteSpace(text) ? null : text;
     }
 }

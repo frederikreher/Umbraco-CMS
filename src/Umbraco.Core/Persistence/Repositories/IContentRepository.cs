@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Umbraco.Core.Models.Entities;
 using Umbraco.Core.Persistence.DatabaseModelDefinitions;
 using Umbraco.Core.Persistence.Querying;
+using Umbraco.Core.Services;
 
 namespace Umbraco.Core.Persistence.Repositories
 {
@@ -17,6 +18,12 @@ namespace Umbraco.Core.Persistence.Repositories
         /// </summary>
         /// <remarks>Current version is first, and then versions are ordered with most recent first.</remarks>
         IEnumerable<TEntity> GetAllVersions(int nodeId);
+
+        /// <summary>
+        /// Gets versions.
+        /// </summary>
+        /// <remarks>Current version is first, and then versions are ordered with most recent first.</remarks>
+        IEnumerable<TEntity> GetAllVersionsSlim(int nodeId, int skip, int take);
 
         /// <summary>
         /// Gets version identifiers.
@@ -67,7 +74,8 @@ namespace Umbraco.Core.Persistence.Repositories
         /// <summary>
         /// Gets paged content items.
         /// </summary>
+        /// <remarks>Here, <paramref name="filter"/> can be null but <paramref name="ordering"/> cannot.</remarks>
         IEnumerable<TEntity> GetPage(IQuery<TEntity> query, long pageIndex, int pageSize, out long totalRecords,
-            string orderBy, Direction orderDirection, bool orderBySystemField, IQuery<TEntity> filter = null);
+            IQuery<TEntity> filter, Ordering ordering);
     }
 }

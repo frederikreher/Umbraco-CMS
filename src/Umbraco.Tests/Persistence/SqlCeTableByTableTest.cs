@@ -5,6 +5,7 @@ using Umbraco.Core.Logging;
 using Umbraco.Core.Migrations.Install;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.Dtos;
+using Umbraco.Tests.LegacyXmlPublishedCache;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.Testing;
 
@@ -445,35 +446,6 @@ namespace Umbraco.Tests.Persistence
                 helper.CreateTable<PropertyTypeDto>();
                 helper.CreateTable<TagDto>();
                 helper.CreateTable<TagRelationshipDto>();
-
-                scope.Complete();
-            }
-        }
-
-        [Test]
-        public void Can_Create_cmsTask_Table()
-        {
-            using (var scope = ScopeProvider.CreateScope())
-            {
-                var helper = new DatabaseSchemaCreator(scope.Database, Mock.Of<ILogger>());
-
-                helper.CreateTable<NodeDto>();
-                helper.CreateTable<UserDto>();
-                helper.CreateTable<TaskTypeDto>();
-                helper.CreateTable<TaskDto>();
-
-                scope.Complete();
-            }
-        }
-
-        [Test]
-        public void Can_Create_cmsTaskType_Table()
-        {
-            using (var scope = ScopeProvider.CreateScope())
-            {
-                var helper = new DatabaseSchemaCreator(scope.Database, Mock.Of<ILogger>());
-
-                helper.CreateTable<TaskTypeDto>();
 
                 scope.Complete();
             }

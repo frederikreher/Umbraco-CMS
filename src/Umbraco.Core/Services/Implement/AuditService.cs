@@ -27,11 +27,11 @@ namespace Umbraco.Core.Services.Implement
             _isAvailable = new Lazy<bool>(DetermineIsAvailable);
         }
 
-        public void Add(AuditType type, string comment, int userId, int objectId)
+        public void Add(AuditType type, int userId, int objectId, string entityType, string comment, string parameters = null)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
-                _auditRepository.Save(new AuditItem(objectId, comment, type, userId));
+                _auditRepository.Save(new AuditItem(objectId, type, userId, entityType, comment, parameters));
                 scope.Complete();
             }
         }
@@ -159,7 +159,7 @@ namespace Umbraco.Core.Services.Implement
         /// <inheritdoc />
         public IAuditEntry Write(int performingUserId, string perfomingDetails, string performingIp, DateTime eventDateUtc, int affectedUserId, string affectedDetails, string eventType, string eventDetails)
         {
-            if (performingUserId < 0 && performingUserId != Constants.Security.SuperId) throw new ArgumentOutOfRangeException(nameof(performingUserId));
+            if (performingUserId < 0 && performingUserId != Constants.Security.SuperUserId) throw new ArgumentOutOfRangeException(nameof(performingUserId));
             if (string.IsNullOrWhiteSpace(perfomingDetails)) throw new ArgumentException("Value cannot be null or whitespace.", nameof(perfomingDetails));
             if (string.IsNullOrWhiteSpace(eventType)) throw new ArgumentException("Value cannot be null or whitespace.", nameof(eventType));
             if (string.IsNullOrWhiteSpace(eventDetails)) throw new ArgumentException("Value cannot be null or whitespace.", nameof(eventDetails));
@@ -200,7 +200,7 @@ namespace Umbraco.Core.Services.Implement
             return entry;
         }
 
-        //TODO: Currently used in testing only, not part of the interface, need to add queryable methods to the interface instead
+        // TODO: Currently used in testing only, not part of the interface, need to add queryable methods to the interface instead
         internal IEnumerable<IAuditEntry> GetAll()
         {
             if (_isAvailable.Value == false) return Enumerable.Empty<IAuditEntry>();
@@ -211,7 +211,7 @@ namespace Umbraco.Core.Services.Implement
             }
         }
 
-        //TODO: Currently used in testing only, not part of the interface, need to add queryable methods to the interface instead
+        // TODO: Currently used in testing only, not part of the interface, need to add queryable methods to the interface instead
         internal IEnumerable<IAuditEntry> GetPage(long pageIndex, int pageCount, out long records)
         {
             if (_isAvailable.Value == false)

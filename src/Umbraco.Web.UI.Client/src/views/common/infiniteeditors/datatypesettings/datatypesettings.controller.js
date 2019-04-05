@@ -10,7 +10,8 @@
 (function () {
     "use strict";
 
-    function DataTypeSettingsController($scope, dataTypeResource, dataTypeHelper) {
+    function DataTypeSettingsController($scope, dataTypeResource, dataTypeHelper, 
+        localizationService, notificationsService, overlayService, formHelper, eventsService) {
 
         var vm = this;
 
@@ -22,10 +23,22 @@
         vm.submit = submit;
 
         function onInit() {
+
+            setTitle();
+
             if($scope.model.create) {
                 createNewDataType();
             } else {
                 getDataType();
+            }
+        }
+
+        function setTitle() {
+            if(!$scope.model.title) {
+                localizationService.localize("contentTypeEditor_editorSettings")
+                    .then(function(data){
+                        $scope.model.title = data;
+                    });
             }
         }
 
@@ -90,15 +103,34 @@
             vm.saveButtonState = "busy";
 
             var preValues = dataTypeHelper.createPreValueProps(vm.dataType.preValues);
+            
+            dataTypeResource.save(vm.dataType, preValues, $scope.model.create).then(
+                function(newDataType) {
+                    $scope.model.dataType = newDataType;
+                    
+                    var args = { dataType: newDataType };
+                    eventsService.emit("editors.dataTypeSettings.saved", args);
+                    
+                    vm.saveButtonState = "success";
 
-            dataTypeResource.save(vm.dataType, preValues, $scope.model.create).then(function(newDataType) {
-                $scope.model.dataType = newDataType;
-                vm.saveButtonState = "success";
+                    if ($scope.model && $scope.model.submit) {
+                        $scope.model.submit($scope.model);
+                    }
+                }, function(err) {
+                    vm.saveButtonState = "error";
+                    
+                    if(err.status === 400) {
+                        if (err.data && (err.data.ModelState)) {
+                            
+                            formHelper.handleServerValidation(err.data.ModelState);
 
-                if ($scope.model && $scope.model.submit) {
-                    $scope.model.submit($scope.model);
+                            for (var e in err.data.ModelState) {
+                                notificationsService.error("Validation", err.data.ModelState[e][0]);
+                            }
+                        }
+                    }
                 }
-            });
+            );
             
         }
 

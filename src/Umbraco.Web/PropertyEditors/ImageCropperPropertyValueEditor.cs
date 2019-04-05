@@ -16,12 +16,12 @@ namespace Umbraco.Web.PropertyEditors
     /// <summary>
     /// The value editor for the image cropper property editor.
     /// </summary>
-    internal class ImageCropperPropertyValueEditor : DataValueEditor // fixme core vs web?
+    internal class ImageCropperPropertyValueEditor : DataValueEditor // TODO: core vs web?
     {
         private readonly ILogger _logger;
-        private readonly MediaFileSystem _mediaFileSystem;
+        private readonly IMediaFileSystem _mediaFileSystem;
 
-        public ImageCropperPropertyValueEditor(DataEditorAttribute attribute, ILogger logger, MediaFileSystem mediaFileSystem)
+        public ImageCropperPropertyValueEditor(DataEditorAttribute attribute, ILogger logger, IMediaFileSystem mediaFileSystem)
             : base(attribute)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -151,6 +151,9 @@ namespace Umbraco.Web.PropertyEditors
 
             using (var filestream = File.OpenRead(file.TempFilePath))
             {
+                // TODO: Here it would make sense to do the auto-fill properties stuff but the API doesn't allow us to do that right
+                // since we'd need to be able to return values for other properties from these methods
+
                 _mediaFileSystem.AddFile(filepath, filestream, true); // must overwrite!
             }
 
@@ -163,7 +166,7 @@ namespace Umbraco.Web.PropertyEditors
             if (value == null || string.IsNullOrEmpty(value.ToString()))
                 return null;
 
-            // if we dont have a json structure, we will get it from the property type
+            // if we don't have a json structure, we will get it from the property type
             var val = value.ToString();
             if (val.DetectIsJson())
                 return val;

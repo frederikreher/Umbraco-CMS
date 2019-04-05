@@ -4,6 +4,8 @@ using System.ComponentModel;
 using System.Configuration;
 using System.Linq;
 using System.Web.Http;
+using Umbraco.Core;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Configuration.HealthChecks;
@@ -15,7 +17,7 @@ namespace Umbraco.Web.HealthCheck
     /// <summary>
     /// The API controller used to display the health check info and execute any actions
     /// </summary>
-    [UmbracoApplicationAuthorize(Core.Constants.Applications.Developer)]
+    [UmbracoApplicationAuthorize(Core.Constants.Applications.Settings)]
     public class HealthCheckController : UmbracoAuthorizedJsonController
     {
         private readonly HealthCheckCollection _checks;
@@ -27,7 +29,7 @@ namespace Umbraco.Web.HealthCheck
             _checks = checks ?? throw new ArgumentNullException(nameof(checks));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-            var healthCheckConfig = UmbracoConfig.For.HealthCheck();
+            var healthCheckConfig = Current.Configs.HealthChecks();
             _disabledCheckIds = healthCheckConfig.DisabledChecks
                 .Select(x => x.Id)
                 .ToList();
@@ -69,9 +71,9 @@ namespace Umbraco.Web.HealthCheck
                 //Core.Logging.LogHelper.Debug<HealthCheckController>("Running health check: " + check.Name);
                 return check.GetStatus();
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                _logger.Error<HealthCheckController>("Exception in health check: " + check.Name, e);
+                _logger.Error<HealthCheckController>(ex, "Exception in health check: {HealthCheckName}", check.Name);
                 throw;
             }
         }

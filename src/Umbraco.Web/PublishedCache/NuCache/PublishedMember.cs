@@ -15,13 +15,26 @@ namespace Umbraco.Web.PublishedCache.NuCache
     {
         private readonly IMember _member;
 
-        private PublishedMember(IMember member, ContentNode contentNode, ContentData contentData, IPublishedSnapshotAccessor publishedSnapshotAccessor, IVariationContextAccessor variationContextAccessor)
-            : base(contentNode, contentData, publishedSnapshotAccessor, variationContextAccessor)
+        private PublishedMember(
+            IMember member,
+            ContentNode contentNode,
+            ContentData contentData,
+            IPublishedSnapshotAccessor publishedSnapshotAccessor,
+            IVariationContextAccessor variationContextAccessor,
+            IUmbracoContextAccessor umbracoContextAccessor
+            )
+            : base(contentNode, contentData, publishedSnapshotAccessor, variationContextAccessor, umbracoContextAccessor)
         {
             _member = member;
         }
 
-        public static IPublishedContent Create(IMember member, PublishedContentType contentType, bool previewing, IPublishedSnapshotAccessor publishedSnapshotAccessor, IVariationContextAccessor variationContextAccessor)
+        public static IPublishedContent Create(
+            IMember member,
+            PublishedContentType contentType,
+            bool previewing,
+            IPublishedSnapshotAccessor publishedSnapshotAccessor,
+            IVariationContextAccessor variationContextAccessor,
+            IUmbracoContextAccessor umbracoContextAccessor)
         {
             var d = new ContentData
             {
@@ -37,7 +50,7 @@ namespace Umbraco.Web.PublishedCache.NuCache
                 member.Level, member.Path, member.SortOrder,
                 member.ParentId,
                 member.CreateDate, member.CreatorId);
-            return new PublishedMember(member, n, d, publishedSnapshotAccessor, variationContextAccessor).CreateModel();
+            return new PublishedMember(member, n, d, publishedSnapshotAccessor, variationContextAccessor, umbracoContextAccessor).CreateModel();
         }
 
         private static Dictionary<string, PropertyData[]> GetPropertyValues(PublishedContentType contentType, IMember member)
@@ -61,7 +74,7 @@ namespace Umbraco.Web.PublishedCache.NuCache
                 //    return new KeyValuePair<string, object>(property.Alias, v);
                 //})
                 //.ToDictionary(x => x.Key, x => x.Value);
-                .ToDictionary(x => x.Alias, x => new[] { new PropertyData { Value = x.GetValue() } }, StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(x => x.Alias, x => new[] { new PropertyData { Value = x.GetValue(), Culture = string.Empty, Segment = string.Empty } }, StringComparer.OrdinalIgnoreCase);
 
             // see also PublishedContentType
             AddIf(contentType, properties, "Email", member.Email);
@@ -82,7 +95,7 @@ namespace Umbraco.Web.PublishedCache.NuCache
         {
             var propertyType = contentType.GetPropertyType(alias);
             if (propertyType == null || propertyType.IsUserProperty) return;
-            properties[alias] = new[] { new PropertyData { Value = value } };
+            properties[alias] = new[] { new PropertyData { Value = value, Culture = string.Empty, Segment = string.Empty } };
         }
 
         #region IPublishedMember

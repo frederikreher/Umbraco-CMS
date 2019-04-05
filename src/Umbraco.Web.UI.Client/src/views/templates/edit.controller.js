@@ -1,10 +1,13 @@
 (function () {
     "use strict";
 
-    function TemplatesEditController($scope, $routeParams, $timeout, templateResource, assetsService, notificationsService, editorState, navigationService, appState, macroService, treeService, contentEditingHelper, localizationService, angularHelper, templateHelper) {
+    function TemplatesEditController($scope, $routeParams, $timeout, templateResource, assetsService, notificationsService, editorState, navigationService, appState, macroService, treeService, contentEditingHelper, localizationService, angularHelper, templateHelper, editorService) {
 
         var vm = this;
         var oldMasterTemplateAlias = null;
+        var infiniteMode = $scope.model && $scope.model.infiniteMode;
+        var id = infiniteMode ? $scope.model.id : $routeParams.id;
+        var create = infiniteMode ? $scope.model.create : $routeParams.create;
 
         vm.page = {};
         vm.page.loading = true;
@@ -18,6 +21,7 @@
         // insert buttons
         vm.page.insertDefaultButton = {
             labelKey: "general_insert",
+            addEllipsis: "true",
             handler: function() {
                 vm.openInsertOverlay();
             }
@@ -25,24 +29,28 @@
         vm.page.insertSubButtons = [
             {
                 labelKey: "template_insertPageField",
+                addEllipsis: "true",
                 handler: function () {
                     vm.openPageFieldOverlay();
                 }
             },
             {
                 labelKey: "template_insertPartialView",
+                addEllipsis: "true",
                 handler: function () {
                     vm.openPartialOverlay();
                 }
             },
             {
                 labelKey: "template_insertDictionaryItem",
+                addEllipsis: "true",
                 handler: function () {
                     vm.openDictionaryItemOverlay();
                 }
             },
             {
                 labelKey: "template_insertMacro",
+                addEllipsis: "true",
                 handler: function () {
                     vm.openMacroOverlay()
                 }
@@ -55,12 +63,18 @@
 
         //Keyboard shortcuts for help dialog
         vm.page.keyboardShortcutsOverview = [];
-        vm.page.keyboardShortcutsOverview.push(templateHelper.getGeneralShortcuts());
-        vm.page.keyboardShortcutsOverview.push(templateHelper.getEditorShortcuts());
-        vm.page.keyboardShortcutsOverview.push(templateHelper.getTemplateEditorShortcuts());
 
+        templateHelper.getGeneralShortcuts().then(function(data){
+            vm.page.keyboardShortcutsOverview.push(data);
+        });
+        templateHelper.getEditorShortcuts().then(function(data){
+            vm.page.keyboardShortcutsOverview.push(data);
+        });
+        templateHelper.getTemplateEditorShortcuts().then(function(data){
+            vm.page.keyboardShortcutsOverview.push(data);
+        });
         
-        vm.save = function () {
+        vm.save = function (suppressNotification) {
             vm.page.saveButtonState = "busy";
 
             vm.template.content = vm.editor.getValue();
@@ -69,29 +83,32 @@
                 saveMethod: templateResource.save,
                 scope: $scope,
                 content: vm.template,
-                //We do not redirect on failure for templates - this is because it is not possible to actually save the template
+                // We do not redirect on failure for templates - this is because it is not possible to actually save the template
                 // type when server side validation fails - as opposed to content where we are capable of saving the content
                 // item if server side validation fails
                 redirectOnFailure: false,
                 rebindCallback: function (orignal, saved) {}
             }).then(function (saved) {
 
-                localizationService.localizeMany(["speechBubbles_templateSavedHeader", "speechBubbles_templateSavedText"]).then(function(data){
-                    var header = data[0];
-                    var message = data[1];
-                    notificationsService.success(header, message);
-                });
-
+				if (!suppressNotification) {
+                    localizationService.localizeMany(["speechBubbles_templateSavedHeader", "speechBubbles_templateSavedText"]).then(function(data){
+                        var header = data[0];
+                        var message = data[1];
+                        notificationsService.success(header, message);
+                    });
+				}
 
                 vm.page.saveButtonState = "success";
                 vm.template = saved;
 
                 //sync state
-                editorState.set(vm.template);
+                if(!infiniteMode) {
+                    editorState.set(vm.template);
+                }
                 
                 // sync tree
                 // if master template alias has changed move the node to it's new location
-                if(oldMasterTemplateAlias !== vm.template.masterTemplateAlias) {
+                if(!infiniteMode && oldMasterTemplateAlias !== vm.template.masterTemplateAlias) {
                 
                     // When creating a new template the id is -1. Make sure We don't remove the root node.
                     if (vm.page.menu.currentNode.id !== "-1") {
@@ -110,53 +127,55 @@
                 } else {
 
                     // normal tree sync
-                    navigationService.syncTree({ tree: "templates", path: vm.template.path, forceReload: true }).then(function (syncArgs) {
-                        vm.page.menu.currentNode = syncArgs.node;
-                    });
+                    if(!infiniteMode) {
+                        navigationService.syncTree({ tree: "templates", path: vm.template.path, forceReload: true }).then(function (syncArgs) {
+                            vm.page.menu.currentNode = syncArgs.node;
+                        });
+                    }
 
                 }
 
                 // clear $dirty state on form
                 setFormState("pristine");
 
+                if(infiniteMode) {
+                    submit();
+                }
+
 
             }, function (err) {
+                if (suppressNotification) {
+                    vm.page.saveButtonState = "error";
 
-                vm.page.saveButtonState = "error";
-                
-                localizationService.localizeMany(["speechBubbles_validationFailedHeader", "speechBubbles_validationFailedMessage"]).then(function(data){
-                    var header = data[0];
-                    var message = data[1];
-                    notificationsService.error(header, message);
-                });
-
+                    localizationService.localizeMany(["speechBubbles_validationFailedHeader", "speechBubbles_validationFailedMessage"]).then(function (data) {
+                        var header = data[0];
+                        var message = data[1];
+                        notificationsService.error(header, message);
+                    });
+                }
             });
 
         };
 
         vm.init = function () {
 
-            //we need to load this somewhere, for now its here.
+            // we need to load this somewhere, for now its here.
             assetsService.loadCss("lib/ace-razor-mode/theme/razor_chrome.css", $scope);
 
-            //load templates - used in the master template picker
+            // load templates - used in the master template picker
             templateResource.getAll()
                 .then(function(templates) {
                     vm.templates = templates;
                 });
 
-            if($routeParams.create){
-
-                templateResource.getScaffold(($routeParams.id)).then(function (template) {
+            if(create) {
+                templateResource.getScaffold((id)).then(function (template) {
             		vm.ready(template);
             	});
-
-            }else{
-
-            	templateResource.getById($routeParams.id).then(function(template){
+            } else {
+            	templateResource.getById(id).then(function(template){
                     vm.ready(template);
                 });
-
             }
 
         };
@@ -166,11 +185,27 @@
         	vm.page.loading = false;
             vm.template = template;
 
-            //sync state
-            editorState.set(vm.template);
-            navigationService.syncTree({ tree: "templates", path: vm.template.path, forceReload: true }).then(function (syncArgs) {
-                vm.page.menu.currentNode = syncArgs.node;
-            });
+			// if this is a new template, bind to the blur event on the name
+			if (create) {
+				$timeout(function() {
+					var nameField = angular.element(document.querySelector('[data-element="editor-name-field"]'));
+					if (nameField) {
+						nameField.on('blur', function(event) {
+							if (event.target.value) {
+								vm.save(true);
+							}
+						});
+					}
+				});
+			}	
+					
+            // sync state
+            if(!infiniteMode) {
+                editorState.set(vm.template);
+                navigationService.syncTree({ tree: "templates", path: vm.template.path, forceReload: true }).then(function (syncArgs) {
+                    vm.page.menu.currentNode = syncArgs.node;
+                });
+            }
 
             // save state of master template to use for comparison when syncing the tree on save
             oldMasterTemplateAlias = angular.copy(template.masterTemplateAlias);
@@ -192,19 +227,19 @@
                     //Update the auto-complete method to use ctrl+alt+space
                     _editor.commands.bindKey("ctrl-alt-space", "startAutocomplete");
                     
-                    //Unassigns the keybinding (That was previously auto-complete)
-                    //As conflicts with our own tree search shortcut
+                    // Unassigns the keybinding (That was previously auto-complete)
+                    // As conflicts with our own tree search shortcut
                     _editor.commands.bindKey("ctrl-space", null);
 
                     // Assign new keybinding
                     _editor.commands.addCommands([
-                        //Disable (alt+shift+K)
-                        //Conflicts with our own show shortcuts dialog - this overrides it
+                        // Disable (alt+shift+K)
+                        // Conflicts with our own show shortcuts dialog - this overrides it
                         {
                             name: 'unSelectOrFindPrevious',
                             bindKey: 'Alt-Shift-K',
                             exec: function() {
-                                //Toggle the show keyboard shortcuts overlay
+                                // Toggle the show keyboard shortcuts overlay
                                 $scope.$apply(function(){
                                     vm.showKeyboardShortcut = !vm.showKeyboardShortcut;
                                 });
@@ -281,14 +316,14 @@
                                 });
                             },
                             readOnly: true
-                        },
+                        }
                         
                     ]);
                     
                     // initial cursor placement
                     // Keep cursor in name field if we are create a new template
                     // else set the cursor at the bottom of the code editor
-                    if(!$routeParams.create) {
+                    if(!create) {
                         $timeout(function(){
                             vm.editor.navigateFileEnd();
                             vm.editor.focus();
@@ -296,7 +331,7 @@
                         });
                     }
 
-                    //change on blur, focus
+                    // change on blur, focus
                     vm.editor.on("blur", persistCurrentLocation);
                     vm.editor.on("focus", persistCurrentLocation);
                     vm.editor.on("change", changeAceEditor);
@@ -316,201 +351,170 @@
         vm.selectMasterTemplate = selectMasterTemplate;
         vm.getMasterTemplateName = getMasterTemplateName;
         vm.removeMasterTemplate = removeMasterTemplate;
+        vm.closeShortcuts = closeShortcuts;
+        vm.submit = submit;
+        vm.close = close;
 
         function openInsertOverlay() {
-
-            vm.insertOverlay = {
-                view: "insert",
+            var insertOverlay = {
                 allowedTypes: {
                     macro: true,
                     dictionary: true,
                     partial: true,
                     umbracoField: true
                 },
-                hideSubmitButton: true,
-                show: true,
                 submit: function(model) {
-
                     switch(model.insert.type) {
-
                         case "macro":
                             var macroObject = macroService.collectValueData(model.insert.selectedMacro, model.insert.macroParams, "Mvc");
                             insert(macroObject.syntax);
                             break;
-
                         case "dictionary":
                         	var code = templateHelper.getInsertDictionarySnippet(model.insert.node.name);
                         	insert(code);
                             break;
-
                         case "partial":
                             var code = templateHelper.getInsertPartialSnippet(model.insert.node.parentId, model.insert.node.name);
                             insert(code);
                             break;
-                            
                         case "umbracoField":
                             insert(model.insert.umbracoField);
                             break;
                     }
-
-                    vm.insertOverlay.show = false;
-                    vm.insertOverlay = null;
-
+                    editorService.close();
                 },
                 close: function(oldModel) {
                     // close the dialog
-                    vm.insertOverlay.show = false;
-                    vm.insertOverlay = null;
+                    editorService.close();
                     // focus editor
                     vm.editor.focus();
                 }
             };
-
+            editorService.insertCodeSnippet(insertOverlay);
         }
-
 
         function openMacroOverlay() {
-
-            vm.macroPickerOverlay = {
-                view: "macropicker",
+            var macroPicker = {
                 dialogData: {},
-                show: true,
-                title: localizationService.localize("template_insertMacro"),
                 submit: function (model) {
-
                     var macroObject = macroService.collectValueData(model.selectedMacro, model.macroParams, "Mvc");
                     insert(macroObject.syntax);
-
-                    vm.macroPickerOverlay.show = false;
-                    vm.macroPickerOverlay = null;
-
+                    editorService.close();
                 },
-                close: function(oldModel) {
-                    // close the dialog
-                    vm.macroPickerOverlay.show = false;
-                    vm.macroPickerOverlay = null;
-                    // focus editor
+                close: function() {
+                    editorService.close();
                     vm.editor.focus();
                 }
             };
+            editorService.macroPicker(macroPicker);
         }
 
-
         function openPageFieldOverlay() {
-            vm.pageFieldOverlay = {
-                submitButtonLabel: "Insert",
-                closeButtonlabel: "Cancel",
-                view: "insertfield",
-                show: true,
-                title: localizationService.localize("template_insertPageField"),
+            var insertFieldEditor = {
                 submit: function (model) {
                     insert(model.umbracoField);
-                    vm.pageFieldOverlay.show = false;
-                    vm.pageFieldOverlay = null;
+                    editorService.close();
                 },
-                close: function (model) {
-                    // close the dialog
-                    vm.pageFieldOverlay.show = false;
-                    vm.pageFieldOverlay = null;
-                    // focus editor
-                    vm.editor.focus();                    
+                close: function () {
+                    editorService.close();
+                    vm.editor.focus();
                 }
             };
+            editorService.insertField(insertFieldEditor);
         }
 
 
         function openDictionaryItemOverlay() {
-            vm.dictionaryItemOverlay = {
-                view: "treepicker",
-                section: "settings",
-                treeAlias: "dictionary",
-                entityType: "dictionary",
-                multiPicker: false,
-                show: true,
-                title: localizationService.localize("template_insertDictionaryItem"),
-                emptyStateMessage: localizationService.localize("emptyStates_emptyDictionaryTree"),
-                select: function(node){
-                    var code = templateHelper.getInsertDictionarySnippet(node.name);
-                	insert(code);
 
-                	vm.dictionaryItemOverlay.show = false;
-                    vm.dictionaryItemOverlay = null;
-                },
-                close: function (model) {
-                    // close dialog
-                    vm.dictionaryItemOverlay.show = false;
-                    vm.dictionaryItemOverlay = null;
-                    // focus editor
-                    vm.editor.focus();
-                }
-            };
+            var labelKeys = [
+                "template_insertDictionaryItem",
+                "emptyStates_emptyDictionaryTree"
+            ];
+
+            localizationService.localizeMany(labelKeys).then(function(values){
+                var title = values[0];
+                var emptyStateMessage = values[1];
+
+                var dictionaryItem = {
+                    section: "translation",
+                    treeAlias: "dictionary",
+                    entityType: "dictionary",
+                    multiPicker: false,
+                    title: title,
+                    emptyStateMessage: emptyStateMessage,
+                    select: function(node){
+                        var code = templateHelper.getInsertDictionarySnippet(node.name);
+                        insert(code);
+                        editorService.close();
+                    },
+                    close: function (model) {
+                        // close dialog
+                        editorService.close();
+                        // focus editor
+                        vm.editor.focus();
+                    }
+                };
+
+                editorService.treePicker(dictionaryItem);
+
+            });
+
         }
 
         function openPartialOverlay() {
-            vm.partialItemOverlay = {
-                view: "treepicker",
-                section: "settings", 
-                treeAlias: "partialViews",
-                entityType: "partialView",
-                multiPicker: false,
-                show: true,
-                title: localizationService.localize("template_insertPartialView"),
-                filter: function(i) {
-                    if(i.name.indexOf(".cshtml") === -1 && i.name.indexOf(".vbhtml") === -1) {
-                        return true;
-                    }
-                },
-                filterCssClass: "not-allowed",
-                select: function(node){
-                    
-                    var code = templateHelper.getInsertPartialSnippet(node.parentId, node.name);
-                    insert(code);
 
-                    vm.partialItemOverlay.show = false;
-                    vm.partialItemOverlay = null;
-                },
-                close: function (model) {
-                    // close dialog
-                    vm.partialItemOverlay.show = false;
-                    vm.partialItemOverlay = null;
-                    // focus editor
-                    vm.editor.focus();
-                }
-            };
+            localizationService.localize("template_insertPartialView").then(function(value){
+                var title = value;
+
+                var partialItem = {
+                    section: "settings", 
+                    treeAlias: "partialViews",
+                    entityType: "partialView",
+                    multiPicker: false,
+                    title: title,
+                    filter: function(i) {
+                        if(i.name.indexOf(".cshtml") === -1 && i.name.indexOf(".vbhtml") === -1) {
+                            return true;
+                        }
+                    },
+                    filterCssClass: "not-allowed",
+                    select: function(node){
+                        var code = templateHelper.getInsertPartialSnippet(node.parentId, node.name);
+                        insert(code);
+                        editorService.close();
+                    },
+                    close: function (model) {
+                        // close dialog
+                        editorService.close();
+                        // focus editor
+                        vm.editor.focus();
+                    }
+                };
+
+                editorService.treePicker(partialItem);
+            });
         }
 
         function openQueryBuilderOverlay() {
-            vm.queryBuilderOverlay = {
-                view: "querybuilder",
-                show: true,
-                title: localizationService.localize("template_queryBuilder"),
+            var queryBuilder = {
                 submit: function (model) {
-
                     var code = templateHelper.getQuerySnippet(model.result.queryExpression);
                     insert(code);
-                    
-                    vm.queryBuilderOverlay.show = false;
-                    vm.queryBuilderOverlay = null;
+                    editorService.close();
                 },
-
-                close: function (model) {
-                    // close dialog
-                    vm.queryBuilderOverlay.show = false;
-                    vm.queryBuilderOverlay = null;
+                close: function () {
+                    editorService.close();
                     // focus editor
                     vm.editor.focus();   
                 }
             };
+            editorService.queryBuilder(queryBuilder);
         }
 
 
         function openSectionsOverlay() {
-
-            vm.sectionsOverlay = {
-                view: "templatesections",
+            var templateSections = {
                 isMaster: vm.template.isMasterTemplate,
-                submitButtonLabel: "Insert",
-                show: true,
                 submit: function(model) {
 
                     if (model.insertType === 'renderBody') {
@@ -528,18 +532,15 @@
                         wrap(code);
                     }
 
-                    vm.sectionsOverlay.show = false;
-                    vm.sectionsOverlay = null;
+                    editorService.close();
 
                 },
                 close: function(model) {
-                    // close dialog
-                    vm.sectionsOverlay.show = false;
-                    vm.sectionsOverlay = null;
-                    // focus editor
+                    editorService.close();
                     vm.editor.focus();
                 }
             }
+            editorService.templateSections(templateSections);
         }
 
         function openMasterTemplateOverlay() {
@@ -548,40 +549,41 @@
             var availableMasterTemplates = [];
 
             // filter out the current template and the selected master template
-            angular.forEach(vm.templates, function(template){
-                if(template.alias !== vm.template.alias && template.alias !== vm.template.masterTemplateAlias) {
-                    availableMasterTemplates.push(template);
+            angular.forEach(vm.templates, function (template) {
+                if (template.alias !== vm.template.alias && template.alias !== vm.template.masterTemplateAlias) {
+                    var templatePathArray = template.path.split(',');
+                    // filter descendant templates of current template
+                    if (templatePathArray.indexOf(String(vm.template.id)) === -1) {
+                        availableMasterTemplates.push(template);
+                    }
                 }
             });
 
-            vm.masterTemplateOverlay = {
-                view: "itempicker",
-                title: localizationService.localize("template_mastertemplate"),
-                availableItems: availableMasterTemplates,
-                show: true,
-                submit: function(model) {
-
-                    var template = model.selectedItem;
-
-                    if (template && template.alias) {
-                        vm.template.masterTemplateAlias = template.alias;
-                        setLayout(template.alias + ".cshtml");
-                    } else {
-                        vm.template.masterTemplateAlias = null;
-                        setLayout(null);
+            localizationService.localize("template_mastertemplate").then(function(value){
+                var title = value;
+                var masterTemplate = {
+                    title: title,
+                    availableItems: availableMasterTemplates,
+                    submit: function(model) {
+                        var template = model.selectedItem;
+                        if (template && template.alias) {
+                            vm.template.masterTemplateAlias = template.alias;
+                            setLayout(template.alias + ".cshtml");
+                        } else {
+                            vm.template.masterTemplateAlias = null;
+                            setLayout(null);
+                        }
+                        editorService.close();
+                    },
+                    close: function(oldModel) {
+                        // close dialog
+                        editorService.close();
+                        // focus editor
+                        vm.editor.focus();
                     }
-
-                    vm.masterTemplateOverlay.show = false;
-                    vm.masterTemplateOverlay = null;
-                },
-                close: function(oldModel) {
-                    // close dialog
-                    vm.masterTemplateOverlay.show = false;
-                    vm.masterTemplateOverlay = null;
-                    // focus editor
-                    vm.editor.focus();
-                }
-            };
+                };
+                editorService.itemPicker(masterTemplate);
+            });
 
         }
 
@@ -630,7 +632,7 @@
                     templateCode = templateCode.replace(layoutDefRegex, "$1\"" + newValue + "\"$3");
                 } else {
                     // Declaration doesn't exist, so prepend to start of doc
-                    //TODO: Maybe insert at the cursor position, rather than just at the top of the doc?
+                    // TODO: Maybe insert at the cursor position, rather than just at the top of the doc?
                     templateCode = "@{\n\tLayout = \"" + newValue + "\";\n}\n" + templateCode;
                 }
             } else {
@@ -689,6 +691,23 @@
                 currentForm.$setDirty();
             } else if(state === "pristine") {
                 currentForm.$setPristine();
+            }
+        }
+
+        function closeShortcuts() {
+            vm.showKeyboardShortcut = false;
+        }
+
+        function submit() {
+            if($scope.model.submit) {
+                $scope.model.template = vm.template;
+                $scope.model.submit($scope.model);
+            }
+        }
+
+        function close() {
+            if($scope.model.close) {
+                $scope.model.close();
             }
         }
     

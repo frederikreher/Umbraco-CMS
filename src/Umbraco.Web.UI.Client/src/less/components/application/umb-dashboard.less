@@ -9,11 +9,29 @@
 }
 
 .umb-dashboard__header {
-    padding: 20px 20px 0 20px;
+    flex: 0 0 @editorHeaderHeight;
+    background: @white;
     border-bottom: 1px solid @gray-9;
+    padding: 20px 0 0 0;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: flex-end;
+    flex-direction: column;
 }
 
 .umb-dashboard__content {
     padding: 20px;
     overflow: auto;
+}
+
+// we need to do some special styling for tabs inside the dashboard header
+.umb-dashboard__header .umb-tabs-nav {
+    margin-bottom: 0;
+    margin-left: 10px;
+    margin-right: 10px;
+    border: none;
+}
+
+.umb-dashboard__header .umb-tabs-nav .umb-tab > a {
+    padding-bottom: 25px;
 }

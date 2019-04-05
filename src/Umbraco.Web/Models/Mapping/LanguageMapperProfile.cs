@@ -12,6 +12,18 @@ namespace Umbraco.Web.Models.Mapping
     {
         public LanguageMapperProfile()
         {
+            CreateMap<ILanguage, EntityBasic>()
+                .ForMember(dest => dest.Id, opt => opt.MapFrom(x => x.Id))
+                .ForMember(dest => dest.Name, opt => opt.MapFrom(x => x.CultureName))
+                .ForMember(dest => dest.Key, opt => opt.MapFrom(x => x.Key))
+                .ForMember(dest => dest.Alias, opt => opt.MapFrom(x => x.IsoCode))
+                .ForMember(dest => dest.ParentId, opt => opt.MapFrom(_ => -1))
+                .ForMember(dest => dest.Path, opt => opt.Ignore())
+                .ForMember(dest => dest.Trashed, opt => opt.Ignore())
+                .ForMember(dest => dest.AdditionalData, opt => opt.Ignore())
+                .ForMember(dest => dest.Udi, opt => opt.Ignore())
+                .ForMember(dest => dest.Icon, opt => opt.Ignore());
+
             CreateMap<ILanguage, Language>()
                 .ForMember(l => l.Name, expression => expression.MapFrom(x => x.CultureInfo.DisplayName));
 
@@ -28,23 +40,21 @@ namespace Umbraco.Web.Models.Mapping
         {
             public IEnumerable<Language> Convert(IEnumerable<ILanguage> source, IEnumerable<Language> destination, ResolutionContext context)
             {
-                var allLanguages = source.OrderBy(x => x.Id).ToList();
-                var langs = new List<Language>(allLanguages.Select(x => context.Mapper.Map<ILanguage, Language>(x, null, context)));
+                var langs = source.Select(x => context.Mapper.Map<ILanguage, Language>(x, null, context)).ToList();
 
-                //if there's only one language, by default it is the default
-                if (langs.Count == 1)
-                {
-                    langs[0].IsDefaultVariantLanguage = true;
-                    langs[0].Mandatory = true;
-                }
-                else if (allLanguages.All(x => !x.IsDefaultVariantLanguage))
-                {
-                    //if no language has the default flag, then the defaul language is the one with the lowest id
-                    langs[0].IsDefaultVariantLanguage = true;
-                    langs[0].Mandatory = true;
-                }
+                //Put the default language first in the list & then sort rest by a-z
+                var defaultLang = langs.SingleOrDefault(x => x.IsDefault);
 
-                return langs.OrderBy(x => x.Name);
+                //Remove the default language from the list for now
+                langs.Remove(defaultLang);
+
+                //Sort the remaining languages a-z
+                langs = langs.OrderBy(x => x.Name).ToList();
+
+                //Insert the default language as the first item
+                langs.Insert(0, defaultLang);
+
+                return langs;
             }
         }
     }

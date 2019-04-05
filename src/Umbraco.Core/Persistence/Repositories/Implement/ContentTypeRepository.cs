@@ -19,13 +19,13 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
     {
         private readonly ITemplateRepository _templateRepository;
 
-        public ContentTypeRepository(IScopeAccessor scopeAccessor, CacheHelper cache, ILogger logger, ITemplateRepository templateRepository)
+        public ContentTypeRepository(IScopeAccessor scopeAccessor, AppCaches cache, ILogger logger, ITemplateRepository templateRepository)
             : base(scopeAccessor, cache, logger)
         {
             _templateRepository = templateRepository;
         }
 
-        protected override bool IsPublishing => ContentType.IsPublishingConst;
+        protected override bool SupportsPublishing => ContentType.SupportsPublishingConst;
 
         protected override IRepositoryCachePolicy<IContentType, int> CreateCachePolicy()
         {
@@ -60,13 +60,12 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             if (ids.Any())
             {
                 //NOTE: This logic should never be executed according to our cache policy
-                return ContentTypeQueryMapper.GetContentTypes(Database, SqlSyntax, IsPublishing, this, _templateRepository)
+                return ContentTypeQueryMapper.GetContentTypes(Database, SqlSyntax, SupportsPublishing, this, _templateRepository)
                     .Where(x => ids.Contains(x.Id));
             }
 
-            return ContentTypeQueryMapper.GetContentTypes(Database, SqlSyntax, IsPublishing, this, _templateRepository);
+            return ContentTypeQueryMapper.GetContentTypes(Database, SqlSyntax, SupportsPublishing, this, _templateRepository);
         }
-
 
         protected override IEnumerable<IContentType> PerformGetAll(params Guid[] ids)
         {
@@ -80,11 +79,10 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             var translator = new SqlTranslator<IContentType>(sqlClause, query);
             var sql = translator.Translate();
 
-            // fixme - insane! GetBaseQuery does not even return a proper??? oh well...
             var dtos = Database.Fetch<ContentTypeTemplateDto>(sql);
 
             return
-                //This returns a lookup from the GetAll cached looup
+                //This returns a lookup from the GetAll cached lookup
                 (dtos.Any()
                     ? GetMany(dtos.DistinctBy(x => x.ContentTypeDto.NodeId).Select(x => x.ContentTypeDto.NodeId).ToArray())
                     : Enumerable.Empty<IContentType>())
@@ -227,10 +225,9 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         {
             if (string.IsNullOrWhiteSpace(entity.Alias))
             {
-                var m = $"ContentType '{entity.Name}' cannot have an empty Alias. This is most likely due to invalid characters stripped from the Alias.";
-                var e = new Exception(m);
-                Logger.Error<ContentTypeRepository>(m, e);
-                throw e;
+                var ex = new Exception($"ContentType '{entity.Name}' cannot have an empty Alias. This is most likely due to invalid characters stripped from the Alias.");
+                Logger.Error<ContentTypeRepository>("ContentType '{EntityName}' cannot have an empty Alias. This is most likely due to invalid characters stripped from the Alias.", entity.Name);
+                throw ex;
             }
 
             ((ContentType)entity).AddingEntity();

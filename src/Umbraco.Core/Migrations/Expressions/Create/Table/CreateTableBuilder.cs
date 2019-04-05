@@ -3,6 +3,7 @@ using NPoco;
 using Umbraco.Core.Migrations.Expressions.Common.Expressions;
 using Umbraco.Core.Migrations.Expressions.Create.Expressions;
 using Umbraco.Core.Persistence;
+using Umbraco.Core.Persistence.DatabaseAnnotations;
 using Umbraco.Core.Persistence.DatabaseModelDefinitions;
 
 namespace Umbraco.Core.Migrations.Expressions.Create.Table
@@ -93,25 +94,15 @@ namespace Umbraco.Core.Migrations.Expressions.Create.Table
         {
             CurrentColumn.IsPrimaryKey = true;
 
-            //For MySQL, the PK will be created WITH the create table expression, however for
-            // SQL Server, the PK get's created in a different Alter table expression afterwords.
-            // MySQL will choke if the same constraint is again added afterword
-            // TODO: This is a super hack, I'd rather not add another property like 'CreatesPkInCreateTableDefinition' to check
-            // for this, but I don't see another way around. MySQL doesn't support checking for a constraint before creating
-            // it... except in a very strange way but it doesn't actually provider error feedback if it doesn't work so we cannot use
-            // it.  For now, this is what I'm doing
-            if (Expression.DatabaseType.IsMySql() == false)
+            var expression = new CreateConstraintExpression(_context, ConstraintType.PrimaryKey)
             {
-                var expression = new CreateConstraintExpression(_context, ConstraintType.PrimaryKey)
-                {
-                    Constraint =
+                Constraint =
                 {
                     TableName = CurrentColumn.TableName,
                     Columns = new[] { CurrentColumn.Name }
                 }
-                };
-                Expression.Expressions.Add(expression);
-            }
+            };
+            Expression.Expressions.Add(expression);
 
             return this;
         }
@@ -122,27 +113,16 @@ namespace Umbraco.Core.Migrations.Expressions.Create.Table
             CurrentColumn.IsPrimaryKey = true;
             CurrentColumn.PrimaryKeyName = primaryKeyName;
 
-            //For MySQL, the PK will be created WITH the create table expression, however for
-            // SQL Server, the PK get's created in a different Alter table expression afterwords.
-            // MySQL will choke if the same constraint is again added afterword
-            // TODO: This is a super hack, I'd rather not add another property like 'CreatesPkInCreateTableDefinition' to check
-            // for this, but I don't see another way around. MySQL doesn't support checking for a constraint before creating
-            // it... except in a very strange way but it doesn't actually provider error feedback if it doesn't work so we cannot use
-            // it.  For now, this is what I'm doing
-
-            if (Expression.DatabaseType.IsMySql() == false)
+            var expression = new CreateConstraintExpression(_context, ConstraintType.PrimaryKey)
             {
-                var expression = new CreateConstraintExpression(_context, ConstraintType.PrimaryKey)
-                {
-                    Constraint =
+                Constraint =
                 {
                     ConstraintName = primaryKeyName,
                     TableName = CurrentColumn.TableName,
                     Columns = new[] { CurrentColumn.Name }
                 }
-                };
-                Expression.Expressions.Add(expression);
-            }
+            };
+            Expression.Expressions.Add(expression);
 
             return this;
         }
@@ -177,13 +157,13 @@ namespace Umbraco.Core.Migrations.Expressions.Create.Table
                 Name = indexName,
                 SchemaName = Expression.SchemaName,
                 TableName = Expression.TableName,
-                IsUnique = true
+                IndexType = IndexTypes.UniqueNonClustered
             });
 
             index.Index.Columns.Add(new IndexColumnDefinition
-                                        {
-                                            Name = CurrentColumn.Name
-                                        });
+            {
+                Name = CurrentColumn.Name
+            });
 
             Expression.Expressions.Add(index);
 

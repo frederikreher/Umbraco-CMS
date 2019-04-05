@@ -5,12 +5,11 @@ using System.Net.Http;
 using System.Web.Http.Controllers;
 using System.Web.Http.Filters;
 using AutoMapper;
-using LightInject;
 using Umbraco.Core;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Models;
 using Umbraco.Core.PropertyEditors;
 using Umbraco.Core.Services;
-using Umbraco.Web.Composing;
 using Umbraco.Web.Models.ContentEditing;
 using Umbraco.Web.WebApi;
 
@@ -21,13 +20,25 @@ namespace Umbraco.Web.Editors
     /// </summary>
     internal sealed class DataTypeValidateAttribute : ActionFilterAttribute
     {
-        // LightInject can inject dependencies into properties
+        public IDataTypeService DataTypeService { get; }
 
-        [Inject]
-        public IDataTypeService DataTypeService { get; set; }
+        public PropertyEditorCollection PropertyEditors { get; }
 
-        [Inject]
-        public PropertyEditorCollection PropertyEditors { get; set; }
+        public DataTypeValidateAttribute()
+            : this(Current.Factory.GetInstance<IDataTypeService>(), Current.Factory.GetInstance<PropertyEditorCollection>())
+        {
+        }
+
+        /// <summary>
+        /// For use in unit tests. Not possible to use as attribute ctor.
+        /// </summary>
+        /// <param name="dataTypeService"></param>
+        /// <param name="propertyEditors"></param>
+        public DataTypeValidateAttribute(IDataTypeService dataTypeService, PropertyEditorCollection propertyEditors)
+        {
+            DataTypeService = dataTypeService;
+            PropertyEditors = propertyEditors;
+        }
 
         public override void OnActionExecuting(HttpActionContext actionContext)
         {
@@ -85,7 +96,7 @@ namespace Umbraco.Web.Editors
                 var editorField = configurationEditor.Fields.SingleOrDefault(x => x.Key == field.Key);
                 if (editorField == null) continue;
 
-                // run each IValueValidator (with null valueType and dataTypeConfiguration: not relevant here) - fixme - editing
+                // run each IValueValidator (with null valueType and dataTypeConfiguration: not relevant here)
                 foreach (var validator in editorField.Validators)
                 foreach (var result in validator.Validate(field.Value, null, null))
                     actionContext.ModelState.AddValidationError(result, "Properties", field.Key);

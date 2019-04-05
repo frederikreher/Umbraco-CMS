@@ -10,7 +10,8 @@ namespace Umbraco.Core.Persistence.Dtos
     [ExplicitColumns]
     internal class ContentVersionDto
     {
-        private const string TableName = Constants.DatabaseSchema.Tables.ContentVersion;
+        public const string TableName = Constants.DatabaseSchema.Tables.ContentVersion;
+        private int? _userId;
 
         [Column("id")]
         [PrimaryKeyColumn]
@@ -20,13 +21,16 @@ namespace Umbraco.Core.Persistence.Dtos
         [ForeignKey(typeof(ContentDto))]
         public int NodeId { get; set; }
 
-        [Column("versionDate")]
+        [Column("versionDate")] // TODO: db rename to 'updateDate'
         [Constraint(Default = SystemMethods.CurrentDateTime)]
         public DateTime VersionDate { get; set; }
 
-        [Column("userId")]
-        public int UserId { get; set; }
+        [Column("userId")] // TODO: db rename to 'updateUserId'
+        [ForeignKey(typeof(UserDto))]
+        [NullSetting(NullSetting = NullSettings.Null)]
+        public int? UserId { get => _userId == 0 ? null : _userId; set => _userId = value; } //return null if zero
 
+        // TODO: we need an index on this it is used almost always in querying and sorting
         [Column("current")]
         public bool Current { get; set; }
 

@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -10,7 +9,6 @@ using Umbraco.Core.Composing;
 using Umbraco.Core.Events;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
-using Umbraco.Core.Models.Editors;
 using Umbraco.Core.Models.Entities;
 using Umbraco.Core.Persistence.DatabaseModelDefinitions;
 using Umbraco.Core.Persistence.Dtos;
@@ -19,7 +17,6 @@ using Umbraco.Core.Persistence.Querying;
 using Umbraco.Core.PropertyEditors;
 using Umbraco.Core.Scoping;
 using Umbraco.Core.Services;
-using Umbraco.Core.Services.Implement;
 using static Umbraco.Core.Persistence.NPocoSqlExtensions.Statics;
 
 namespace Umbraco.Core.Persistence.Repositories.Implement
@@ -36,7 +33,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         where TEntity : class, IUmbracoEntity
         where TRepository : class, IRepository
     {
-        protected ContentRepositoryBase(IScopeAccessor scopeAccessor, CacheHelper cache, ILanguageRepository languageRepository, ILogger logger)
+        protected ContentRepositoryBase(IScopeAccessor scopeAccessor, AppCaches cache, ILanguageRepository languageRepository, ILogger logger)
             : base(scopeAccessor, cache, logger)
         {
             LanguageRepository = languageRepository;
@@ -46,7 +43,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
         protected ILanguageRepository LanguageRepository { get; }
 
-        protected PropertyEditorCollection PropertyEditors => Current.PropertyEditors; // fixme inject
+        protected PropertyEditorCollection PropertyEditors => Current.PropertyEditors; // TODO: inject
 
         #region Versions
 
@@ -55,6 +52,10 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
         // gets all versions, current first
         public abstract IEnumerable<TEntity> GetAllVersions(int nodeId);
+
+        // gets all versions, current first
+        public virtual IEnumerable<TEntity> GetAllVersionsSlim(int nodeId, int skip, int take)
+            => GetAllVersions(nodeId).Skip(skip).Take(take);
 
         // gets all version ids, current first
         public virtual IEnumerable<int> GetVersionIds(int nodeId, int maxRows)
@@ -72,7 +73,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         // deletes a specific version
         public virtual void DeleteVersion(int versionId)
         {
-            // fixme test object node type?
+            // TODO: test object node type?
 
             // get the version we want to delete
             var template = SqlContext.Templates.Get("Umbraco.Core.VersionableRepository.GetVersion", tsql =>
@@ -94,7 +95,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         //  deletes all versions of an entity, older than a date.
         public virtual void DeleteVersions(int nodeId, DateTime versionDate)
         {
-            // fixme test object node type?
+            // TODO: test object node type?
 
             // get the versions we want to delete, excluding the current one
             var template = SqlContext.Templates.Get("Umbraco.Core.VersionableRepository.GetVersions", tsql =>
@@ -216,12 +217,30 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             foreach (var property in entity.Properties)
             {
                 var tagConfiguration = property.GetTagConfiguration();
-                if (tagConfiguration == null) continue;
-                tagRepo.Assign(entity.Id, property.PropertyTypeId, property.GetTagsValue().Select(x => new Tag { Group = tagConfiguration.Group, Text = x }), true);
+                if (tagConfiguration == null) continue; // not a tags property
+
+                if (property.PropertyType.VariesByCulture())
+                {
+                    var tags = new List<ITag>();
+                    foreach (var pvalue in property.Values)
+                    {
+                        var tagsValue = property.GetTagsValue(pvalue.Culture);
+                        var languageId = LanguageRepository.GetIdByIsoCode(pvalue.Culture);
+                        var cultureTags = tagsValue.Select(x => new Tag { Group = tagConfiguration.Group, Text = x, LanguageId = languageId });
+                        tags.AddRange(cultureTags);
+                    }
+                    tagRepo.Assign(entity.Id, property.PropertyTypeId, tags);
+                }
+                else
+                {
+                    var tagsValue = property.GetTagsValue(); // strings
+                    var tags = tagsValue.Select(x => new Tag { Group = tagConfiguration.Group, Text = x });
+                    tagRepo.Assign(entity.Id, property.PropertyTypeId, tags);
+                }
             }
         }
 
-        // FIXME should we do it when un-publishing? or?
+        // TODO: should we do it when un-publishing? or?
         /// <summary>
         /// Clears tags for an item.
         /// </summary>
@@ -232,16 +251,10 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
         #endregion
 
-        public abstract IEnumerable<TEntity> GetPage(IQuery<TEntity> query, long pageIndex, int pageSize, out long totalRecords, string orderBy, Direction orderDirection, bool orderBySystemField, IQuery<TEntity> filter = null);
-
-        // sql: the main sql
-        // filterSql: a filtering ? fixme different from v7?
-        // orderBy: the name of an ordering field
-        // orderDirection: direction for orderBy
-        // orderBySystemField: whether orderBy is a system field or a custom field (property value)
-        private Sql<ISqlContext> PrepareSqlForPage(Sql<ISqlContext> sql, Sql<ISqlContext> filterSql, string orderBy, Direction orderDirection, bool orderBySystemField)
+        private Sql<ISqlContext> PreparePageSql(Sql<ISqlContext> sql, Sql<ISqlContext> filterSql, Ordering ordering)
         {
-            if (filterSql == null && string.IsNullOrEmpty(orderBy)) return sql;
+            // non-filtering, non-ordering = nothing to do
+            if (filterSql == null && ordering.IsEmpty) return sql;
 
             // preserve original
             var psql = new Sql<ISqlContext>(sql.SqlContext, sql.SQL, sql.Arguments);
@@ -251,74 +264,133 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                 psql.Append(filterSql);
 
             // non-sorting, we're done
-            if (string.IsNullOrEmpty(orderBy))
+            if (ordering.IsEmpty)
                 return psql;
 
-            // else apply sort
-            var dbfield = orderBySystemField
-                ? GetOrderBySystemField(ref psql, orderBy)
-                : GetOrderByNonSystemField(ref psql, orderBy);
-
-            if (orderDirection == Direction.Ascending)
-                psql.OrderBy(dbfield);
-            else
-                psql.OrderByDescending(dbfield);
+            // else apply ordering
+            ApplyOrdering(ref psql, ordering);
 
             // no matter what we always MUST order the result also by umbracoNode.id to ensure that all records being ordered by are unique.
             // if we do not do this then we end up with issues where we are ordering by a field that has duplicate values (i.e. the 'text' column
             // is empty for many nodes) - see: http://issues.umbraco.org/issue/U4-8831
 
-            dbfield = GetDatabaseFieldNameForOrderBy("umbracoNode", "id");
-            if (orderBySystemField == false || orderBy.InvariantEquals(dbfield) == false)
+            var (dbfield, _) = SqlContext.VisitDto<NodeDto>(x => x.NodeId);
+            if (ordering.IsCustomField || !ordering.OrderBy.InvariantEquals("id"))
             {
-                // get alias, if aliased
-                var matches = VersionableRepositoryBaseAliasRegex.For(SqlContext.SqlSyntax).Matches(sql.SQL);
-                var match = matches.Cast<Match>().FirstOrDefault(m => m.Groups[1].Value.InvariantEquals(dbfield));
-                if (match != null) dbfield = match.Groups[2].Value;
-
-                // add field
-                psql.OrderBy(dbfield);
+                psql.OrderBy(GetAliasedField(dbfield, sql));
             }
 
             // create prepared sql
             // ensure it's single-line as NPoco PagingHelper has issues with multi-lines
-            psql = new Sql<ISqlContext>(psql.SqlContext, psql.SQL.ToSingleLine(), psql.Arguments);
+            psql = Sql(psql.SQL.ToSingleLine(), psql.Arguments);
+
+            // replace the magic culture parameter (see DocumentRepository.GetBaseQuery())
+            if (!ordering.Culture.IsNullOrWhiteSpace())
+            {
+                for (var i = 0; i < psql.Arguments.Length; i++)
+                {
+                    if (psql.Arguments[i] is string s && s == "[[[ISOCODE]]]")
+                    {
+                        psql.Arguments[i] = ordering.Culture;
+                    }
+                }
+            }
             return psql;
         }
 
-        private string GetOrderBySystemField(ref Sql<ISqlContext> sql, string orderBy)
+        private void ApplyOrdering(ref Sql<ISqlContext> sql, Ordering ordering)
         {
-            // get the database field eg "[table].[column]"
-            var dbfield = GetDatabaseFieldNameForOrderBy(orderBy);
+            if (sql == null) throw new ArgumentNullException(nameof(sql));
+            if (ordering == null) throw new ArgumentNullException(nameof(ordering));
 
-            // for SqlServer pagination to work, the "order by" field needs to be the alias eg if
-            // the select statement has "umbracoNode.text AS NodeDto__Text" then the order field needs
-            // to be "NodeDto__Text" and NOT "umbracoNode.text".
-            // not sure about SqlCE nor MySql, so better do it too. initially thought about patching
-            // NPoco but that would be expensive and not 100% possible, so better give NPoco proper
-            // queries to begin with.
-            // thought about maintaining a map of columns-to-aliases in the sql context but that would
-            // be expensive and most of the time, useless. so instead we parse the SQL looking for the
-            // alias. somewhat expensive too but nothing's free.
+            var orderBy = ordering.IsCustomField
+                ? ApplyCustomOrdering(ref sql, ordering)
+                : ApplySystemOrdering(ref sql, ordering);
 
-            // note: ContentTypeAlias is not properly managed because it's not part of the query to begin with!
+            // beware! NPoco paging code parses the query to isolate the ORDER BY fragment,
+            // using a regex that wants "([\w\.\[\]\(\)\s""`,]+)" - meaning that anything
+            // else in orderBy is going to break NPoco / not be detected
 
-            // get alias, if aliased
-            var matches = VersionableRepositoryBaseAliasRegex.For(SqlContext.SqlSyntax).Matches(sql.SQL);
-            var match = matches.Cast<Match>().FirstOrDefault(m => m.Groups[1].Value.InvariantEquals(dbfield));
-            if (match != null) dbfield = match.Groups[2].Value;
+            // beware! NPoco paging code (in PagingHelper) collapses everything [foo].[bar]
+            // to [bar] only, so we MUST use aliases, cannot use [table].[field]
 
-            return dbfield;
+            // beware! pre-2012 SqlServer is using a convoluted syntax for paging, which
+            // includes "SELECT ROW_NUMBER() OVER (ORDER BY ...) poco_rn FROM SELECT (...",
+            // so anything added here MUST also be part of the inner SELECT statement, ie
+            // the original statement, AND must be using the proper alias, as the inner SELECT
+            // will hide the original table.field names entirely
+
+            if (ordering.Direction == Direction.Ascending)
+                sql.OrderBy(orderBy);
+            else
+                sql.OrderByDescending(orderBy);
         }
 
-        private string GetOrderByNonSystemField(ref Sql<ISqlContext> sql, string orderBy)
+        protected virtual string ApplySystemOrdering(ref Sql<ISqlContext> sql, Ordering ordering)
+        {
+            // id is invariant
+            if (ordering.OrderBy.InvariantEquals("id"))
+                return GetAliasedField(SqlSyntax.GetFieldName<NodeDto>(x => x.NodeId), sql);
+
+            // sort order is invariant
+            if (ordering.OrderBy.InvariantEquals("sortOrder"))
+                return GetAliasedField(SqlSyntax.GetFieldName<NodeDto>(x => x.SortOrder), sql);
+
+            // path is invariant
+            if (ordering.OrderBy.InvariantEquals("path"))
+                return GetAliasedField(SqlSyntax.GetFieldName<NodeDto>(x => x.Path), sql);
+
+            // note: 'owner' is the user who created the item as a whole,
+            //       we don't have an 'owner' per culture (should we?)
+            if (ordering.OrderBy.InvariantEquals("owner"))
+            {
+                var joins = Sql()
+                    .InnerJoin<UserDto>("ownerUser").On<NodeDto, UserDto>((node, user) => node.UserId == user.Id, aliasRight: "ownerUser");
+
+                // see notes in ApplyOrdering: the field MUST be selected + aliased
+                sql = Sql(InsertBefore(sql, "FROM", ", " + SqlSyntax.GetFieldName<UserDto>(x => x.UserName, "ownerUser") + " AS ordering "), sql.Arguments);
+
+                sql = InsertJoins(sql, joins);
+
+                return "ordering";
+            }
+
+            // note: each version culture variation has a date too,
+            //       maybe we would want to use it instead?
+            if (ordering.OrderBy.InvariantEquals("versionDate") || ordering.OrderBy.InvariantEquals("updateDate"))
+                return GetAliasedField(SqlSyntax.GetFieldName<ContentVersionDto>(x => x.VersionDate), sql);
+
+            // create date is invariant (we don't keep each culture's creation date)
+            if (ordering.OrderBy.InvariantEquals("createDate"))
+                return GetAliasedField(SqlSyntax.GetFieldName<NodeDto>(x => x.CreateDate), sql);
+
+            // name is variant
+            if (ordering.OrderBy.InvariantEquals("name"))
+            {
+                // no culture = can only work on the invariant name
+                // see notes in ApplyOrdering: the field MUST be aliased
+                if (ordering.Culture.IsNullOrWhiteSpace())
+                    return GetAliasedField(SqlSyntax.GetFieldName<NodeDto>(x => x.Text), sql);
+
+                // "variantName" alias is defined in DocumentRepository.GetBaseQuery
+                // TODO: what if it is NOT a document but a ... media or whatever?
+                // previously, we inserted the join+select *here* so we were sure to have it,
+                // but now that's not the case anymore!
+                return "variantName";
+            }
+
+            // previously, we'd accept anything and just sanitize it - not anymore
+            throw new NotSupportedException($"Ordering by {ordering.OrderBy} not supported.");
+        }
+
+        private string ApplyCustomOrdering(ref Sql<ISqlContext> sql, Ordering ordering)
         {
             // sorting by a custom field, so set-up sub-query for ORDER BY clause to pull through value
             // from 'current' content version for the given order by field
             var sortedInt = string.Format(SqlContext.SqlSyntax.ConvertIntegerToOrderableString, "intValue");
+            var sortedDecimal = string.Format(SqlContext.SqlSyntax.ConvertDecimalToOrderableString, "decimalValue");
             var sortedDate = string.Format(SqlContext.SqlSyntax.ConvertDateToOrderableString, "dateValue");
             var sortedString = "COALESCE(varcharValue,'')"; // assuming COALESCE is ok for all syntaxes
-            var sortedDecimal = string.Format(SqlContext.SqlSyntax.ConvertDecimalToOrderableString, "decimalValue");
 
             // needs to be an outer join since there's no guarantee that any of the nodes have values for this property
             var innerSql = Sql().Select($@"CASE
@@ -329,49 +401,60 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                         END AS customPropVal,
                         cver.nodeId AS customPropNodeId")
                 .From<ContentVersionDto>("cver")
-                .InnerJoin<PropertyDataDto>("opdata").On<ContentVersionDto, PropertyDataDto>((left, right) => left.Id == right.Id, "cver", "opdata")
-                .InnerJoin<PropertyTypeDto>("optype").On<PropertyDataDto, PropertyTypeDto>((left, right) => left.PropertyTypeId == right.Id, "opdata", "optype")
+                .InnerJoin<PropertyDataDto>("opdata")
+                    .On<ContentVersionDto, PropertyDataDto>((version, pdata) => version.Id == pdata.VersionId, "cver", "opdata")
+                .InnerJoin<PropertyTypeDto>("optype").On<PropertyDataDto, PropertyTypeDto>((pdata, ptype) => pdata.PropertyTypeId == ptype.Id, "opdata", "optype")
+                .LeftJoin<LanguageDto>().On<PropertyDataDto, LanguageDto>((pdata, lang) => pdata.LanguageId == lang.Id, "opdata")
                 .Where<ContentVersionDto>(x => x.Current, "cver") // always query on current (edit) values
-                .Where<PropertyTypeDto>(x => x.Alias == "", "optype");
+                .Where<PropertyTypeDto>(x => x.Alias == ordering.OrderBy, "optype")
+                .Where<PropertyDataDto, LanguageDto>((opdata, lang) => opdata.LanguageId == null || lang.IsoCode == ordering.Culture, "opdata");
 
-            // @0 is for x.Current ie 'true' = 1
-            // @1 is for x.Alias
-            var innerSqlString = innerSql.SQL.Replace("@0", "1").Replace("@1", "@" + sql.Arguments.Length);
+            // merge arguments
+            var argsList = sql.Arguments.ToList();
+            var innerSqlString = ParameterHelper.ProcessParams(innerSql.SQL, innerSql.Arguments, argsList);
+
+            // create the outer join complete sql fragment
             var outerJoinTempTable = $@"LEFT OUTER JOIN ({innerSqlString}) AS customPropData
                 ON customPropData.customPropNodeId = {Constants.DatabaseSchema.Tables.Node}.id "; // trailing space is important!
 
-            // insert this just above the last WHERE
-            var pos = sql.SQL.InvariantIndexOf("WHERE");
-            if (pos < 0) throw new Exception("Oops, WHERE not found.");
-            var newSql = sql.SQL.Insert(pos, outerJoinTempTable);
+            // insert this just above the first WHERE
+            var newSql = InsertBefore(sql.SQL, "WHERE", outerJoinTempTable);
 
-            var newArgs = sql.Arguments.ToList();
-            newArgs.Add(orderBy);
+            // see notes in ApplyOrdering: the field MUST be selected + aliased
+            newSql = InsertBefore(newSql, "FROM", ", customPropData.customPropVal AS ordering "); // trailing space is important!
 
-            // insert the SQL selected field, too, else ordering cannot work
-            if (sql.SQL.StartsWith("SELECT ") == false) throw new Exception("Oops: SELECT not found.");
-            newSql = newSql.Insert("SELECT ".Length, "customPropData.customPropVal, ");
-
-            sql = new Sql<ISqlContext>(sql.SqlContext, newSql, newArgs.ToArray());
+            // create the new sql
+            sql = Sql(newSql, argsList.ToArray());
 
             // and order by the custom field
-            return "customPropData.customPropVal";
+            // this original code means that an ascending sort would first expose all NULL values, ie items without a value
+            return "ordering";
+
+            // note: adding an extra sorting criteria on
+            // "(CASE WHEN customPropData.customPropVal IS NULL THEN 1 ELSE 0 END")
+            // would ensure that items without a value always come last, both in ASC and DESC-ending sorts
         }
 
+        public abstract IEnumerable<TEntity> GetPage(IQuery<TEntity> query,
+            long pageIndex, int pageSize, out long totalRecords,
+            IQuery<TEntity> filter,
+            Ordering ordering);
+
+        // here, filter can be null and ordering cannot
         protected IEnumerable<TEntity> GetPage<TDto>(IQuery<TEntity> query,
             long pageIndex, int pageSize, out long totalRecords,
             Func<List<TDto>, IEnumerable<TEntity>> mapDtos,
-            string orderBy, Direction orderDirection, bool orderBySystemField,
-            Sql<ISqlContext> filterSql = null) // fixme filter is different on v7?
+            Sql<ISqlContext> filter,
+            Ordering ordering)
         {
-            if (orderBy == null) throw new ArgumentNullException(nameof(orderBy));
+            if (ordering == null) throw new ArgumentNullException(nameof(ordering));
 
             // start with base query, and apply the supplied IQuery
-            if (query == null) query = AmbientScope.SqlContext.Query<TEntity>();
+            if (query == null) query = Query<TEntity>();
             var sql = new SqlTranslator<TEntity>(GetBaseQuery(QueryType.Many), query).Translate();
 
             // sort and filter
-            sql = PrepareSqlForPage(sql, filterSql, orderBy, orderDirection, orderBySystemField);
+            sql = PreparePageSql(sql, filter, ordering);
 
             // get a page of DTOs and the total count
             var pagedResult = Database.Page<TDto>(pageIndex + 1, pageSize, sql);
@@ -431,7 +514,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             }
 
             // now we have
-            // - the definitinos
+            // - the definitions
             // - all property data dtos
             // - tag editors
             // and we need to build the proper property collections
@@ -475,22 +558,11 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                     propertyDataDtos.AddRange(propertyDataDtos2);
                 var properties = PropertyFactory.BuildEntities(compositionProperties, propertyDataDtos, temp.PublishedVersionId, LanguageRepository).ToList();
 
-                // deal with tags
-                foreach (var property in properties)
-                {
-                    if (!tagConfigurations.TryGetValue(property.PropertyType.PropertyEditorAlias, out var tagConfiguration))
-                        continue;
-
-                    //fixme doesn't take into account variants
-                    property.SetTagsValue(property.GetValue(), tagConfiguration);
-                }
-
                 if (result.ContainsKey(temp.VersionId))
                 {
-                    var msg = $"The query returned multiple property sets for content {temp.Id}, {temp.ContentType.Name}";
                     if (ContentRepositoryBase.ThrowOnWarning)
-                        throw new InvalidOperationException(msg);
-                    Logger.Warn<ContentRepositoryBase<TId, TEntity, TRepository>>(msg);
+                        throw new InvalidOperationException($"The query returned multiple property sets for content {temp.Id}, {temp.ContentType.Name}");
+                    Logger.Warn<ContentRepositoryBase<TId, TEntity, TRepository>>("The query returned multiple property sets for content {ContentId}, {ContentTypeName}", temp.Id, temp.ContentType.Name);
                 }
 
                 result[temp.VersionId] = new PropertyCollection(properties);
@@ -499,41 +571,56 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             return result;
         }
 
-        protected virtual string GetDatabaseFieldNameForOrderBy(string orderBy)
-        {
-            // translate the supplied "order by" field, which were originally defined for in-memory
-            // object sorting of ContentItemBasic instance, to the actual database field names.
+        protected string InsertBefore(Sql<ISqlContext> s, string atToken, string insert)
+            => InsertBefore(s.SQL, atToken, insert);
 
-            switch (orderBy.ToUpperInvariant())
-            {
-                case "VERSIONDATE":
-                case "UPDATEDATE":
-                    return GetDatabaseFieldNameForOrderBy(Constants.DatabaseSchema.Tables.ContentVersion, "versionDate");
-                case "CREATEDATE":
-                    return GetDatabaseFieldNameForOrderBy("umbracoNode", "createDate");
-                case "NAME":
-                    return GetDatabaseFieldNameForOrderBy("umbracoNode", "text");
-                case "PUBLISHED":
-                    return GetDatabaseFieldNameForOrderBy(Constants.DatabaseSchema.Tables.Document, "published");
-                case "OWNER":
-                    //TODO: This isn't going to work very nicely because it's going to order by ID, not by letter
-                    return GetDatabaseFieldNameForOrderBy("umbracoNode", "nodeUser");
-                case "PATH":
-                    return GetDatabaseFieldNameForOrderBy("umbracoNode", "path");
-                case "SORTORDER":
-                    return GetDatabaseFieldNameForOrderBy("umbracoNode", "sortOrder");
-                default:
-                    //ensure invalid SQL cannot be submitted
-                    return Regex.Replace(orderBy, @"[^\w\.,`\[\]@-]", "");
-            }
+        protected string InsertBefore(string s, string atToken, string insert)
+        {
+            var pos = s.InvariantIndexOf(atToken);
+            if (pos < 0) throw new Exception($"Could not find token \"{atToken}\".");
+            return s.Insert(pos, insert);
         }
 
-        protected string GetDatabaseFieldNameForOrderBy(string tableName, string fieldName)
+        protected Sql<ISqlContext> InsertJoins(Sql<ISqlContext> sql, Sql<ISqlContext> joins)
+        {
+            var joinsSql = joins.SQL;
+            var args = sql.Arguments;
+
+            // merge args if any
+            if (joins.Arguments.Length > 0)
+            {
+                var argsList = args.ToList();
+                joinsSql = ParameterHelper.ProcessParams(joinsSql, joins.Arguments, argsList);
+                args = argsList.ToArray();
+            }
+
+            return Sql(InsertBefore(sql.SQL, "WHERE", joinsSql), args);
+        }
+
+        private string GetAliasedField(string field, Sql sql)
+        {
+            // get alias, if aliased
+            //
+            // regex looks for pattern "([\w+].[\w+]) AS ([\w+])" ie "(field) AS (alias)"
+            // and, if found & a group's field matches the field name, returns the alias
+            //
+            // so... if query contains "[umbracoNode].[nodeId] AS [umbracoNode__nodeId]"
+            // then GetAliased for "[umbracoNode].[nodeId]" returns "[umbracoNode__nodeId]"
+
+            var matches = SqlContext.SqlSyntax.AliasRegex.Matches(sql.SQL);
+            var match = matches.Cast<Match>().FirstOrDefault(m => m.Groups[1].Value.InvariantEquals(field));
+            return match == null ? field : match.Groups[2].Value;
+        }
+
+        protected string GetQuotedFieldName(string tableName, string fieldName)
         {
             return SqlContext.SqlSyntax.GetQuotedTableName(tableName) + "." + SqlContext.SqlSyntax.GetQuotedColumnName(fieldName);
         }
 
         #region UnitOfWork Events
+
+        // TODO: The reason these events are in the repository is for legacy, the events should exist at the service
+        // level now since we can fire these events within the transaction... so move the events to service level
 
         public class ScopedEntityEventArgs : EventArgs
         {
@@ -648,215 +735,12 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             public T Content { get; set; }
         }
 
-        // fixme copied from 7.6
-
         /// <summary>
         /// For Paging, repositories must support returning different query for the query type specified
         /// </summary>
         /// <param name="queryType"></param>
         /// <returns></returns>
         protected abstract Sql<ISqlContext> GetBaseQuery(QueryType queryType);
-
-        /*
-        internal class DocumentDefinitionCollection : KeyedCollection<ValueType, DocumentDefinition>
-        {
-            private readonly bool _includeAllVersions;
-
-            /// <summary>
-            /// Constructor specifying if all versions should be allowed, in that case the key for the collection becomes the versionId (GUID)
-            /// </summary>
-            /// <param name="includeAllVersions"></param>
-            public DocumentDefinitionCollection(bool includeAllVersions = false)
-            {
-                _includeAllVersions = includeAllVersions;
-            }
-
-            protected override ValueType GetKeyForItem(DocumentDefinition item)
-            {
-                return _includeAllVersions ? (ValueType)item.Version : item.Id;
-            }
-
-            /// <summary>
-            /// if this key already exists if it does then we need to check
-            /// if the existing item is 'older' than the new item and if that is the case we'll replace the older one
-            /// </summary>
-            /// <param name="item"></param>
-            /// <returns></returns>
-            public bool AddOrUpdate(DocumentDefinition item)
-            {
-                //if we are including all versions then just add, we aren't checking for latest
-                if (_includeAllVersions)
-                {
-                    Add(item);
-                    return true;
-                }
-
-                if (Dictionary == null)
-                {
-                    Add(item);
-                    return true;
-                }
-
-                var key = GetKeyForItem(item);
-                if (TryGetValue(key, out DocumentDefinition found))
-                {
-                    //it already exists and it's older so we need to replace it
-                    if (item.VersionId <= found.VersionId) return false;
-
-                    var currIndex = Items.IndexOf(found);
-                    if (currIndex == -1)
-                        throw new IndexOutOfRangeException("Could not find the item in the list: " + found.Version);
-
-                    //replace the current one with the newer one
-                    SetItem(currIndex, item);
-                    return true;
-                }
-
-                Add(item);
-                return true;
-            }
-
-            public bool TryGetValue(ValueType key, out DocumentDefinition val)
-            {
-                if (Dictionary != null)
-                    return Dictionary.TryGetValue(key, out val);
-
-                val = null;
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Implements a Guid comparer that respect the Sql engine ordering.
-        /// </summary>
-        /// <remarks>
-        /// MySql sorts Guids as strings, but MSSQL sorts guids based on a weird byte sections order
-        /// This comparer compares Guids using the corresponding Sql syntax method, ie the method of the underlying Sql engine.
-        /// see http://stackoverflow.com/questions/7810602/sql-server-guid-sort-algorithm-why
-        /// see https://blogs.msdn.microsoft.com/sqlprogrammability/2006/11/06/how-are-guids-compared-in-sql-server-2005/
-        /// </remarks>
-        private class DocumentDefinitionComparer : IComparer<Guid>
-        {
-            private readonly bool _mySql;
-
-            public DocumentDefinitionComparer(ISqlSyntaxProvider sqlSyntax)
-            {
-                _mySql = sqlSyntax is MySqlSyntaxProvider;
-            }
-
-            public int Compare(Guid x, Guid y)
-            {
-                // MySql sorts Guids as string (ie normal, same as .NET) whereas MSSQL
-                // sorts them on a weird byte sections order
-                return _mySql ? x.CompareTo(y) : new SqlGuid(x).CompareTo(new SqlGuid(y));
-            }
-        }
-
-        internal class DocumentDefinition
-        {
-            /// <summary>
-            /// Initializes a new instance of the <see cref="T:System.Object"/> class.
-            /// </summary>
-            public DocumentDefinition(DocumentDto dto, IContentTypeComposition composition)
-            {
-                DocumentDto = dto;
-                ContentVersionDto = dto.ContentVersionDto;
-                Composition = composition;
-            }
-
-            public DocumentDefinition(ContentVersionDto dto, IContentTypeComposition composition)
-            {
-                ContentVersionDto = dto;
-                Composition = composition;
-            }
-
-            public DocumentDto DocumentDto { get; }
-            public ContentVersionDto ContentVersionDto { get; }
-
-            public int Id => ContentVersionDto.NodeId;
-
-            public Guid Version => DocumentDto?.VersionId ?? ContentVersionDto.VersionId;
-
-            // This is used to determien which version is the most recent
-            public int VersionId => ContentVersionDto.Id;
-
-            public DateTime VersionDate => ContentVersionDto.VersionDate;
-
-            public DateTime CreateDate => ContentVersionDto.ContentDto.NodeDto.CreateDate;
-
-            public IContentTypeComposition Composition { get; set; }
-        }
-
-        // Represents a query that may contain paging information.
-        internal class PagingSqlQuery
-        {
-            // the original query sql
-            public Sql QuerySql { get; }
-
-            public PagingSqlQuery(Sql querySql)
-            {
-                QuerySql = querySql;
-            }
-
-            protected PagingSqlQuery(Sql querySql, int pageSize)
-                : this(querySql)
-            {
-                HasPaging = pageSize > 0;
-            }
-
-            // whether the paging query is actually paging
-            public bool HasPaging { get; }
-
-            // the paging sql
-            public virtual Sql BuildPagedQuery(string columns)
-            {
-                throw new InvalidOperationException("This query has no paging information.");
-            }
-        }
-
-        /// <summary>
-        /// Represents a query that may contain paging information.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        internal class PagingSqlQuery<T> : PagingSqlQuery // fixme what's <T> here?
-        {
-            private readonly Database _db;
-            private readonly long _pageIndex;
-            private readonly int _pageSize;
-
-            // fixme - don't capture a db instance here!
-            // instead, should have an extension method, so one can do
-            // sql = db.BuildPageQuery(pagingQuery, columns)
-            public PagingSqlQuery(Database db, Sql querySql, long pageIndex, int pageSize)
-                : base(querySql, pageSize)
-            {
-                _db = db;
-                _pageIndex = pageIndex;
-                _pageSize = pageSize;
-            }
-
-            /// <summary>
-            /// Creates a paged query based on the original query and subtitutes the selectColumns specified
-            /// </summary>
-            /// <param name="columns"></param>
-            /// <returns></returns>
-            // build a page query
-            public override Sql BuildPagedQuery(string columns)
-            {
-                if (HasPaging == false)
-                    throw new InvalidOperationException("This query has no paging information.");
-
-                // substitutes the original "SELECT ..." with "SELECT {columns}" ie only
-                // select the specified columns - fixme why?
-                var sql = $"SELECT {columns} {QuerySql.SQL.Substring(QuerySql.SQL.IndexOf("FROM", StringComparison.Ordinal))}";
-
-                // and then build the page query
-                var args = QuerySql.Arguments;
-                _db.BuildPageQueries<T>(_pageIndex * _pageSize, _pageSize, sql, ref args, out string unused, out string sqlPage);
-                return new Sql(sqlPage, args);
-            }
-        }
-        */
 
         #endregion
 

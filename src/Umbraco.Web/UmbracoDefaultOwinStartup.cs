@@ -8,7 +8,8 @@ using Umbraco.Core.Security;
 using Umbraco.Core.Services;
 using Umbraco.Web;
 using Umbraco.Web.Composing;
-using Umbraco.Web.Security.Identity;
+using Umbraco.Web.Security;
+
 
 [assembly: OwinStartup("UmbracoDefaultOwinStartup", typeof(UmbracoDefaultOwinStartup))]
 
@@ -23,8 +24,8 @@ namespace Umbraco.Web
     public class UmbracoDefaultOwinStartup
     {
         protected IUmbracoContextAccessor UmbracoContextAccessor => Current.UmbracoContextAccessor;
-        protected IGlobalSettings GlobalSettings => UmbracoConfig.For.GlobalSettings();
-        protected IUmbracoSettingsSection UmbracoSettings => UmbracoConfig.For.UmbracoSettings();
+        protected IGlobalSettings GlobalSettings => Current.Configs.Global();
+        protected IUmbracoSettingsSection UmbracoSettings => Current.Configs.Settings();
         protected IRuntimeState RuntimeState => Core.Composing.Current.RuntimeState;
         protected ServiceContext Services => Current.Services;
 
@@ -62,7 +63,7 @@ namespace Umbraco.Web
         protected virtual void ConfigureMiddleware(IAppBuilder app)
         {
 
-            // Configure OWIN for authentication. 
+            // Configure OWIN for authentication.
             ConfigureUmbracoAuthentication(app);
 
             app

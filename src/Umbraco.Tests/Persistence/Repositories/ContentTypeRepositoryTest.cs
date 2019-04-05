@@ -7,12 +7,9 @@ using NUnit.Framework;
 using Umbraco.Core;
 using Umbraco.Core.Cache;
 using Umbraco.Core.Configuration.UmbracoSettings;
-using Umbraco.Core.IO;
 using Umbraco.Core.Models;
-using Umbraco.Core.Models.Entities;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.Dtos;
-using Umbraco.Core.Persistence.Repositories;
 using Umbraco.Core.Persistence.Repositories.Implement;
 using Umbraco.Core.Scoping;
 using Umbraco.Tests.TestHelpers;
@@ -35,36 +32,35 @@ namespace Umbraco.Tests.Persistence.Repositories
 
         private DocumentRepository CreateRepository(IScopeAccessor scopeAccessor, out ContentTypeRepository contentTypeRepository)
         {
-            var cacheHelper = CacheHelper.CreateDisabledCacheHelper();
-            var templateRepository = new TemplateRepository(scopeAccessor, cacheHelper, Logger, Mock.Of<ITemplatesSection>(), Mock.Of<IFileSystem>(), Mock.Of<IFileSystem>());
+            var cacheHelper = AppCaches.Disabled;
+            var templateRepository = new TemplateRepository(scopeAccessor, cacheHelper, Logger, TestObjects.GetFileSystemsMock());
             var tagRepository = new TagRepository(scopeAccessor, cacheHelper, Logger);
             contentTypeRepository = new ContentTypeRepository(scopeAccessor, cacheHelper, Logger, templateRepository);
             var languageRepository = new LanguageRepository(scopeAccessor, cacheHelper, Logger);
-            var repository = new DocumentRepository(scopeAccessor, cacheHelper, Logger, contentTypeRepository, templateRepository, tagRepository, languageRepository, Mock.Of<IContentSection>());
+            var repository = new DocumentRepository(scopeAccessor, cacheHelper, Logger, contentTypeRepository, templateRepository, tagRepository, languageRepository);
             return repository;
         }
 
         private ContentTypeRepository CreateRepository(IScopeAccessor scopeAccessor)
         {
-            var templateRepository = new TemplateRepository(scopeAccessor, CacheHelper.CreateDisabledCacheHelper(), Logger, Mock.Of<ITemplatesSection>(), Mock.Of<IFileSystem>(), Mock.Of<IFileSystem>());
-            var contentTypeRepository = new ContentTypeRepository(scopeAccessor, CacheHelper.CreateDisabledCacheHelper(), Logger, templateRepository);
+            var templateRepository = new TemplateRepository(scopeAccessor, AppCaches.Disabled, Logger, TestObjects.GetFileSystemsMock());
+            var contentTypeRepository = new ContentTypeRepository(scopeAccessor, AppCaches.Disabled, Logger, templateRepository);
             return contentTypeRepository;
         }
 
         private MediaTypeRepository CreateMediaTypeRepository(IScopeAccessor scopeAccessor)
         {
-            var contentTypeRepository = new MediaTypeRepository(scopeAccessor, CacheHelper.CreateDisabledCacheHelper(), Logger);
+            var contentTypeRepository = new MediaTypeRepository(scopeAccessor, AppCaches.Disabled, Logger);
             return contentTypeRepository;
         }
 
         private EntityContainerRepository CreateContainerRepository(IScopeAccessor scopeAccessor, Guid containerEntityType)
         {
-            return new EntityContainerRepository(scopeAccessor, CacheHelper.CreateDisabledCacheHelper(), Logger, containerEntityType);
+            return new EntityContainerRepository(scopeAccessor, AppCaches.Disabled, Logger, containerEntityType);
         }
 
-        //TODO Add test to verify SetDefaultTemplates updates both AllowedTemplates and DefaultTemplate(id).
-
-
+        // TODO: Add test to verify SetDefaultTemplates updates both AllowedTemplates and DefaultTemplate(id).
+        
         [Test]
         public void Maps_Templates_Correctly()
         {
@@ -72,7 +68,7 @@ namespace Umbraco.Tests.Persistence.Repositories
             var provider = TestObjects.GetScopeProvider(Logger);
             using (var scope = provider.CreateScope())
             {
-                var templateRepo = new TemplateRepository((IScopeAccessor) provider, CacheHelper.CreateDisabledCacheHelper(), Logger, Mock.Of<ITemplatesSection>(), Mock.Of<IFileSystem>(), Mock.Of<IFileSystem>());
+                var templateRepo = new TemplateRepository((IScopeAccessor) provider, AppCaches.Disabled, Logger, TestObjects.GetFileSystemsMock());
                 var repository = CreateRepository((IScopeAccessor) provider);
                 var templates = new[]
                 {
@@ -315,7 +311,7 @@ namespace Umbraco.Tests.Persistence.Repositories
 
                 Assert.AreEqual(4, contentType.PropertyTypes.Count());
 
-                // remove all templates - since they are not saved, they would break the (wtf) mapping code
+                // remove all templates - since they are not saved, they would break the (!) mapping code
                 contentType.AllowedTemplates = new ITemplate[0];
 
                 // there is NO mapping from display to contentType, but only from save
@@ -377,7 +373,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 repository.Save(contentType);
                 
 
-                var dirty = ((ICanBeDirty)contentType).IsDirty();
+                var dirty = contentType.IsDirty();
 
                 // Assert
                 Assert.That(contentType.HasIdentity, Is.True);
@@ -965,7 +961,7 @@ namespace Umbraco.Tests.Persistence.Repositories
             ServiceContext.ContentTypeService.Save(simpleContentType);
 
             //Create and Save ContentType "textPage" -> (NodeDto.NodeIdSeed + 1)
-            ContentType textpageContentType = MockedContentTypes.CreateTextpageContentType();
+            ContentType textpageContentType = MockedContentTypes.CreateTextPageContentType();
             ServiceContext.ContentTypeService.Save(textpageContentType);
         }
     }

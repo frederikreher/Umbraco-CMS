@@ -13,9 +13,9 @@
             public const string Content = "content";
 
             /// <summary>
-            /// Application alias for the developer section.
+            /// Application alias for the packages section.
             /// </summary>
-            public const string Developer = "developer";
+            public const string Packages = "packages";
 
             /// <summary>
             /// Application alias for the media section.
@@ -77,7 +77,7 @@
             /// alias for the macro tree.
             /// </summary>
             public const string Macros = "macros";
-            
+
             /// <summary>
             /// alias for the datatype tree.
             /// </summary>
@@ -121,7 +121,7 @@
             public const string Templates = "templates";
 
             public const string RelationTypes = "relationTypes";
-            
+
             public const string Languages = "languages";
 
             /// <summary>
@@ -145,7 +145,18 @@
 
             public const string PartialViewMacros = "partialViewMacros";
 
-            //TODO: Fill in the rest!
+            public const string LogViewer = "logViewer";
+
+            public static class Groups
+            {
+                public const string Settings = "settingsGroup";
+
+                public const string Templating = "templatingGroup";
+
+                public const string ThirdParty = "thirdPartyGroup";
+            }
+
+            // TODO: Fill in the rest!
         }
     }
 }

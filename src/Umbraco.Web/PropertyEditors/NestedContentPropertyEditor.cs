@@ -172,6 +172,8 @@ namespace Umbraco.Web.PropertyEditors
                             try
                             {
                                 // create a temp property with the value
+                                // - force it to be culture invariant as NC can't handle culture variant element properties
+                                propType.Variations = ContentVariation.Nothing;
                                 var tempProp = new Property(propType);
                                 tempProp.SetValue(propValues[propAlias] == null ? null : propValues[propAlias].ToString());
 
@@ -272,6 +274,9 @@ namespace Umbraco.Web.PropertyEditors
 
             public IEnumerable<ValidationResult> Validate(object rawValue, string valueType, object dataTypeConfiguration)
             {
+                if (rawValue == null)
+                    yield break;
+
                 var value = JsonConvert.DeserializeObject<List<object>>(rawValue.ToString());
                 if (value == null)
                     yield break;
@@ -309,7 +314,7 @@ namespace Umbraco.Web.PropertyEditors
                             {
                                 if (propValues[propKey] == null)
                                     yield return new ValidationResult("Item " + (i + 1) + " '" + propType.Name + "' cannot be null", new[] { propKey });
-                                else if (propValues[propKey].ToString().IsNullOrWhiteSpace())
+                                else if (propValues[propKey].ToString().IsNullOrWhiteSpace() || (propValues[propKey].Type == JTokenType.Array && !propValues[propKey].HasValues))
                                     yield return new ValidationResult("Item " + (i + 1) + " '" + propType.Name + "' cannot be empty", new[] { propKey });
                             }
 

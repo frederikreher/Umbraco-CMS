@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using AutoMapper;
 using System.Linq;
 using Umbraco.Core;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Models;
 using Umbraco.Core.PropertyEditors;
@@ -16,11 +17,11 @@ namespace Umbraco.Web.Models.Mapping
     /// </summary>
     internal class DataTypeMapperProfile : Profile
     {
-        public DataTypeMapperProfile(PropertyEditorCollection propertyEditors)
+        public DataTypeMapperProfile(PropertyEditorCollection propertyEditors, ILogger logger)
         {
             // create, capture, cache
-            var availablePropertyEditorsResolver = new AvailablePropertyEditorsResolver(UmbracoConfig.For.UmbracoSettings().Content);
-            var configurationDisplayResolver = new DataTypeConfigurationFieldDisplayResolver();
+            var availablePropertyEditorsResolver = new AvailablePropertyEditorsResolver(Current.Configs.Settings().Content);
+            var configurationDisplayResolver = new DataTypeConfigurationFieldDisplayResolver(logger);
             var databaseTypeResolver = new DatabaseTypeResolver();
 
             CreateMap<IDataEditor, PropertyEditorBasic>();
@@ -67,8 +68,8 @@ namespace Umbraco.Web.Models.Mapping
 
             CreateMap<IDataType, DataTypeDisplay>()
                 .ForMember(dest => dest.Udi, opt => opt.MapFrom(src => Udi.Create(Constants.UdiEntityType.DataType, src.Key)))
-                .ForMember(dest => dest.AvailableEditors, opt => opt.ResolveUsing(src => availablePropertyEditorsResolver.Resolve(src)))
-                .ForMember(dest => dest.PreValues, opt => opt.ResolveUsing(src => configurationDisplayResolver.Resolve(src)))
+                .ForMember(dest => dest.AvailableEditors, opt => opt.MapFrom(src => availablePropertyEditorsResolver.Resolve(src)))
+                .ForMember(dest => dest.PreValues, opt => opt.MapFrom(src => configurationDisplayResolver.Resolve(src)))
                 .ForMember(dest => dest.SelectedEditor, opt => opt.MapFrom(src => src.EditorAlias.IsNullOrWhiteSpace() ? null : src.EditorAlias))
                 .ForMember(dest => dest.HasPrevalues, opt => opt.Ignore())
                 .ForMember(dest => dest.Notifications, opt => opt.Ignore())
@@ -91,13 +92,13 @@ namespace Umbraco.Web.Models.Mapping
                   .ConvertUsing(src => configurationDisplayResolver.Resolve(src));
 
             CreateMap<DataTypeSave, IDataType>()
-                .ConstructUsing(src => new DataType(propertyEditors[src.EditorAlias]) {CreateDate = DateTime.Now})
+                .ConstructUsing(src => new DataType(propertyEditors[src.EditorAlias], -1) {CreateDate = DateTime.Now})
                 .IgnoreEntityCommonProperties()
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(src => Convert.ToInt32(src.Id)))
                 .ForMember(dest => dest.Key, opt => opt.Ignore()) // ignore key, else resets UniqueId - U4-3911
                 .ForMember(dest => dest.Path, opt => opt.Ignore())
                 .ForMember(dest => dest.EditorAlias, opt => opt.MapFrom(src => src.EditorAlias))
-                .ForMember(dest => dest.DatabaseType, opt => opt.ResolveUsing(src => databaseTypeResolver.Resolve(src)))
+                .ForMember(dest => dest.DatabaseType, opt => opt.MapFrom(src => databaseTypeResolver.Resolve(src)))
                 .ForMember(dest => dest.CreatorId, opt => opt.Ignore())
                 .ForMember(dest => dest.Level, opt => opt.Ignore())
                 .ForMember(dest => dest.SortOrder, opt => opt.Ignore())
@@ -106,20 +107,20 @@ namespace Umbraco.Web.Models.Mapping
 
             //Converts a property editor to a new list of pre-value fields - used when creating a new data type or changing a data type with new pre-vals
             CreateMap<IDataEditor, IEnumerable<DataTypeConfigurationFieldDisplay>>()
-                .ConvertUsing(src =>
+                .ConvertUsing((dataEditor, configurationFieldDisplays) =>
                     {
                         // this is a new data type, initialize default configuration
                         // get the configuration editor,
                         // get the configuration fields and map to UI,
                         // get the configuration default values and map to UI
 
-                        var configurationEditor = src.GetConfigurationEditor();
+                        var configurationEditor = dataEditor.GetConfigurationEditor();
 
                         var fields = configurationEditor.Fields.Select(Mapper.Map<DataTypeConfigurationFieldDisplay>).ToArray();
 
                         var defaultConfiguration = configurationEditor.DefaultConfiguration;
                         if (defaultConfiguration != null)
-                            DataTypeConfigurationFieldDisplayResolver.MapConfigurationFields(fields, defaultConfiguration);
+                            DataTypeConfigurationFieldDisplayResolver.MapConfigurationFields(logger, fields, defaultConfiguration);
 
                         return fields;
                     });

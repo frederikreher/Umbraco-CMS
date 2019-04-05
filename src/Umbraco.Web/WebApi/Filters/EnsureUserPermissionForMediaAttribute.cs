@@ -42,7 +42,7 @@ namespace Umbraco.Web.WebApi.Filters
             _paramName = paramName;
         }
 
-        // fixme v8 guess this is not used anymore, source is ignored?!
+        // TODO: v8 guess this is not used anymore, source is ignored?!
         public EnsureUserPermissionForMediaAttribute(string paramName, DictionarySource source)
         {
             if (string.IsNullOrEmpty(paramName)) throw new ArgumentNullOrEmptyException(nameof(paramName));
@@ -80,7 +80,7 @@ namespace Umbraco.Web.WebApi.Filters
 
         public override void OnActionExecuting(HttpActionContext actionContext)
         {
-            if (UmbracoContext.Current.Security.CurrentUser == null)
+            if (Current.UmbracoContext.Security.CurrentUser == null)
             {
                 throw new HttpResponseException(System.Net.HttpStatusCode.Unauthorized);
             }
@@ -118,7 +118,7 @@ namespace Umbraco.Web.WebApi.Filters
 
             if (MediaController.CheckPermissions(
                 actionContext.Request.Properties,
-                UmbracoContext.Current.Security.CurrentUser,
+                Current.UmbracoContext.Security.CurrentUser,
                 Current.Services.MediaService,
                 Current.Services.EntityService,
                 nodeId))

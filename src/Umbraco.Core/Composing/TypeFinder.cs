@@ -32,7 +32,7 @@ namespace Umbraco.Core.Composing
                 if (_assembliesAcceptingLoadExceptions != null)
                     return _assembliesAcceptingLoadExceptions;
 
-                var s = ConfigurationManager.AppSettings["Umbraco.AssembliesAcceptingLoadExceptions"];
+                var s = ConfigurationManager.AppSettings[Constants.AppSettings.AssembliesAcceptingLoadExceptions];
                 return _assembliesAcceptingLoadExceptions = string.IsNullOrWhiteSpace(s)
                     ? Array.Empty<string>()
                     : s.Split(',').Select(x => x.Trim()).ToArray();
@@ -148,7 +148,7 @@ namespace Umbraco.Core.Composing
                     catch (FileNotFoundException ex)
                     {
                         //this will occur if it cannot load the assembly
-                        Current.Logger.Error(typeof(TypeFinder), "Could not load assembly App_Code", ex);
+                        Current.Logger.Error(typeof(TypeFinder), ex, "Could not load assembly App_Code");
                     }
                 }
             }
@@ -163,8 +163,8 @@ namespace Umbraco.Core.Composing
 
         /// <summary>
         /// Return a list of found local Assemblies excluding the known assemblies we don't want to scan
-        /// and exluding the ones passed in and excluding the exclusion list filter, the results of this are
-        /// cached for perforance reasons.
+        /// and excluding the ones passed in and excluding the exclusion list filter, the results of this are
+        /// cached for performance reasons.
         /// </summary>
         /// <param name="excludeFromResults"></param>
         /// <returns></returns>
@@ -183,7 +183,7 @@ namespace Umbraco.Core.Composing
         }
 
         /// <summary>
-        /// Return a distinct list of found local Assemblies and exluding the ones passed in and excluding the exclusion list filter
+        /// Return a distinct list of found local Assemblies and excluding the ones passed in and excluding the exclusion list filter
         /// </summary>
         /// <param name="excludeFromResults"></param>
         /// <param name="exclusionFilter"></param>
@@ -204,60 +204,61 @@ namespace Umbraco.Core.Composing
         }
 
         /// <summary>
-        /// this is our assembly filter to filter out known types that def dont contain types we'd like to find or plugins
+        /// this is our assembly filter to filter out known types that def don't contain types we'd like to find or plugins
         /// </summary>
         /// <remarks>
         /// NOTE the comma vs period... comma delimits the name in an Assembly FullName property so if it ends with comma then its an exact name match
         /// NOTE this means that "foo." will NOT exclude "foo.dll" but only "foo.*.dll"
         /// </remarks>
-        internal static readonly string[] KnownAssemblyExclusionFilter = new[]
-                {
-                    "mscorlib,",
-                    "System.",
-                    "Antlr3.",
-                    "Autofac.",
-                    "Autofac,",
-                    "Castle.",
-                    "ClientDependency.",
-                    "DataAnnotationsExtensions.",
-                    "DataAnnotationsExtensions,",
-                    "Dynamic,",
-                    "HtmlDiff,",
-                    "Iesi.Collections,",
-                    "log4net,",
-                    "Microsoft.",
-                    "Newtonsoft.",
-                    "NHibernate.",
-                    "NHibernate,",
-                    "NuGet.",
-                    "RouteDebugger,",
-                    "SqlCE4Umbraco,",
-                    "umbraco.datalayer,",
-                    "umbraco.interfaces,",
-                    //"umbraco.providers,",
-                    //"Umbraco.Web.UI,",
-                    "umbraco.webservices",
-                    "Lucene.",
-                    "Examine,",
-                    "Examine.",
-                    "ServiceStack.",
-                    "MySql.",
-                    "HtmlAgilityPack.",
-                    "TidyNet.",
-                    "ICSharpCode.",
-                    "CookComputing.",
-                    "AutoMapper,",
-                    "AutoMapper.",
-                    "AzureDirectory,",
-                    "itextsharp,",
-                    "UrlRewritingNet.",
-                    "HtmlAgilityPack,",
-                    "MiniProfiler,",
-                    "Moq,",
-                    "nunit.framework,",
-                    "TidyNet,",
-                    "WebDriver,"
-                };
+        internal static readonly string[] KnownAssemblyExclusionFilter = {
+            "Antlr3.",
+            "AutoMapper,",
+            "AutoMapper.",
+            "Autofac,", // DI
+            "Autofac.",
+            "AzureDirectory,",
+            "Castle.", // DI, tests
+            "ClientDependency.",
+            "CookComputing.",
+            "CSharpTest.", // BTree for NuCache
+            "DataAnnotationsExtensions,",
+            "DataAnnotationsExtensions.",
+            "Dynamic,",
+            "Examine,",
+            "Examine.",
+            "HtmlAgilityPack,",
+            "HtmlAgilityPack.",
+            "HtmlDiff,",
+            "ICSharpCode.",
+            "Iesi.Collections,", // used by NHibernate
+            "LightInject.", // DI
+            "LightInject,",
+            "Lucene.",
+            "Markdown,",
+            "Microsoft.",
+            "MiniProfiler,",
+            "Moq,",
+            "MySql.",
+            "NHibernate,",
+            "NHibernate.",
+            "Newtonsoft.",
+            "NPoco,",
+            "NuGet.",
+            "RouteDebugger,",
+            "Semver.",
+            "Serilog.",
+            "Serilog,",
+            "ServiceStack.",
+            "SqlCE4Umbraco,",
+            "Superpower,", // used by Serilog
+            "System.",
+            "TidyNet,",
+            "TidyNet.",
+            "WebDriver,",
+            "itextsharp,",
+            "mscorlib,",
+            "nunit.framework,",
+        };
 
         /// <summary>
         /// Finds any classes derived from the type T that contain the attribute TAttribute
@@ -440,7 +441,7 @@ namespace Umbraco.Core.Composing
                     }
                     catch (TypeLoadException ex)
                     {
-                        Current.Logger.Error(typeof(TypeFinder), $"Could not query types on {assembly} assembly, this is most likely due to this assembly not being compatible with the current Umbraco version", ex);
+                        Current.Logger.Error(typeof(TypeFinder), ex, "Could not query types on {Assembly} assembly, this is most likely due to this assembly not being compatible with the current Umbraco version", assembly);
                         continue;
                     }
 
@@ -506,7 +507,7 @@ namespace Umbraco.Core.Composing
                     }
                     catch (TypeLoadException ex)
                     {
-                        Current.Logger.Error(typeof(TypeFinder), $"Could not query types on {assembly} assembly, this is most likely due to this assembly not being compatible with the current Umbraco version", ex);
+                        Current.Logger.Error(typeof(TypeFinder), ex, "Could not query types on {Assembly} assembly, this is most likely due to this assembly not being compatible with the current Umbraco version", assembly);
                         continue;
                     }
 
@@ -573,7 +574,7 @@ namespace Umbraco.Core.Composing
                     if (NotifiedLoadExceptionAssemblies.Contains(a.FullName) == false)
                     {
                         NotifiedLoadExceptionAssemblies.Add(a.FullName);
-                        Current.Logger.Warn(typeof (TypeFinder), ex, $"Could not load all types from {a.GetName().Name}.");
+                        Current.Logger.Warn(typeof (TypeFinder), ex, "Could not load all types from {TypeName}.", a.GetName().Name);
                     }
                 }
                 return rex.Types.WhereNotNull().ToArray();
@@ -613,10 +614,12 @@ namespace Umbraco.Core.Composing
             var type = BuildManager.GetType(typeName, false);
             if (type != null) return type;
 
-            //TODO: This isn't very elegant, and will have issues since the AppDomain.CurrentDomain
+            // TODO: This isn't very elegant, and will have issues since the AppDomain.CurrentDomain
             // doesn't actualy load in all assemblies, only the types that have been referenced so far.
             // However, in a web context, the BuildManager will have executed which will force all assemblies
             // to be loaded so it's fine for now.
+            // It could be fairly easy to parse the typeName to get the assembly name and then do Assembly.Load and
+            // find the type from there.
 
             //now try fall back procedures.
             type = Type.GetType(typeName);

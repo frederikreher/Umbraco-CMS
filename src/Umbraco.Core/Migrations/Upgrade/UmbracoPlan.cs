@@ -2,15 +2,10 @@
 using System.Configuration;
 using Semver;
 using Umbraco.Core.Configuration;
-using Umbraco.Core.Logging;
-using Umbraco.Core.Migrations.Upgrade.V_7_10_0;
-using Umbraco.Core.Migrations.Upgrade.V_7_5_0;
-using Umbraco.Core.Migrations.Upgrade.V_7_5_5;
-using Umbraco.Core.Migrations.Upgrade.V_7_6_0;
-using Umbraco.Core.Migrations.Upgrade.V_7_7_0;
-using Umbraco.Core.Migrations.Upgrade.V_7_8_0;
-using Umbraco.Core.Migrations.Upgrade.V_7_9_0;
+using Umbraco.Core.Migrations.Upgrade.V_7_12_0;
+using Umbraco.Core.Migrations.Upgrade.V_7_14_0;
 using Umbraco.Core.Migrations.Upgrade.V_8_0_0;
+using Umbraco.Core.Migrations.Upgrade.V_8_0_1;
 
 namespace Umbraco.Core.Migrations.Upgrade
 {
@@ -24,20 +19,15 @@ namespace Umbraco.Core.Migrations.Upgrade
         /// </summary>
         public UmbracoPlan()
             : base(Constants.System.UmbracoUpgradePlanName)
-        { }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="UmbracoPlan"/> class.
-        /// </summary>
-        public UmbracoPlan(IMigrationBuilder migrationBuilder, ILogger logger)
-            : base(Constants.System.UmbracoUpgradePlanName, migrationBuilder, logger)
-        { }
+        {
+            DefinePlan();
+        }
 
         /// <inheritdoc />
         /// <remarks>
         /// <para>The default initial state in plans is string.Empty.</para>
         /// <para>When upgrading from version 7, we want to use specific initial states
-        /// that are e.g. "{orig-7.9.3}", "{orig-7.11.1}", etc. so we can chain the proper
+        /// that are e.g. "{init-7.9.3}", "{init-7.11.1}", etc. so we can chain the proper
         /// migrations.</para>
         /// <para>This is also where we detect the current version, and reject invalid
         /// upgrades (from a tool old version, or going back in time, etc).</para>
@@ -47,175 +37,147 @@ namespace Umbraco.Core.Migrations.Upgrade
             get
             {
                 // no state in database yet - assume we have something in web.config that makes some sense
-                if (!SemVersion.TryParse(ConfigurationManager.AppSettings["umbracoConfigurationStatus"], out var currentVersion))
-                    throw new InvalidOperationException("Could not get current version from web.config umbracoConfigurationStatus appSetting.");
+                if (!SemVersion.TryParse(ConfigurationManager.AppSettings[Constants.AppSettings.ConfigurationStatus], out var currentVersion))
+                    throw new InvalidOperationException($"Could not get current version from web.config {Constants.AppSettings.ConfigurationStatus} appSetting.");
 
-                // must be at least 7.? - fixme adjust when releasing
+                // we currently support upgrading from 7.10.0 and later
                 if (currentVersion < new SemVersion(7, 10))
-                    throw new InvalidOperationException($"Version {currentVersion} cannot be upgraded to {UmbracoVersion.SemanticVersion}.");
+                    throw new InvalidOperationException($"Version {currentVersion} cannot be migrated to {UmbracoVersion.SemanticVersion}.");
 
                 // cannot go back in time
                 if (currentVersion > UmbracoVersion.SemanticVersion)
                     throw new InvalidOperationException($"Version {currentVersion} cannot be downgraded to {UmbracoVersion.SemanticVersion}.");
 
-                switch (currentVersion.Major)
-                {
-                    case 7:
-                        // upgrading from version 7
-                        return "{orig-" + currentVersion + "}";
-                    case 8: // fixme remove when releasing
-                        // upgrading from version 8
-                        // should never happen, this is very temp and for my own website - zpqrtbnk
-                        return "{04F54303-3055-4700-8F76-35A37F232FF5}"; // right before the variants migration
-                    default:
-                        throw new InvalidOperationException($"Version {currentVersion} is not supported by the migration plan.");
-                }
+                // upgrading from version 7 => initial state is eg "{init-7.10.0}"
+                // anything else is not supported - ie if 8 and above, we should have an initial state already
+                if (currentVersion.Major != 7)
+                    throw new InvalidOperationException($"Version {currentVersion} is not supported by the migration plan.");
 
+                return "{init-" + currentVersion + "}";
             }
         }
 
-        /// <inheritdoc />
-        protected override void DefinePlan()
+        // define the plan
+        protected void DefinePlan()
         {
-            // NOTE: MODIFYING THE PLAN
+            // MODIFYING THE PLAN
             //
             // Please take great care when modifying the plan!
             //
             // * Creating a migration for version 8:
-            //     Append the migration to the main version 8 chain, using a new guid.
-            //     Update the final state (see end of file) to that guid.
-            //     Append the migration to version 7 upgrade chains.
-            // * Porting a migration from version 7:
-            //     Append the migration to the main version 8 chain, using a new guid.
-            //     Update the final state (see end of file) to that guid.
-            //     Update all init-7.x.y chains.
-
-
-            // UPGRADE FROM 7, OLDEST
+            //     Append the migration to the main chain, using a new guid, before the "//FINAL" comment
             //
-            // When upgrading from version 7, the state is automatically set to {init-7.x.y} where
-            // 7.x.y is the version. We need to define a chain starting at that state and taking
-            // us to version 8. And we need such a chain for each 7.x.y version that can be upgraded
-            // to version 8, bearing in mind that new releases of version 7 will probably be
-            // created *after* the first released of version 8.
+            //     If the new migration causes a merge conflict, because someone else also added another
+            //     new migration, you NEED to fix the conflict by providing one default path, and paths
+            //     out of the conflict states (see example below).
             //
-            // fixme adjust when releasing the first public (alpha?) version
+            // * Porting from version 7:
+            //     Append the ported migration to the main chain, using a new guid (same as above).
+            //     Create a new special chain from the {init-...} state to the main chain (see example
+            //     below).
 
-            // we don't support upgrading from versions older than 7.?
-            // and then we only need to run v8 migrations
+
+            // plan starts at 7.10.0 (anything before 7.10.0 is not supported)
+            // upgrades from 7 to 8, and then takes care of all eventual upgrades
             //
             From("{init-7.10.0}");
-            Chain<V_8_0_0.AddLockObjects>("{7C447271-CA3F-4A6A-A913-5D77015655CB}");
-            Chain<AddContentNuTable>("{CBFF58A2-7B50-4F75-8E98-249920DB0F37}");
-            Chain<RefactorXmlColumns>("{3D18920C-E84D-405C-A06A-B7CEE52FE5DD}");
+            To<AddLockObjects>("{7C447271-CA3F-4A6A-A913-5D77015655CB}");
+            To<AddContentNuTable>("{CBFF58A2-7B50-4F75-8E98-249920DB0F37}");
+            To<RefactorXmlColumns>("{3D18920C-E84D-405C-A06A-B7CEE52FE5DD}");
+            To<VariantsMigration>("{FB0A5429-587E-4BD0-8A67-20F0E7E62FF7}");
+            To<DropMigrationsTable>("{F0C42457-6A3B-4912-A7EA-F27ED85A2092}");
+            To<DataTypeMigration>("{8640C9E4-A1C0-4C59-99BB-609B4E604981}");
+            To<TagsMigration>("{DD1B99AF-8106-4E00-BAC7-A43003EA07F8}");
+            To<SuperZero>("{9DF05B77-11D1-475C-A00A-B656AF7E0908}");
+            To<PropertyEditorsMigration>("{6FE3EF34-44A0-4992-B379-B40BC4EF1C4D}");
+            To<LanguageColumns>("{7F59355A-0EC9-4438-8157-EB517E6D2727}");
+            ToWithReplace<AddVariationTables2, AddVariationTables1A>("{941B2ABA-2D06-4E04-81F5-74224F1DB037}", "{76DF5CD7-A884-41A5-8DC6-7860D95B1DF5}"); // kill AddVariationTable1
+            To<RefactorMacroColumns>("{A7540C58-171D-462A-91C5-7A9AA5CB8BFD}");
 
-            Chain<VariantsMigration>("{FB0A5429-587E-4BD0-8A67-20F0E7E62FF7}");
-            Chain<DropMigrationsTable>("{F0C42457-6A3B-4912-A7EA-F27ED85A2092}");
-            Chain<DataTypeMigration>("{8640C9E4-A1C0-4C59-99BB-609B4E604981}");
-            Chain<TagsMigration>("{DD1B99AF-8106-4E00-BAC7-A43003EA07F8}");
-            Chain<SuperZero>("{9DF05B77-11D1-475C-A00A-B656AF7E0908}");
-            Chain<PropertyEditorsMigration>("{6FE3EF34-44A0-4992-B379-B40BC4EF1C4D}");
-            Chain<LanguageColumns>("{7F59355A-0EC9-4438-8157-EB517E6D2727}");
-            Chain<AddVariationTables1A>("{66B6821A-0DE3-4DF8-A6A4-65ABD211EDDE}");
-            Chain<AddVariationTables2>("{49506BAE-CEBB-4431-A1A6-24AD6EBBBC57}");
-            Chain<RefactorMacroColumns>("{083A9894-903D-41B7-B6B3-9EAF2D4CCED0}");
+            Merge().To<UserForeignKeys>("{3E44F712-E2E3-473A-AE49-5D7F8E67CE3F}") // shannon added that one
+            .With().To<AddTypedLabels>("{65D6B71C-BDD5-4A2E-8D35-8896325E9151}") // stephan added that one
+            .As("{4CACE351-C6B9-4F0C-A6BA-85A02BBD39E4}");
 
-            // must chain to v8 final state (see at end of file)
-            Chain("{A7540C58-171D-462A-91C5-7A9AA5CB8BFD}");
+            To<ContentVariationMigration>("{1350617A-4930-4D61-852F-E3AA9E692173}");
+            To<UpdateUmbracoConsent>("{39E5B1F7-A50B-437E-B768-1723AEC45B65}"); // from 7.12.0
+
+            Merge()
+                .To<AddRelationTypeForMediaFolderOnDelete>("{0541A62B-EF87-4CA2-8225-F0EB98ECCC9F}") // from 7.12.0
+                .To<IncreaseLanguageIsoCodeColumnLength>("{EB34B5DC-BB87-4005-985E-D983EA496C38}") // from 7.12.0
+                .To<RenameTrueFalseField>("{517CE9EA-36D7-472A-BF4B-A0D6FB1B8F89}") // from 7.12.0
+                .To<SetDefaultTagsStorageType>("{BBD99901-1545-40E4-8A5A-D7A675C7D2F2}") // from 7.12.0
+            .With()
+                .To<FallbackLanguage>("{CF51B39B-9B9A-4740-BB7C-EAF606A7BFBF}") // andy added that one
+            .As("{8B14CEBD-EE47-4AAD-A841-93551D917F11}");
+
+            ToWithReplace<UpdateDefaultMandatoryLanguage>("{2C87AA47-D1BC-4ECB-8A73-2D8D1046C27F}", "{5F4597F4-A4E0-4AFE-90B5-6D2F896830EB}"); // merge
+            ToWithReplace<RefactorVariantsModel>("{B19BF0F2-E1C6-4AEB-A146-BC559D97A2C6}", "{290C18EE-B3DE-4769-84F1-1F467F3F76DA}"); // merge
+            To<DropTaskTables>("{6A2C7C1B-A9DB-4EA9-B6AB-78E7D5B722A7}");
+            To<FixLockTablePrimaryKey>("{77874C77-93E5-4488-A404-A630907CEEF0}");
+            To<AddLogTableColumns>("{8804D8E8-FE62-4E3A-B8A2-C047C2118C38}");
+            To<DropPreValueTable>("{23275462-446E-44C7-8C2C-3B8C1127B07D}");
+            To<DropDownPropertyEditorsMigration>("{6B251841-3069-4AD5-8AE9-861F9523E8DA}");
+            To<TagsMigrationFix>("{EE429F1B-9B26-43CA-89F8-A86017C809A3}");
+            To<DropTemplateDesignColumn>("{08919C4B-B431-449C-90EC-2B8445B5C6B1}");
+            To<TablesForScheduledPublishing>("{7EB0254C-CB8B-4C75-B15B-D48C55B449EB}");
+            To<DropTaskTables>("{648A2D5F-7467-48F8-B309-E99CEEE00E2A}"); // fixed version
+            To<MakeTagsVariant>("{C39BF2A7-1454-4047-BBFE-89E40F66ED63}");
+            To<MakeRedirectUrlVariant>("{64EBCE53-E1F0-463A-B40B-E98EFCCA8AE2}");
+            To<AddContentTypeIsElementColumn>("{0009109C-A0B8-4F3F-8FEB-C137BBDDA268}");
+            To<UpdateMemberGroupPickerData>("{8A027815-D5CD-4872-8B88-9A51AB5986A6}"); // from 7.14.0
+            To<ConvertRelatedLinksToMultiUrlPicker>("{ED28B66A-E248-4D94-8CDB-9BDF574023F0}");
+            To<UpdatePickerIntegerValuesToUdi>("{38C809D5-6C34-426B-9BEA-EFD39162595C}");
+            To<RenameUmbracoDomainsTable>("{6017F044-8E70-4E10-B2A3-336949692ADD}");
+            To<AddUserLoginDtoDateIndex>("{98339BEF-E4B2-48A8-B9D1-D173DC842BBE}");
+
+            Merge()
+                .To<DropXmlTables>("{CDBEDEE4-9496-4903-9CF2-4104E00FF960}")
+            .With()
+                .To<RadioAndCheckboxAndDropdownPropertyEditorsMigration>("{940FD19A-00A8-4D5C-B8FF-939143585726}")
+            .As("{0576E786-5C30-4000-B969-302B61E90CA3}");
+
+            To<RenameLabelAndRichTextPropertyEditorAliases>("{E0CBE54D-A84F-4A8F-9B13-900945FD7ED9}");
+            To<MergeDateAndDateTimePropertyEditor>("{78BAF571-90D0-4D28-8175-EF96316DA789}");
+            To<ChangeNuCacheJsonFormat>("{80C0A0CB-0DD5-4573-B000-C4B7C313C70D}");
+
+            //FINAL
 
 
-            // UPGRADE FROM 7, MORE RECENT
+
+
+            // and then, need to support upgrading from more recent 7.x
             //
-            // handle more recent versions - not yet
+            From("{init-7.10.1}").To("{init-7.10.0}"); // same as 7.10.0
+            From("{init-7.10.2}").To("{init-7.10.0}"); // same as 7.10.0
+            From("{init-7.10.3}").To("{init-7.10.0}"); // same as 7.10.0
+            From("{init-7.10.4}").To("{init-7.10.0}"); // same as 7.10.0
+            From("{init-7.10.5}").To("{init-7.10.0}"); // same as 7.10.0
+            From("{init-7.11.0}").To("{init-7.10.0}"); // same as 7.10.0
+            From("{init-7.11.1}").To("{init-7.10.0}"); // same as 7.10.0
+            From("{init-7.11.2}").To("{init-7.10.0}"); // same as 7.10.0
 
-            // for more recent versions...
-            // 7.10.x = same as 7.10.0?
-            //From("{init-7.10.1}").Chain("{init-7.10.0}");
-
-
-            // VERSION 8 PLAN
+            // 7.12.0 has migrations, define a custom chain which copies the chain
+            // going from {init-7.10.0} to former final (1350617A) , and then goes straight to
+            // main chain, skipping the migrations
             //
-            // this is the master Umbraco migration plan, starting from the very first version 8
-            // release, which was a pre-pre-alpha, years ago. It contains migrations created
-            // for version 8, along with migrations ported from version 7 as version 7 evolves.
-            // It is therefore *normal* that some pure version 8 migrations are mixed with
-            // migrations merged from version 7.
-            //
-            // new migrations should always be *appended* to the *end* of the chain.
+            From("{init-7.12.0}");
+            // clone start / clone stop / target
+            ToWithClone("{init-7.10.0}", "{1350617A-4930-4D61-852F-E3AA9E692173}", "{BBD99901-1545-40E4-8A5A-D7A675C7D2F2}");
 
-            // 8.0.0
-            From("{init-origin}"); // "origin" was 7.4.something
-            Chain<V_8_0_0.AddLockTable>("{98347B5E-65BF-4DD7-BB43-A09CB7AF4FCA}");
-            Chain<V_8_0_0.AddLockObjects>("{1E8165C4-942D-40DC-AC76-C5FF8831E400}");
-            Chain<AddContentNuTable>("{39E15568-7AAD-4D54-81D0-758CCFC529F8}");
-            Chain<RefactorXmlColumns>("{55C3F97D-BDA7-4FB1-A743-B0456B56EAA3}");
-
-            // merging from 7.5.0
-            Chain<RemoveStylesheetDataAndTablesAgain>("{287F9E39-F673-42F7-908C-21659AB13B13}");
-            Chain<V_7_5_0.UpdateUniqueIndexOnPropertyData>("{2D08588A-AD90-479C-9F6E-A99B60BA7226}");
-            Chain<AddRedirectUrlTable>("{2D917FF8-AC81-4C00-A407-1F4B1DF6089C}");
-
-            // merging from 7.5.5
-            Chain<UpdateAllowedMediaTypesAtRoot>("{44484C32-EEB3-4A12-B1CB-11E02CE22AB2}");
-
-            // merging from 7.6.0
-            Chain<AddIndexesToUmbracoRelationTables>("{3586E4E9-2922-49EB-8E2A-A530CE6DBDE0}");
-            Chain<AddIndexToCmsMemberLoginName>("{D4A5674F-654D-4CC7-85E5-CFDBC533A318}");
-            Chain<AddIndexToUmbracoNodePath>("{7F828EDD-6622-4A8D-AD80-EEAF46C11680}");
-            Chain<AddMacroUniqueIdColumn>("{F30AC223-D277-4D1F-B2AB-F0F0D3546CE1}");
-            Chain<AddRelationTypeUniqueIdColumn>("{7C27E310-CF48-4637-A22E-8D87355161C1}");
-            Chain<NormalizeTemplateGuids>("{7D2ABA16-EE48-4569-8827-E81370FC4871}");
-            Chain<ReduceLoginNameColumnsSize>("{02879EDF-13A8-43AF-87A5-DD85723D0016}");
-            Chain<V_7_6_0.UpdateUniqueIndexOnPropertyData>("{5496C6CC-3AE0-4789-AF49-5BB4E28FA424}");
-            Chain<RemoveUmbracoDeployTables>("{8995332B-085E-4C0C-849E-9A77E79F4293}");
-
-            // merging from 7.7.0
-            Chain<AddIndexToDictionaryKeyColumn>("{74319856-7681-46B1-AA0D-F7E896FBE6A1}");
-            Chain<AddUserGroupTables>("{0427B0A2-994A-4AB4-BFF3-31B20614F6C9}");
-            Chain<AddUserStartNodeTable>("{F0D6F782-E432-46DE-A3A7-2AF06DB8853B}");
-            Chain<EnsureContentTemplatePermissions>("{AEB2BA2B-71E4-4B1B-AB6C-CEFB7F06FEEB}");
-            Chain<ReduceDictionaryKeyColumnsSize>("{B5A6C799-B91E-496F-A1FE-7B4FE98BF6AB}");
-            Chain<UpdateUserTables>("{04F54303-3055-4700-8F76-35A37F232FF5}");
-
-            // 8.0.0
-            Chain<VariantsMigration>("{6550C7E8-77B7-4DE3-9B58-E31C81CB9504}");
-            Chain<DropMigrationsTable>("{E3388F73-89FA-45FE-A539-C7FACC8D63DD}");
-            Chain<DataTypeMigration>("{82C4BA1D-7720-46B1-BBD7-07F3F73800E6}");
-            Chain<TagsMigration>("{139F26D7-7E08-48E3-81D9-E50A21A72F67}");
-            Chain<SuperZero>("{CC1B1201-1328-443C-954A-E0BBB8CCC1B5}");
-            Chain<PropertyEditorsMigration>("{CA7DB949-3EF4-403D-8464-F9BA36A52E87}");
-            Chain<LanguageColumns>("{7F0BF916-F64E-4B25-864A-170D6E6B68E5}");
-
-            // merging from 7.8.0
-            Chain<AddUserLoginTable>("{FDCB727A-EFB6-49F3-89E4-A346503AB849}");
-            Chain<AddTourDataUserColumn>("{2A796A08-4FE4-4783-A1A5-B8A6C8AA4A92}");
-            Chain<AddMediaVersionTable>("{1A46A98B-2AAB-4C8E-870F-A2D55A97FD1F}");
-            Chain<AddInstructionCountColumn>("{0AE053F6-2683-4234-87B2-E963F8CE9498}");
-            Chain<AddIndexToPropertyTypeAliasColumn>("{D454541C-15C5-41CF-8109-937F26A78E71}");
-
-            // merging from 7.9.0
-            Chain<AddIsSensitiveMemberTypeColumn>("{89A728D1-FF4C-4155-A269-62CC09AD2131}");
-            Chain<AddUmbracoAuditTable>("{FD8631BC-0388-425C-A451-5F58574F6F05}");
-            Chain<AddUmbracoConsentTable>("{2821F53E-C58B-4812-B184-9CD240F990D7}");
-            Chain<CreateSensitiveDataUserGroup>("{8918450B-3DA0-4BB7-886A-6FA8B7E4186E}");
-
-            // mergin from 7.10.0
-            Chain<RenamePreviewFolder>("{79591E91-01EA-43F7-AC58-7BD286DB1E77}");
-
-            // 8.0.0
-            // AddVariationTables1 has been superceeded by AddVariationTables2
-            //Chain<AddVariationTables1>("{941B2ABA-2D06-4E04-81F5-74224F1DB037}");
-            Chain<AddVariationTables2>("{76DF5CD7-A884-41A5-8DC6-7860D95B1DF5}");
-
-            // however, need to take care of ppl in post-AddVariationTables1 state
-            Add<AddVariationTables1A>("{941B2ABA-2D06-4E04-81F5-74224F1DB037}", "{76DF5CD7-A884-41A5-8DC6-7860D95B1DF5}");
-
-            Chain<RefactorMacroColumns>("{A7540C58-171D-462A-91C5-7A9AA5CB8BFD}");
-
-            // FINAL STATE - MUST MATCH LAST ONE ABOVE !
-            // whenever this changes, update all references in this file!
-
-            Add(string.Empty, "{A7540C58-171D-462A-91C5-7A9AA5CB8BFD}");
+            From("{init-7.12.1}").To("{init-7.10.0}"); // same as 7.12.0
+            From("{init-7.12.2}").To("{init-7.10.0}"); // same as 7.12.0
+            From("{init-7.12.3}").To("{init-7.10.0}"); // same as 7.12.0
+            From("{init-7.12.4}").To("{init-7.10.0}"); // same as 7.12.0
+            From("{init-7.13.0}").To("{init-7.10.0}"); // same as 7.12.0
+            From("{init-7.13.1}").To("{init-7.10.0}"); // same as 7.12.0
+                
+            // 7.14.0 has migrations, handle it...
+            //  clone going from 7.10 to 1350617A (the last one before we started to merge 7.12 migrations), then
+            //  clone going from CF51B39B (after 7.12 migrations) to 0009109C (the last one before we started to merge 7.12 migrations),
+            //  ending in 8A027815 (after 7.14 migrations)
+            From("{init-7.14.0}")
+                .ToWithClone("{init-7.10.0}", "{1350617A-4930-4D61-852F-E3AA9E692173}", "{9109B8AF-6B34-46EE-9484-7434196D0C79}")
+                .ToWithClone("{CF51B39B-9B9A-4740-BB7C-EAF606A7BFBF}", "{0009109C-A0B8-4F3F-8FEB-C137BBDDA268}", "{8A027815-D5CD-4872-8B88-9A51AB5986A6}");
         }
     }
 }

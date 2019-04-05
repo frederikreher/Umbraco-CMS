@@ -6,6 +6,8 @@ using NUnit.Framework;
 using Umbraco.Core;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.Entities;
+using Umbraco.Core.Persistence.DatabaseModelDefinitions;
+using Umbraco.Core.Services;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.TestHelpers.Entities;
 using Umbraco.Tests.Testing;
@@ -37,6 +39,53 @@ namespace Umbraco.Tests.Services
         }
 
         [Test]
+        public void EntityService_Can_Get_Paged_Descendants_Ordering_Path()
+        {
+
+            var contentType = ServiceContext.ContentTypeService.Get("umbTextpage");
+
+            var root = MockedContent.CreateSimpleContent(contentType);
+            ServiceContext.ContentService.Save(root);
+            var rootId = root.Id;
+            var ids = new List<int>();
+            for (int i = 0; i < 10; i++)
+            {
+                var c1 = MockedContent.CreateSimpleContent(contentType, Guid.NewGuid().ToString(), root);
+                ServiceContext.ContentService.Save(c1);
+                ids.Add(c1.Id);
+                root = c1; // make a hierarchy
+            }
+
+            var service = ServiceContext.EntityService;
+
+            long total;
+
+            var entities = service.GetPagedDescendants(rootId, UmbracoObjectTypes.Document, 0, 6, out total).ToArray();
+            Assert.That(entities.Length, Is.EqualTo(6));
+            Assert.That(total, Is.EqualTo(10));
+            Assert.AreEqual(ids[0], entities[0].Id);
+
+            entities = service.GetPagedDescendants(rootId, UmbracoObjectTypes.Document, 1, 6, out total).ToArray();
+            Assert.That(entities.Length, Is.EqualTo(4));
+            Assert.That(total, Is.EqualTo(10));
+            Assert.AreEqual(ids[6], entities[0].Id);
+
+            //Test ordering direction
+
+            entities = service.GetPagedDescendants(rootId, UmbracoObjectTypes.Document, 0, 6, out total,
+                ordering: Ordering.By("Path", Direction.Descending)).ToArray();
+            Assert.That(entities.Length, Is.EqualTo(6));
+            Assert.That(total, Is.EqualTo(10));
+            Assert.AreEqual(ids[ids.Count - 1], entities[0].Id);
+
+            entities = service.GetPagedDescendants(rootId, UmbracoObjectTypes.Document, 1, 6, out total,
+                ordering: Ordering.By("Path", Direction.Descending)).ToArray();
+            Assert.That(entities.Length, Is.EqualTo(4));
+            Assert.That(total, Is.EqualTo(10));
+            Assert.AreEqual(ids[ids.Count - 1 - 6], entities[0].Id);
+        }
+
+        [Test]
         public void EntityService_Can_Get_Paged_Content_Children()
         {
 
@@ -44,21 +93,41 @@ namespace Umbraco.Tests.Services
 
             var root = MockedContent.CreateSimpleContent(contentType);
             ServiceContext.ContentService.Save(root);
+            var ids = new List<int>();
             for (int i = 0; i < 10; i++)
             {
                 var c1 = MockedContent.CreateSimpleContent(contentType, Guid.NewGuid().ToString(), root);
                 ServiceContext.ContentService.Save(c1);
+                ids.Add(c1.Id);
             }
 
             var service = ServiceContext.EntityService;
 
             long total;
+
             var entities = service.GetPagedChildren(root.Id, UmbracoObjectTypes.Document, 0, 6, out total).ToArray();
             Assert.That(entities.Length, Is.EqualTo(6));
             Assert.That(total, Is.EqualTo(10));
+            Assert.AreEqual(ids[0], entities[0].Id);
+
             entities = service.GetPagedChildren(root.Id, UmbracoObjectTypes.Document, 1, 6, out total).ToArray();
             Assert.That(entities.Length, Is.EqualTo(4));
             Assert.That(total, Is.EqualTo(10));
+            Assert.AreEqual(ids[6], entities[0].Id);
+
+            //Test ordering direction
+
+            entities = service.GetPagedChildren(root.Id, UmbracoObjectTypes.Document, 0, 6, out total,
+                ordering: Ordering.By("SortOrder", Direction.Descending)).ToArray();
+            Assert.That(entities.Length, Is.EqualTo(6));
+            Assert.That(total, Is.EqualTo(10));
+            Assert.AreEqual(ids[ids.Count - 1], entities[0].Id);
+
+            entities = service.GetPagedChildren(root.Id, UmbracoObjectTypes.Document, 1, 6, out total,
+                ordering: Ordering.By("SortOrder", Direction.Descending)).ToArray();
+            Assert.That(entities.Length, Is.EqualTo(4));
+            Assert.That(total, Is.EqualTo(10));
+            Assert.AreEqual(ids[ids.Count - 1 - 6], entities[0].Id);
         }
 
         [Test]
@@ -205,10 +274,12 @@ namespace Umbraco.Tests.Services
             var service = ServiceContext.EntityService;
 
             long total;
-            var entities = service.GetPagedDescendants(root.Id, UmbracoObjectTypes.Document, 0, 10, out total, filter: "ssss").ToArray();
+            var entities = service.GetPagedDescendants(root.Id, UmbracoObjectTypes.Document, 0, 10, out total,
+                filter: SqlContext.Query<IUmbracoEntity>().Where(x => x.Name.Contains("ssss"))).ToArray();
             Assert.That(entities.Length, Is.EqualTo(10));
             Assert.That(total, Is.EqualTo(10));
-            entities = service.GetPagedDescendants(root.Id, UmbracoObjectTypes.Document, 0, 50, out total, filter: "tttt").ToArray();
+            entities = service.GetPagedDescendants(root.Id, UmbracoObjectTypes.Document, 0, 50, out total,
+                filter: SqlContext.Query<IUmbracoEntity>().Where(x => x.Name.Contains("tttt"))).ToArray();
             Assert.That(entities.Length, Is.EqualTo(50));
             Assert.That(total, Is.EqualTo(50));
         }
@@ -388,10 +459,12 @@ namespace Umbraco.Tests.Services
             var service = ServiceContext.EntityService;
 
             long total;
-            var entities = service.GetPagedDescendants(root.Id, UmbracoObjectTypes.Media, 0, 10, out total, filter: "ssss").ToArray();
+            var entities = service.GetPagedDescendants(root.Id, UmbracoObjectTypes.Media, 0, 10, out total,
+                filter: SqlContext.Query<IUmbracoEntity>().Where(x => x.Name.Contains("ssss"))).ToArray();
             Assert.That(entities.Length, Is.EqualTo(10));
             Assert.That(total, Is.EqualTo(10));
-            entities = service.GetPagedDescendants(root.Id, UmbracoObjectTypes.Media, 0, 50, out total, filter: "tttt").ToArray();
+            entities = service.GetPagedDescendants(root.Id, UmbracoObjectTypes.Media, 0, 50, out total,
+                filter: SqlContext.Query<IUmbracoEntity>().Where(x => x.Name.Contains("tttt"))).ToArray();
             Assert.That(entities.Length, Is.EqualTo(50));
             Assert.That(total, Is.EqualTo(50));
         }
@@ -450,19 +523,18 @@ namespace Umbraco.Tests.Services
         {
             var service = ServiceContext.EntityService;
 
-
             var alias = "test" + Guid.NewGuid();
             var contentType = MockedContentTypes.CreateSimpleContentType(alias, alias, false);
-            contentType.Variations = ContentVariation.CultureNeutral;
+            contentType.Variations = ContentVariation.Culture;
             ServiceContext.ContentTypeService.Save(contentType);
 
             var c1 = MockedContent.CreateSimpleContent(contentType, "Test", -1);
-            c1.SetName("Test - FR", _langFr.IsoCode);
-            c1.SetName("Test - ES", _langEs.IsoCode);
+            c1.SetCultureName("Test - FR", _langFr.IsoCode);
+            c1.SetCultureName("Test - ES", _langEs.IsoCode);
             ServiceContext.ContentService.Save(c1);
 
             var result = service.Get(c1.Id, UmbracoObjectTypes.Document);
-            Assert.AreEqual("Test", result.Name);
+            Assert.AreEqual("Test - FR", result.Name); // got name from default culture
             Assert.IsNotNull(result as IDocumentEntitySlim);
             var doc = (IDocumentEntitySlim)result;
             var cultureNames = doc.CultureNames;
@@ -476,10 +548,11 @@ namespace Umbraco.Tests.Services
             var service = ServiceContext.EntityService;
 
             var contentType = MockedContentTypes.CreateSimpleContentType("test1", "Test1", false);
-            contentType.Variations = ContentVariation.CultureNeutral;
+            contentType.Variations = ContentVariation.Culture;
             ServiceContext.ContentTypeService.Save(contentType);
 
             var root = MockedContent.CreateSimpleContent(contentType);
+            root.SetCultureName("Root", _langFr.IsoCode); // else cannot save
             ServiceContext.ContentService.Save(root);
 
             for (int i = 0; i < 10; i++)
@@ -487,8 +560,12 @@ namespace Umbraco.Tests.Services
                 var c1 = MockedContent.CreateSimpleContent(contentType, Guid.NewGuid().ToString(), root);
                 if (i % 2 == 0)
                 {
-                    c1.SetName("Test " + i + " - FR", _langFr.IsoCode);
-                    c1.SetName("Test " + i + " - ES", _langEs.IsoCode);
+                    c1.SetCultureName("Test " + i + " - FR", _langFr.IsoCode);
+                    c1.SetCultureName("Test " + i + " - ES", _langEs.IsoCode);
+                }
+                else
+                {
+                    c1.SetCultureName("Test", _langFr.IsoCode); // else cannot save
                 }
                 ServiceContext.ContentService.Save(c1);
             }

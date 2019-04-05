@@ -10,7 +10,7 @@ namespace Umbraco.Core.Models
     [DataContract(IsReference = true)]
     public class MediaType : ContentTypeCompositionBase, IMediaType
     {
-        public const bool IsPublishingConst = false;
+        public const bool SupportsPublishingConst = false;
 
         /// <summary>
         /// Constuctor for creating a MediaType with the parent's id.
@@ -42,31 +42,12 @@ namespace Umbraco.Core.Models
         }
 
         /// <inheritdoc />
-        public override bool IsPublishing => IsPublishingConst;
+        public override ISimpleContentType ToSimple() => new SimpleContentType(this);
 
-        /// <summary>
-        /// Creates a deep clone of the current entity with its identity/alias and it's property identities reset
-        /// </summary>
-        /// <returns></returns>
-        public new IMediaType DeepCloneWithResetIdentities(string alias)
-        {
-            var clone = (MediaType)DeepClone();
-            clone.Alias = alias;
-            clone.Key = Guid.Empty;
-            foreach (var propertyGroup in clone.PropertyGroups)
-            {
-                propertyGroup.ResetIdentity();
-                propertyGroup.ResetDirtyProperties(false);
-            }
-            foreach (var propertyType in clone.PropertyTypes)
-            {
-                propertyType.ResetIdentity();
-                propertyType.ResetDirtyProperties(false);
-            }
+        /// <inheritdoc />
+        public override bool SupportsPublishing => SupportsPublishingConst;
 
-            clone.ResetIdentity();
-            clone.ResetDirtyProperties(false);
-            return clone;
-        }
+        /// <inheritdoc />
+        IMediaType IMediaType.DeepCloneWithResetIdentities(string newAlias) => (IMediaType)DeepCloneWithResetIdentities(newAlias);
     }
 }

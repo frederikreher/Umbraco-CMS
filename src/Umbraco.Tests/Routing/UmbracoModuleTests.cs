@@ -4,13 +4,17 @@ using System.Threading;
 using Moq;
 using NUnit.Framework;
 using Umbraco.Core;
-using Umbraco.Core.Configuration;
+using Umbraco.Core.Composing;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Web;
 using Umbraco.Core.IO;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Sync;
 using Umbraco.Core.Configuration.UmbracoSettings;
+using Umbraco.Core.Models.PublishedContent;
+using Umbraco.Core.Services;
+using Umbraco.Web.PublishedCache;
+using Umbraco.Web.Routing;
 
 namespace Umbraco.Tests.Routing
 {
@@ -18,39 +22,39 @@ namespace Umbraco.Tests.Routing
     [Apartment(ApartmentState.STA)]
     public class UmbracoModuleTests : BaseWebTest
     {
-        private UmbracoModule _module;
+        private UmbracoInjectedModule _module;
 
         public override void SetUp()
         {
             base.SetUp();
 
+            // FIXME: be able to get the UmbracoModule from the container. any reason settings were from testobjects?
             //create the module
-            _module = new UmbracoModule
-            {
-                GlobalSettings = TestObjects.GetGlobalSettings(),
-                Logger = Mock.Of<ILogger>()
-            };
-            var runtime = new RuntimeState(_module.Logger, new Lazy<IServerRegistrar>(), new Lazy<MainDom>(), Mock.Of<IUmbracoSettingsSection>(), _module.GlobalSettings);
+            var logger = Mock.Of<ILogger>();
+            var globalSettings = TestObjects.GetGlobalSettings();
+            var runtime = new RuntimeState(logger, Mock.Of<IUmbracoSettingsSection>(), globalSettings,
+                new Lazy<IMainDom>(), new Lazy<IServerRegistrar>());
 
-            _module.Runtime = runtime;
+            _module = new UmbracoInjectedModule
+            (
+                globalSettings,
+                Mock.Of<IUmbracoContextAccessor>(),
+                Factory.GetInstance<IPublishedSnapshotService>(),
+                Factory.GetInstance<IUserService>(),
+                new UrlProviderCollection(new IUrlProvider[0]),
+                runtime,
+                logger,
+                null, // FIXME: PublishedRouter complexities...
+                Mock.Of<IVariationContextAccessor>(),
+                Mock.Of<IUmbracoContextFactory>()
+            );
+
             runtime.Level = RuntimeLevel.Run;
-            
+
 
             //SettingsForTests.ReservedPaths = "~/umbraco,~/install/";
             //SettingsForTests.ReservedUrls = "~/config/splashes/booting.aspx,~/install/default.aspx,~/config/splashes/noNodes.aspx,~/VSEnterpriseHelper.axd";
 
-            Directory.CreateDirectory(Path.GetDirectoryName(IOHelper.MapPath(SystemFiles.NotFoundhandlersConfig, false)));
-
-            //create the not found handlers config
-            using (var sw = File.CreateText(IOHelper.MapPath(SystemFiles.NotFoundhandlersConfig, false)))
-            {
-                sw.Write(@"<NotFoundHandlers>
-    <notFound assembly='umbraco' type='SearchForAlias' />
-    <notFound assembly='umbraco' type='SearchForTemplate'/>
-    <notFound assembly='umbraco' type='SearchForProfile'/>
-    <notFound assembly='umbraco' type='handle404'/>
-</NotFoundHandlers>");
-            }
         }
 
         public override void TearDown()
@@ -62,9 +66,7 @@ namespace Umbraco.Tests.Routing
 
         // do not test for /base here as it's handled before EnsureUmbracoRoutablePage is called
         [TestCase("/umbraco_client/Tree/treeIcons.css", false)]
-        [TestCase("/umbraco_client/Tree/Themes/umbraco/style.css?cdv=37", false)]
-        [TestCase("/umbraco_client/scrollingmenu/style.css?cdv=37", false)]
-        [TestCase("/umbraco/umbraco.aspx", false)]
+        [TestCase("/umbraco_client/Tree/Themes/umbraco/style.css?cdv=37", false)]        
         [TestCase("/umbraco/editContent.aspx", false)]
         [TestCase("/install/default.aspx", false)]
         [TestCase("/install/?installStep=license", false)]
@@ -89,7 +91,6 @@ namespace Umbraco.Tests.Routing
         [TestCase("/favicon.ico", true)]
         [TestCase("/umbraco_client/Tree/treeIcons.css", true)]
         [TestCase("/umbraco_client/Tree/Themes/umbraco/style.css?cdv=37", true)]
-        [TestCase("/umbraco_client/scrollingmenu/style.css?cdv=37", true)]
         [TestCase("/base/somebasehandler", false)]
         [TestCase("/", false)]
         [TestCase("/home.aspx", false)]

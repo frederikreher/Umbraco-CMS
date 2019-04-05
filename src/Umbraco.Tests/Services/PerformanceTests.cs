@@ -13,6 +13,7 @@ using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.Dtos;
 using Umbraco.Core.Services;
 using Umbraco.Core.Services.Implement;
+using Umbraco.Tests.LegacyXmlPublishedCache;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.TestHelpers.Entities;
 using Umbraco.Tests.TestHelpers.Stubs;
@@ -31,7 +32,7 @@ namespace Umbraco.Tests.Services
     [NUnit.Framework.Ignore("These should not be run by the server, only directly as they are only benchmark tests")]
     public class PerformanceTests : TestWithDatabaseBase
     {
-        // fixme probably making little sense in places due to scope creating a transaction?!
+        // FIXME: probably making little sense in places due to scope creating a transaction?!
 
         protected override string GetDbConnectionString()
         {
@@ -57,7 +58,7 @@ namespace Umbraco.Tests.Services
               base.TearDown();
         }
 
-        private static ProfilingLogger GetTestProfilingLogger()
+        private static IProfilingLogger GetTestProfilingLogger()
         {
             var logger = new DebugDiagnosticsLogger();
             var profiler = new TestProfiler();
@@ -108,40 +109,6 @@ namespace Umbraco.Tests.Services
             }
         }
 
-        [Test]
-        public void Get_All_Published_Content_Of_Type()
-        {
-            var result = PrimeDbWithLotsOfContent();
-            var contentSvc = (ContentService)ServiceContext.ContentService;
-
-            var countOfPublished = result.Count(x => x.Published);
-            var contentTypeId = result.First().ContentTypeId;
-
-            var proflog = GetTestProfilingLogger();
-            using (proflog.DebugDuration<PerformanceTests>("Getting published content of type normally"))
-            {
-                //do this 10x!
-                for (var i = 0; i < 10; i++)
-                {
-
-                    //get all content items that are published of this type
-                    var published = contentSvc.GetByType(contentTypeId).Where(content => content.Published);
-                    Assert.AreEqual(countOfPublished, published.Count(x => x.ContentTypeId == contentTypeId));
-                }
-            }
-
-            using (proflog.DebugDuration<PerformanceTests>("Getting published content of type optimized"))
-            {
-
-                //do this 10x!
-                for (var i = 0; i < 10; i++)
-                {
-                    //get all content items that are published of this type
-                    var published = contentSvc.GetPublishedContentOfContentType(contentTypeId);
-                    Assert.AreEqual(countOfPublished, published.Count(x => x.ContentTypeId == contentTypeId));
-                }
-            }
-        }
 
         [Test]
         public void Truncate_Insert_Vs_Update_Insert()
@@ -249,7 +216,7 @@ namespace Umbraco.Tests.Services
             var result = new List<IContent>();
             ServiceContext.ContentTypeService.Save(contentType1);
             IContent lastParent = MockedContent.CreateSimpleContent(contentType1);
-            lastParent.TryPublishValues();
+            lastParent.PublishCulture(CultureImpact.Invariant);
             ServiceContext.ContentService.SaveAndPublish(lastParent);
             result.Add(lastParent);
             //create 20 deep
@@ -263,7 +230,7 @@ namespace Umbraco.Tests.Services
                     //only publish evens
                     if (j % 2 == 0)
                     {
-                        content.TryPublishValues();
+                        content.PublishCulture(CultureImpact.Invariant);
                         ServiceContext.ContentService.SaveAndPublish(content);
                     }
                     else
@@ -290,7 +257,7 @@ namespace Umbraco.Tests.Services
                     ParentId = -1,
                     NodeObjectType = customObjectType,
                     Text = i.ToString(CultureInfo.InvariantCulture),
-                    UserId = 0,
+                    UserId = -1,
                     CreateDate = DateTime.Now,
                     Trashed = false,
                     SortOrder = 0,
@@ -334,7 +301,7 @@ namespace Umbraco.Tests.Services
   <panelContent2><![CDATA[<h2>Umbraco Development</h2>
 <p><img src='/images/umbraco_square.jpg' alt='Umbraco' class='fr'/>Umbraco the the leading ASP.NET open source CMS, under pinning over 150,000 websites. Our Certified Developers are experts in developing high performance and feature rich websites.</p>]]></panelContent2>
   <panelContent3><![CDATA[<h2>Contact Us</h2>
-<p><a href='http://www.twitter.com/chriskoiak' target='_blank'><img src='/images/twitter_square.png' alt='Contact Us on Twitter' class='fr'/></a>We'd love to hear how this package has helped you and how it can be improved. Get in touch on the <a href='http://our.umbraco.org/projects/starter-kits/standard-website-mvc' target='_blank'>project website</a> or via <a href='http://www.twitter.com/chriskoiak' target='_blank'>twitter</a></p>]]></panelContent3>
+<p><a href='http://www.twitter.com/chriskoiak' target='_blank'><img src='/images/twitter_square.png' alt='Contact Us on Twitter' class='fr'/></a>We'd love to hear how this package has helped you and how it can be improved. Get in touch on the <a href='https://our.umbraco.com/projects/starter-kits/standard-website-mvc' target='_blank'>project website</a> or via <a href='http://www.twitter.com/chriskoiak' target='_blank'>twitter</a></p>]]></panelContent3>
   <primaryNavigation><![CDATA[1231,1232,1236,1238,1239]]></primaryNavigation>
   <address>Standard Website MVC, Company Address, Glasgow, Postcode</address>
   <copyright>Copyright &amp;copy; 2012 Your Company</copyright>

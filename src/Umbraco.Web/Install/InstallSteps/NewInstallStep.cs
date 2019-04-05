@@ -1,13 +1,17 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Configuration;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+using System.Threading.Tasks;
 using System.Web;
 using System.Web.Security;
+using Newtonsoft.Json;
 using Umbraco.Core;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Migrations.Install;
-using Umbraco.Core.Persistence;
 using Umbraco.Core.Services;
 using Umbraco.Web.Install.Models;
 
@@ -17,7 +21,7 @@ namespace Umbraco.Web.Install.InstallSteps
     /// This is the first UI step for a brand new install
     /// </summary>
     /// <remarks>
-    /// By default this will show the user view which is the most basic information to configure a new install, but if an install get's interupted because of an
+    /// By default this will show the user view which is the most basic information to configure a new install, but if an install get's interrupted because of an
     /// error, etc... and the end-user refreshes the installer then we cannot show the user screen because they've already entered that information so instead we'll
     /// display a simple continue installation view.
     /// </remarks>
@@ -27,6 +31,7 @@ namespace Umbraco.Web.Install.InstallSteps
         private readonly HttpContextBase _http;
         private readonly IUserService _userService;
         private readonly DatabaseBuilder _databaseBuilder;
+        private static HttpClient _httpClient;
         private readonly IGlobalSettings _globalSettings;
 
         public NewInstallStep(HttpContextBase http, IUserService userService, DatabaseBuilder databaseBuilder, IGlobalSettings globalSettings)
@@ -37,7 +42,7 @@ namespace Umbraco.Web.Install.InstallSteps
             _globalSettings = globalSettings;
         }
 
-        //TODO: Change all logic in this step to use ASP.NET Identity NOT MembershipProviders
+        // TODO: Change all logic in this step to use ASP.NET Identity NOT MembershipProviders
         private MembershipProvider CurrentProvider
         {
             get
@@ -47,18 +52,18 @@ namespace Umbraco.Web.Install.InstallSteps
             }
         }
 
-        public override InstallSetupResult Execute(UserModel user)
+        public override Task<InstallSetupResult> ExecuteAsync(UserModel user)
         {
-            var admin = _userService.GetUserById(Constants.Security.SuperId);
+            var admin = _userService.GetUserById(Constants.Security.SuperUserId);
             if (admin == null)
             {
                 throw new InvalidOperationException("Could not find the super user!");
             }
 
-            var membershipUser = CurrentProvider.GetUser(Constants.Security.SuperId, true);
+            var membershipUser = CurrentProvider.GetUser(Constants.Security.SuperUserId, true);
             if (membershipUser == null)
             {
-                throw new InvalidOperationException($"No user found in membership provider with id of {Constants.Security.SuperId}.");
+                throw new InvalidOperationException($"No user found in membership provider with id of {Constants.Security.SuperUserId}.");
             }
 
             try
@@ -80,19 +85,22 @@ namespace Umbraco.Web.Install.InstallSteps
 
             _userService.Save(admin);
 
-
             if (user.SubscribeToNewsLetter)
             {
+                if (_httpClient == null)
+                    _httpClient = new HttpClient();
+
+                var values = new NameValueCollection { { "name", admin.Name }, { "email", admin.Email } };
+                var content = new StringContent(JsonConvert.SerializeObject(values), Encoding.UTF8, "application/json");
+
                 try
                 {
-                    var client = new System.Net.WebClient();
-                    var values = new NameValueCollection { { "name", admin.Name }, { "email", admin.Email} };
-                    client.UploadValues("https://shop.umbraco.com/base/Ecom/SubmitEmail/installer.aspx", values);
+                    var response = _httpClient.PostAsync("https://shop.umbraco.com/base/Ecom/SubmitEmail/installer.aspx", content).Result;
                 }
                 catch { /* fail in silence */ }
             }
 
-            return null;
+            return Task.FromResult<InstallSetupResult>(null);
         }
 
         /// <summary>
@@ -114,11 +122,14 @@ namespace Umbraco.Web.Install.InstallSteps
 
         public override string View
         {
-            get { return RequiresExecution(null)
-                //the user UI
+            get
+            {
+                return RequiresExecution(null)
+              //the user UI
                 ? "user"
-                //the continue install UI
-                : "continueinstall"; }
+              //the continue install UI
+              : "continueinstall";
+            }
         }
 
         public override bool RequiresExecution(UserModel model)
@@ -135,7 +146,7 @@ namespace Umbraco.Web.Install.InstallSteps
 
             // In this one case when it's a brand new install and nothing has been configured, make sure the
             // back office cookie is cleared so there's no old cookies lying around causing problems
-            _http.ExpireCookie(UmbracoConfig.For.UmbracoSettings().Security.AuthCookieName);
+            _http.ExpireCookie(Current.Configs.Settings().Security.AuthCookieName);
 
                 return true;
         }

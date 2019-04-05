@@ -1,10 +1,14 @@
 ﻿using System;
 using System.Configuration;
 using System.Linq;
+using System.Threading.Tasks;
 using Umbraco.Core;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Migrations.Install;
+using Umbraco.Core.Migrations.Upgrade;
 using Umbraco.Web.Install.Models;
+using Umbraco.Web.Migrations;
+using Umbraco.Web.Migrations.PostMigrations;
 
 namespace Umbraco.Web.Install.InstallSteps
 {
@@ -23,7 +27,7 @@ namespace Umbraco.Web.Install.InstallSteps
             _logger = logger;
         }
 
-        public override InstallSetupResult Execute(object model)
+        public override Task<InstallSetupResult> ExecuteAsync(object model)
         {
             var installSteps = InstallStatusTracker.GetStatus().ToArray();
             var previousStep = installSteps.Single(x => x.Name == "DatabaseInstall");
@@ -33,7 +37,10 @@ namespace Umbraco.Web.Install.InstallSteps
             {
                 _logger.Info<DatabaseUpgradeStep>("Running 'Upgrade' service");
 
-                var result = _databaseBuilder.UpgradeSchemaAndData();
+                var plan = new UmbracoPlan();
+                plan.AddPostMigration<ClearCsrfCookies>(); // needed when running installer (back-office)
+
+                var result = _databaseBuilder.UpgradeSchemaAndData(plan);
 
                 if (result.Success == false)
                 {
@@ -43,7 +50,7 @@ namespace Umbraco.Web.Install.InstallSteps
                 DatabaseInstallStep.HandleConnectionStrings(_logger);
             }
 
-            return null;
+            return Task.FromResult<InstallSetupResult>(null);
         }
 
         public override bool RequiresExecution(object model)
@@ -63,18 +70,10 @@ namespace Umbraco.Web.Install.InstallSteps
 
             if (_databaseBuilder.IsConnectionStringConfigured(databaseSettings))
             {
-                //Since a connection string was present we verify whether this is an upgrade or an empty db
-                var result = _databaseBuilder.ValidateDatabaseSchema();
-
-                var determinedVersion = result.DetermineInstalledVersion();
-                if (determinedVersion.Equals(new Version(0, 0, 0)))
-                {
-                    //Fresh install
-                    return false;
-                }
-
-                //Upgrade
-                return true;
+                // a connection string was present, determine whether this is an install/upgrade
+                // return true (upgrade) if there is an installed version, else false (install)
+                var result = _databaseBuilder.ValidateSchema();
+                return result.DetermineHasInstalledVersion();
             }
 
             //no connection string configured, probably a fresh install

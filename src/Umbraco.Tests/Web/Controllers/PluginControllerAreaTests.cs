@@ -53,35 +53,35 @@ namespace Umbraco.Tests.Web.Controllers
         [PluginController("Area1")]
         public class Plugin1Controller : PluginController
         {
-            public Plugin1Controller(UmbracoContext umbracoContext)
+            public Plugin1Controller(IUmbracoContextAccessor umbracoContextAccessor)
+                : base(umbracoContextAccessor, null, null, null, null, null, null)
             {
-                UmbracoContext = umbracoContext;
             }
         }
 
         [PluginController("Area1")]
         public class Plugin2Controller : PluginController
         {
-            public Plugin2Controller(UmbracoContext umbracoContext)
+            public Plugin2Controller(IUmbracoContextAccessor umbracoContextAccessor)
+                : base(umbracoContextAccessor, null, null, null, null, null, null)
             {
-                UmbracoContext = umbracoContext;
             }
         }
 
         [PluginController("Area2")]
         public class Plugin3Controller : PluginController
         {
-            public Plugin3Controller(UmbracoContext umbracoContext)
+            public Plugin3Controller(IUmbracoContextAccessor umbracoContextAccessor)
+                : base(umbracoContextAccessor, null, null, null, null, null, null)
             {
-                UmbracoContext = umbracoContext;
             }
         }
 
         public class Plugin4Controller : PluginController
         {
-            public Plugin4Controller(UmbracoContext umbracoContext)
+            public Plugin4Controller(IUmbracoContextAccessor umbracoContextAccessor)
+                : base(umbracoContextAccessor, null, null, null, null, null, null)
             {
-                UmbracoContext = umbracoContext;
             }
         }
 

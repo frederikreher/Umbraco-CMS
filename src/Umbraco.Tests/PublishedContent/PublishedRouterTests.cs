@@ -41,21 +41,6 @@ namespace Umbraco.Tests.PublishedContent
         }
 
         [Test]
-        public void ConfigureRequest_Adds_HttpContext_Items_When_Published_Content_Assigned()
-        {
-            var umbracoContext = GetUmbracoContext("/test");
-            var publishedRouter = CreatePublishedRouter();
-            var request = publishedRouter.CreateRequest(umbracoContext);
-            var content = GetPublishedContentMock();
-            request.PublishedContent = content.Object;
-            request.Culture = new CultureInfo("en-AU");
-            publishedRouter.ConfigureRequest(request);
-
-            Assert.AreEqual(1, umbracoContext.HttpContext.Items["pageID"]);
-            Assert.AreEqual(request.UmbracoPage.Elements.Count, ((Hashtable) umbracoContext.HttpContext.Items["pageElements"]).Count);
-        }
-
-        [Test]
         public void ConfigureRequest_Sets_UmbracoPage_When_Published_Content_Assigned()
         {
             var umbracoContext = GetUmbracoContext("/test");
@@ -66,7 +51,7 @@ namespace Umbraco.Tests.PublishedContent
             request.PublishedContent = content.Object;
             publishedRouter.ConfigureRequest(request);
 
-            Assert.IsNotNull(request.UmbracoPage);
+            Assert.IsNotNull(request.LegacyContentHashTable);
         }
 
         private Mock<IPublishedContent> GetPublishedContentMock()
@@ -81,7 +66,7 @@ namespace Umbraco.Tests.PublishedContent
             pc.Setup(content => content.Path).Returns("-1,1");
             pc.Setup(content => content.Parent).Returns(() => null);
             pc.Setup(content => content.Properties).Returns(new Collection<IPublishedProperty>());
-            pc.Setup(content => content.ContentType).Returns(new PublishedContentType(22, "anything", PublishedItemType.Content, Enumerable.Empty<string>(), Enumerable.Empty<PublishedPropertyType>(), ContentVariation.InvariantNeutral));
+            pc.Setup(content => content.ContentType).Returns(new PublishedContentType(22, "anything", PublishedItemType.Content, Enumerable.Empty<string>(), Enumerable.Empty<PublishedPropertyType>(), ContentVariation.Nothing));
             return pc;
         }
     }

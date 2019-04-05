@@ -1,5 +1,4 @@
 .umb-expansion-panel {
-    //border: 1px solid @gray-8;
     background: @white;
     border-radius: 3px;
     margin-bottom: 16px;
@@ -14,6 +13,10 @@
     cursor: pointer;
     justify-content: space-between;
     color: @black;
+
+    &:hover .umb-expansion-panel__expand {
+        color: @gray-6;
+    }
 }
 
 .umb-expansion-panel__expand {

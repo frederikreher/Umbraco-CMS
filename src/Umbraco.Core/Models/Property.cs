@@ -2,7 +2,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.Serialization;
 using Umbraco.Core.Collections;
 using Umbraco.Core.Models.Entities;
@@ -16,73 +15,107 @@ namespace Umbraco.Core.Models
     [DataContract(IsReference = true)]
     public class Property : EntityBase
     {
+        // _values contains all property values, including the invariant-neutral value
         private List<PropertyValue> _values = new List<PropertyValue>();
+
+        // _pvalue contains the invariant-neutral property value
         private PropertyValue _pvalue;
+
+        // _vvalues contains the (indexed) variant property values
         private Dictionary<CompositeNStringNStringKey, PropertyValue> _vvalues;
 
-        private static readonly Lazy<PropertySelectors> Ps = new Lazy<PropertySelectors>();
-
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Property"/> class.
+        /// </summary>
         protected Property()
         { }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Property"/> class.
+        /// </summary>
         public Property(PropertyType propertyType)
         {
             PropertyType = propertyType;
         }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Property"/> class.
+        /// </summary>
         public Property(int id, PropertyType propertyType)
         {
             Id = id;
             PropertyType = propertyType;
         }
 
+        /// <summary>
+        /// Represents a property value.
+        /// </summary>
         public class PropertyValue
         {
+            // TODO: Either we allow change tracking at this class level, or we add some special change tracking collections to the Property
+            // class to deal with change tracking which variants have changed
+
             private string _culture;
             private string _segment;
 
+            /// <summary>
+            /// Gets or sets the culture of the property.
+            /// </summary>
+            /// <remarks>The culture is either null (invariant) or a non-empty string. If the property is
+            /// set with an empty or whitespace value, its value is converted to null.</remarks>
             public string Culture
             {
                 get => _culture;
-                internal set => _culture = value?.ToLowerInvariant();
+                internal set => _culture = value.IsNullOrWhiteSpace() ? null : value.ToLowerInvariant();
             }
+
+            /// <summary>
+            /// Gets or sets the segment of the property.
+            /// </summary>
+            /// <remarks>The segment is either null (neutral) or a non-empty string. If the property is
+            /// set with an empty or whitespace value, its value is converted to null.</remarks>
             public string Segment
             {
                 get => _segment;
                 internal set => _segment = value?.ToLowerInvariant();
             }
+
+            /// <summary>
+            /// Gets or sets the edited value of the property.
+            /// </summary>
             public object EditedValue { get; internal set; }
+
+            /// <summary>
+            /// Gets or sets the published value of the property.
+            /// </summary>
             public object PublishedValue { get; internal set; }
 
+            /// <summary>
+            /// Clones the property value.
+            /// </summary>
             public PropertyValue Clone()
                 => new PropertyValue { _culture = _culture, _segment = _segment, PublishedValue = PublishedValue, EditedValue = EditedValue };
         }
 
-        // ReSharper disable once ClassNeverInstantiated.Local
-        private class PropertySelectors
-        {
-            public readonly PropertyInfo ValuesSelector = ExpressionHelper.GetPropertyInfo<Property, object>(x => x.Values);
+        private static readonly DelegateEqualityComparer<object> PropertyValueComparer = new DelegateEqualityComparer<object>(
+            (o, o1) =>
+            {
+                if (o == null && o1 == null) return true;
 
-            public readonly DelegateEqualityComparer<object> PropertyValueComparer = new DelegateEqualityComparer<object>(
-                (o, o1) =>
-                {
-                    if (o == null && o1 == null) return true;
+                // custom comparer for strings.
+                // if one is null and another is empty then they are the same
+                if (o is string || o1 is string)
+                    return ((o as string).IsNullOrWhiteSpace() && (o1 as string).IsNullOrWhiteSpace()) || (o != null && o1 != null && o.Equals(o1));
 
-                    // custom comparer for strings.
-                    // if one is null and another is empty then they are the same
-                    if (o is string || o1 is string)
-                        return ((o as string).IsNullOrWhiteSpace() && (o1 as string).IsNullOrWhiteSpace()) || (o != null && o1 != null && o.Equals(o1));
+                if (o == null || o1 == null) return false;
 
-                    if (o == null || o1 == null) return false;
+                // custom comparer for enumerable
+                // ReSharper disable once MergeCastWithTypeCheck
+                if (o is IEnumerable && o1 is IEnumerable enumerable)
+                    return ((IEnumerable)o).Cast<object>().UnsortedSequenceEqual(enumerable.Cast<object>());
 
-                    // custom comparer for enumerable
-                    // ReSharper disable once MergeCastWithTypeCheck
-                    if (o is IEnumerable && o1 is IEnumerable enumerable)
-                        return ((IEnumerable) o).Cast<object>().UnsortedSequenceEqual(enumerable.Cast<object>());
-
-                    return o.Equals(o1);
-                }, o => o.GetHashCode());
-        }
+                return o.Equals(o1);
+            }, o => o.GetHashCode());
 
         /// <summary>
         /// Returns the PropertyType, which this Property is based on
@@ -101,7 +134,7 @@ namespace Umbraco.Core.Models
             {
                 // make sure we filter out invalid variations
                 // make sure we leave _vvalues null if possible
-                _values = value.Where(x => PropertyType.ValidateVariation(x.Culture, x.Segment, false)).ToList();
+                _values = value.Where(x => PropertyType.SupportsVariation(x.Culture, x.Segment)).ToList();
                 _pvalue = _values.FirstOrDefault(x => x.Culture == null && x.Segment == null);
                 _vvalues = _values.Count > (_pvalue == null ? 0 : 1)
                     ? _values.Where(x => x != _pvalue).ToDictionary(x => new CompositeNStringNStringKey(x.Culture, x.Segment), x => x)
@@ -135,7 +168,11 @@ namespace Umbraco.Core.Models
         /// </summary>
         public object GetValue(string culture = null, string segment = null, bool published = false)
         {
-            if (!PropertyType.ValidateVariation(culture, segment, false)) return null;
+            // ensure null or whitespace are nulls
+            culture = culture.NullOrWhiteSpaceAsNull();
+            segment = segment.NullOrWhiteSpaceAsNull();
+
+            if (!PropertyType.SupportsVariation(culture, segment)) return null;
             if (culture == null && segment == null) return GetPropertyValue(_pvalue, published);
             if (_vvalues == null) return null;
             return _vvalues.TryGetValue(new CompositeNStringNStringKey(culture, segment), out var pvalue)
@@ -147,123 +184,82 @@ namespace Umbraco.Core.Models
         {
             if (pvalue == null) return null;
 
-            return PropertyType.IsPublishing
+            return PropertyType.SupportsPublishing
                 ? (published ? pvalue.PublishedValue : pvalue.EditedValue)
                 : pvalue.EditedValue;
         }
 
         // internal - must be invoked by the content item
         // does *not* validate the value - content item must validate first
-        internal void PublishAllValues()
+        internal void PublishValues(string culture = "*", string segment = "*")
         {
-            // if invariant-neutral is supported, publish invariant-neutral
-            if (PropertyType.ValidateVariation(null, null, false))
-                PublishPropertyValue(_pvalue);
+            culture = culture.NullOrWhiteSpaceAsNull();
+            segment = segment.NullOrWhiteSpaceAsNull();
 
-            // publish everything not invariant-neutral that is supported
-            if (_vvalues != null)
-            {
-                var pvalues = _vvalues
-                    .Where(x => PropertyType.ValidateVariation(x.Value.Culture, x.Value.Segment, false))
-                    .Select(x => x.Value);
-                foreach (var pvalue in pvalues)
-                    PublishPropertyValue(pvalue);
-            }
+            // if invariant or all, and invariant-neutral is supported, publish invariant-neutral
+            if ((culture == null || culture == "*") && (segment == null || segment == "*") && PropertyType.SupportsVariation(null, null))
+                PublishValue(_pvalue);
+
+            // then deal with everything that varies
+            if (_vvalues == null) return;
+
+            // get the property values that are still relevant (wrt the property type variation),
+            // and match the specified culture and segment (or anything when '*').
+            var pvalues = _vvalues.Where(x =>
+                    PropertyType.SupportsVariation(x.Value.Culture, x.Value.Segment, true) && // the value variation is ok
+                    (culture == "*" || x.Value.Culture.InvariantEquals(culture)) && // the culture matches
+                    (segment == "*" || x.Value.Segment.InvariantEquals(segment))) // the segment matches
+                .Select(x => x.Value);
+
+            foreach (var pvalue in pvalues)
+                PublishValue(pvalue);
         }
 
         // internal - must be invoked by the content item
-        // does *not* validate the value - content item must validate first
-        internal void PublishValue(string culture = null, string segment = null)
+        internal void UnpublishValues(string culture = "*", string segment = "*")
         {
-            PropertyType.ValidateVariation(culture, segment, true);
+            culture = culture.NullOrWhiteSpaceAsNull();
+            segment = segment.NullOrWhiteSpaceAsNull();
 
-            var (pvalue, _) = GetPValue(culture, segment, false);
-            if (pvalue == null) return;
-            PublishPropertyValue(pvalue);
+            // if invariant or all, and invariant-neutral is supported, publish invariant-neutral
+            if ((culture == null || culture == "*") && (segment == null || segment == "*") && PropertyType.SupportsVariation(null, null))
+                UnpublishValue(_pvalue);
+
+            // then deal with everything that varies
+            if (_vvalues == null) return;
+
+            // get the property values that are still relevant (wrt the property type variation),
+            // and match the specified culture and segment (or anything when '*').
+            var pvalues = _vvalues.Where(x =>
+                    PropertyType.SupportsVariation(x.Value.Culture, x.Value.Segment, true) && // the value variation is ok
+                    (culture == "*" || x.Value.Culture.InvariantEquals(culture)) && // the culture matches
+                    (segment == "*" || x.Value.Segment.InvariantEquals(segment))) // the segment matches
+                .Select(x => x.Value);
+
+            foreach (var pvalue in pvalues)
+                UnpublishValue(pvalue);
         }
 
-        // internal - must be invoked by the content item
-        // does *not* validate the value - content item must validate first
-        internal void PublishCultureValues(string culture = null)
-        {
-            // if invariant and invariant-neutral is supported, publish invariant-neutral
-            if (culture == null && PropertyType.ValidateVariation(null, null, false))
-                PublishPropertyValue(_pvalue);
-
-            // publish everything not invariant-neutral that matches the culture and is supported
-            if (_vvalues != null)
-            {
-                var pvalues = _vvalues
-                    .Where(x => x.Value.Culture.InvariantEquals(culture))
-                    .Where(x => PropertyType.ValidateVariation(culture, x.Value.Segment, false))
-                    .Select(x => x.Value);
-                foreach (var pvalue in pvalues)
-                    PublishPropertyValue(pvalue);
-            }
-        }
-
-        // internal - must be invoked by the content item
-        internal void ClearPublishedAllValues()
-        {
-            if (PropertyType.ValidateVariation(null, null, false))
-                ClearPublishedPropertyValue(_pvalue);
-
-            if (_vvalues != null)
-            {
-                var pvalues = _vvalues
-                    .Where(x => PropertyType.ValidateVariation(x.Value.Culture, x.Value.Segment, false))
-                    .Select(x => x.Value);
-                foreach (var pvalue in pvalues)
-                    ClearPublishedPropertyValue(pvalue);
-            }
-        }
-
-        // internal - must be invoked by the content item
-        internal void ClearPublishedValue(string culture = null, string segment = null)
-        {
-            PropertyType.ValidateVariation(culture, segment, true);
-            var (pvalue, _) = GetPValue(culture, segment, false);
-            if (pvalue == null) return;
-            ClearPublishedPropertyValue(pvalue);
-        }
-
-        // internal - must be invoked by the content item
-        internal void ClearPublishedCultureValues(string culture = null)
-        {
-            if (culture == null && PropertyType.ValidateVariation(null, null, false))
-                ClearPublishedPropertyValue(_pvalue);
-
-            if (_vvalues != null)
-            {
-                var pvalues = _vvalues
-                    .Where(x => x.Value.Culture.InvariantEquals(culture))
-                    .Where(x => PropertyType.ValidateVariation(culture, x.Value.Segment, false))
-                    .Select(x => x.Value);
-                foreach (var pvalue in pvalues)
-                    ClearPublishedPropertyValue(pvalue);
-            }
-        }
-
-        private void PublishPropertyValue(PropertyValue pvalue)
+        private void PublishValue(PropertyValue pvalue)
         {
             if (pvalue == null) return;
 
-            if (!PropertyType.IsPublishing)
+            if (!PropertyType.SupportsPublishing)
                 throw new NotSupportedException("Property type does not support publishing.");
             var origValue = pvalue.PublishedValue;
             pvalue.PublishedValue = PropertyType.ConvertAssignedValue(pvalue.EditedValue);
-            DetectChanges(pvalue.EditedValue, origValue, Ps.Value.ValuesSelector, Ps.Value.PropertyValueComparer, false);
+            DetectChanges(pvalue.EditedValue, origValue, nameof(Values), PropertyValueComparer, false);
         }
 
-        private void ClearPublishedPropertyValue(PropertyValue pvalue)
+        private void UnpublishValue(PropertyValue pvalue)
         {
             if (pvalue == null) return;
 
-            if (!PropertyType.IsPublishing)
+            if (!PropertyType.SupportsPublishing)
                 throw new NotSupportedException("Property type does not support publishing.");
             var origValue = pvalue.PublishedValue;
             pvalue.PublishedValue = PropertyType.ConvertAssignedValue(null);
-            DetectChanges(pvalue.EditedValue, origValue, Ps.Value.ValuesSelector, Ps.Value.PropertyValueComparer, false);
+            DetectChanges(pvalue.EditedValue, origValue, nameof(Values), PropertyValueComparer, false);
         }
 
         /// <summary>
@@ -271,7 +267,12 @@ namespace Umbraco.Core.Models
         /// </summary>
         public void SetValue(object value, string culture = null, string segment = null)
         {
-            PropertyType.ValidateVariation(culture, segment, true);
+            culture = culture.NullOrWhiteSpaceAsNull();
+            segment = segment.NullOrWhiteSpaceAsNull();
+
+            if (!PropertyType.SupportsVariation(culture, segment))
+                throw new NotSupportedException($"Variation \"{culture??"<null>"},{segment??"<null>"}\" is not supported by the property type.");
+
             var (pvalue, change) = GetPValue(culture, segment, true);
 
             var origValue = pvalue.EditedValue;
@@ -279,7 +280,7 @@ namespace Umbraco.Core.Models
 
             pvalue.EditedValue = setValue;
 
-            DetectChanges(setValue, origValue, Ps.Value.ValuesSelector, Ps.Value.PropertyValueComparer, change);
+            DetectChanges(setValue, origValue, nameof(Values), PropertyValueComparer, change);
         }
 
         // bypasses all changes detection and is the *only* way to set the published value
@@ -287,7 +288,7 @@ namespace Umbraco.Core.Models
         {
             var (pvalue, _) = GetPValue(culture, segment, true);
 
-            if (published && PropertyType.IsPublishing)
+            if (published && PropertyType.SupportsPublishing)
                 pvalue.PublishedValue = value;
             else
                 pvalue.EditedValue = value;
@@ -331,95 +332,14 @@ namespace Umbraco.Core.Models
             return (pvalue, change);
         }
 
-        /// <summary>
-        /// Gets a value indicating whether all properties are valid.
-        /// </summary>
-        /// <returns></returns>
-        internal bool IsAllValid()
+        protected override void PerformDeepClone(object clone)
         {
-            //fixme - needs API review as this is not used apart from in tests
+            base.PerformDeepClone(clone);
 
-            // invariant-neutral is supported, validate invariant-neutral
-            // includes mandatory validation
-            if (PropertyType.ValidateVariation(null, null, false) && !IsValidValue(_pvalue)) return false;
-
-            // either invariant-neutral is not supported, or it is valid
-            // for anything else, validate the existing values (including mandatory),
-            // but we cannot validate mandatory globally (we don't know the possible cultures and segments)
-
-            if (_vvalues == null) return true;
-
-            var pvalues = _vvalues
-                .Where(x => PropertyType.ValidateVariation(x.Value.Culture, x.Value.Segment, false))
-                .Select(x => x.Value)
-                .ToArray();
-
-            return pvalues.Length == 0 || pvalues.All(x => IsValidValue(x.EditedValue));
-        }
-
-        /// <summary>
-        /// Gets a value indicating whether the culture/any values are valid.
-        /// </summary>
-        /// <remarks>An invalid value can be saved, but only valid values can be published.</remarks>
-        internal bool IsCultureValid(string culture)
-        {
-            //fixme - needs API review as this is not used apart from in tests
-
-            // culture-neutral is supported, validate culture-neutral
-            // includes mandatory validation
-            if (PropertyType.ValidateVariation(culture, null, false) && !IsValidValue(GetValue(culture)))
-                return false;
-
-            // either culture-neutral is not supported, or it is valid
-            // for anything non-neutral, validate the existing values (including mandatory),
-            // but we cannot validate mandatory globally (we don't know the possible segments)
-
-            if (_vvalues == null) return true;
-
-            var pvalues = _vvalues
-                .Where(x => x.Value.Culture.InvariantEquals(culture))
-                .Where(x => PropertyType.ValidateVariation(culture, x.Value.Segment, false))
-                .Select(x => x.Value)
-                .ToArray();
-
-            return pvalues.Length == 0 || pvalues.All(x => IsValidValue(x.EditedValue));
-        }
-
-        /// <summary>
-        /// Gets a value indicating whether the value is valid.
-        /// </summary>
-        /// <remarks>An invalid value can be saved, but only valid values can be published.</remarks>
-        public bool IsValid(string culture = null, string segment = null)
-        {
-            // single value -> validates mandatory
-            return IsValidValue(GetValue(culture, segment));
-        }
-
-        /// <summary>
-        /// Boolean indicating whether the passed in value is valid
-        /// </summary>
-        /// <param name="value"></param>
-        /// <returns>True is property value is valid, otherwise false</returns>
-        private bool IsValidValue(object value)
-        {
-            return PropertyType.IsPropertyValueValid(value);
-        }
-
-        public override object DeepClone()
-        {
-            var clone = (Property) base.DeepClone();
-
-            //turn off change tracking
-            clone.DisableChangeTracking();
+            var clonedEntity = (Property)clone;
 
             //need to manually assign since this is a readonly property
-            clone.PropertyType = (PropertyType) PropertyType.DeepClone();
-
-            //re-enable tracking
-            clone.ResetDirtyProperties(false); // not needed really, since we're not tracking
-            clone.EnableChangeTracking();
-
-            return clone;
+            clonedEntity.PropertyType = (PropertyType) PropertyType.DeepClone();
         }
     }
 }

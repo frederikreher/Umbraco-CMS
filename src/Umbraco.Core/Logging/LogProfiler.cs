@@ -24,8 +24,8 @@ namespace Umbraco.Core.Logging
         /// <inheritdoc/>
         public IDisposable Step(string name)
         {
-            _logger.Debug<LogProfiler>($"Begin: {name}.");
-            return new LightDisposableTimer(duration => _logger.Info<LogProfiler>($"End {name}. ({duration}ms)"));
+            _logger.Debug<LogProfiler>("Begin: {ProfileName}", name);
+            return new LightDisposableTimer(duration => _logger.Info<LogProfiler>("End {ProfileName} ({ProfileDuration}ms)", name, duration));
         }
 
         /// <inheritdoc/>
@@ -41,7 +41,7 @@ namespace Umbraco.Core.Logging
         }
 
         // a lightweight disposable timer
-        private class LightDisposableTimer : DisposableObject
+        private class LightDisposableTimer : DisposableObjectSlim
         {
             private readonly Action<long> _callback;
             private readonly Stopwatch _stopwatch = Stopwatch.StartNew();

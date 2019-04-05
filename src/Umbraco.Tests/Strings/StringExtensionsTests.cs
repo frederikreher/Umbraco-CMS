@@ -1,13 +1,12 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.Linq;
+using System.Text;
 using NUnit.Framework;
 using Umbraco.Core;
 using Umbraco.Core.Composing;
 using Umbraco.Core.Strings;
-using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.Testing;
 
 namespace Umbraco.Tests.Strings
@@ -15,12 +14,10 @@ namespace Umbraco.Tests.Strings
     [TestFixture]
     public class StringExtensionsTests : UmbracoTestBase
     {
-        public override void SetUp()
+        protected override void Compose()
         {
-            base.SetUp();
-
-            // fixme - in "compose"?
-            Container.RegisterSingleton<IShortStringHelper>(_ => new MockShortStringHelper());
+            base.Compose();
+            Composition.RegisterUnique<IShortStringHelper>(_ => new MockShortStringHelper());
         }
 
         [Test]
@@ -28,6 +25,14 @@ namespace Umbraco.Tests.Strings
         {
             var helper = Current.ShortStringHelper;
             Assert.IsInstanceOf<MockShortStringHelper>(helper);
+        }
+
+        [TestCase("hello-world.png", "Hello World")]
+        [TestCase("hello-world .png", "Hello World")]
+        [TestCase("_hello-world __1.png", "Hello World 1")]
+        public void To_Friendly_Name(string first, string second)
+        {
+            Assert.AreEqual(first.ToFriendlyName(), second);
         }
 
         [TestCase("hello", "world", false)]
@@ -58,11 +63,22 @@ namespace Umbraco.Tests.Strings
         [TestCase("hello.txt", "hello")]
         [TestCase("this.is.a.Txt", "this.is.a")]
         [TestCase("this.is.not.a. Txt", "this.is.not.a. Txt")]
-        [TestCase("not a file","not a file")]
+        [TestCase("not a file", "not a file")]
         public void Strip_File_Extension(string input, string result)
         {
             var stripped = input.StripFileExtension();
             Assert.AreEqual(stripped, result);
+        }
+
+        [TestCase("'+alert(1234)+'", "+alert1234+")]
+        [TestCase("'+alert(56+78)+'", "+alert56+78+")]
+        [TestCase("{{file}}", "file")]
+        [TestCase("'+alert('hello')+'", "+alerthello+")]
+        [TestCase("Test", "Test")]
+        public void Clean_From_XSS(string input, string result)
+        {
+            var cleaned = input.CleanForXss();
+            Assert.AreEqual(cleaned, result);
         }
 
         [TestCase("This is a string to encrypt")]
@@ -150,6 +166,56 @@ namespace Umbraco.Tests.Strings
         {
             var output = input.ToFirstLower();
             Assert.AreEqual(expected, output);
+        }
+
+        [TestCase("pineapple", new string[] { "banana", "apple", "blueberry", "strawberry" }, StringComparison.CurrentCulture, true)]
+        [TestCase("PINEAPPLE", new string[] { "banana", "apple", "blueberry", "strawberry" }, StringComparison.CurrentCulture, false)]
+        [TestCase("pineapple", new string[] { "banana", "Apple", "blueberry", "strawberry" }, StringComparison.CurrentCulture, false)]
+        [TestCase("pineapple", new string[] { "banana", "Apple", "blueberry", "strawberry" }, StringComparison.OrdinalIgnoreCase, true)]
+        [TestCase("pineapple", new string[] { "banana", "blueberry", "strawberry" }, StringComparison.OrdinalIgnoreCase, false)]
+        [TestCase("Strawberry unicorn pie", new string[] { "Berry" }, StringComparison.OrdinalIgnoreCase, true)]
+        [TestCase("empty pie", new string[0], StringComparison.OrdinalIgnoreCase, false)]
+        public void ContainsAny(string haystack, IEnumerable<string> needles, StringComparison comparison, bool expected)
+        {
+            bool output = haystack.ContainsAny(needles, comparison);
+            Assert.AreEqual(expected, output);
+        }
+
+        [TestCase("", true)]
+        [TestCase(" ", true)]
+        [TestCase("\r\n\r\n", true)]
+        [TestCase("\r\n", true)]
+        [TestCase(@"
+        Hello
+        ", false)]
+        [TestCase(null, true)]
+        [TestCase("a", false)]
+        [TestCase("abc", false)]
+        [TestCase("abc   ", false)]
+        [TestCase("   abc", false)]
+        [TestCase("   abc   ", false)]
+        public void IsNullOrWhiteSpace(string value, bool expected)
+        {
+            // Act
+            bool result = value.IsNullOrWhiteSpace();
+
+            // Assert
+            Assert.AreEqual(expected, result);
+        }
+
+        [TestCase("hello", "aGVsbG8")]
+        [TestCase("tad", "dGFk")]
+        [TestCase("AmqGr+Fd!~ééé", "QW1xR3IrRmQhfsOpw6nDqQ")]
+        public void UrlTokenEncoding(string value, string expected)
+        {
+            var bytes = Encoding.UTF8.GetBytes(value);
+            Console.WriteLine("base64: " + Convert.ToBase64String(bytes));
+            var encoded = StringExtensions.UrlTokenEncode(bytes);
+            Assert.AreEqual(expected, encoded);
+
+            var backBytes = StringExtensions.UrlTokenDecode(encoded);
+            var backString = Encoding.UTF8.GetString(backBytes);
+            Assert.AreEqual(value, backString);
         }
 
         // FORMAT STRINGS

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using AutoMapper;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.PropertyEditors;
 using Umbraco.Core.Services;
@@ -25,7 +26,7 @@ namespace Umbraco.Web.Models.Mapping
             where TPropertyTypeBasic : PropertyTypeBasic
         {
             return mapping
-                .ConstructUsing(x => new PropertyGroup(false)) // fixme - we have NO idea of isPublishing here = wtf?
+                .ConstructUsing(x => new PropertyGroup(false)) // TODO: we have NO idea of isPublishing here = so what?
                 .IgnoreEntityCommonProperties()
                 .ForMember(dest => dest.Id, map => map.Condition(src => src.Id > 0))
                 .ForMember(dest => dest.Key, map => map.Ignore())
@@ -66,7 +67,7 @@ namespace Umbraco.Web.Models.Mapping
 
             foreach (var a in add)
             {
-                //TODO: Remove N+1 lookup
+                // TODO: Remove N+1 lookup
                 var addCt = contentTypeService.Get(a);
                 if (addCt != null)
                     dest.AddContentType(addCt);
@@ -91,7 +92,7 @@ namespace Umbraco.Web.Models.Mapping
 
             foreach (var a in add)
             {
-                //TODO: Remove N+1 lookup
+                // TODO: Remove N+1 lookup
                 var addCt = mediaTypeService.Get(a);
                 if (addCt != null)
                     dest.AddContentType(addCt);
@@ -114,22 +115,22 @@ namespace Umbraco.Web.Models.Mapping
                 .ForMember(dest => dest.Notifications, opt => opt.Ignore())
                 .ForMember(dest => dest.Errors, opt => opt.Ignore())
                 .ForMember(dest => dest.LockedCompositeContentTypes, opt => opt.Ignore())
-                .ForMember(dest => dest.Groups, opt => opt.ResolveUsing(src => propertyGroupDisplayResolver.Resolve(src)));
+                .ForMember(dest => dest.Groups, opt => opt.MapFrom(src => propertyGroupDisplayResolver.Resolve(src)));
         }
 
         public static IMappingExpression<TSource, TDestination> MapBaseContentTypeEntityToDisplay<TSource, TDestination, TPropertyTypeDisplay>(
             this IMappingExpression<TSource, TDestination> mapping, PropertyEditorCollection propertyEditors,
-            IDataTypeService dataTypeService, IContentTypeService contentTypeService)
+            IDataTypeService dataTypeService, IContentTypeService contentTypeService, ILogger logger)
             where TSource : IContentTypeComposition
             where TDestination : ContentTypeCompositionDisplay<TPropertyTypeDisplay>
             where TPropertyTypeDisplay : PropertyTypeDisplay, new()
         {
             var contentTypeUdiResolver = new ContentTypeUdiResolver();
             var lockedCompositionsResolver = new LockedCompositionsResolver(contentTypeService);
-            var propertyTypeGroupResolver = new PropertyTypeGroupResolver<TPropertyTypeDisplay>(propertyEditors, dataTypeService);
+            var propertyTypeGroupResolver = new PropertyTypeGroupResolver<TPropertyTypeDisplay>(propertyEditors, dataTypeService, logger);
 
             return mapping
-                .ForMember(dest => dest.Udi, opt => opt.ResolveUsing(src => contentTypeUdiResolver.Resolve(src)))
+                .ForMember(dest => dest.Udi, opt => opt.MapFrom(src => contentTypeUdiResolver.Resolve(src)))
                 .ForMember(dest => dest.Notifications, opt => opt.Ignore())
                 .ForMember(dest => dest.Blueprints, opt => opt.Ignore())
                 .ForMember(dest => dest.Errors, opt => opt.Ignore())
@@ -140,8 +141,8 @@ namespace Umbraco.Web.Models.Mapping
 
                 .ForMember(dest => dest.AllowedContentTypes, opt => opt.MapFrom(src => src.AllowedContentTypes.Select(x => x.Id.Value)))
                 .ForMember(dest => dest.CompositeContentTypes, opt => opt.MapFrom(src => src.ContentTypeComposition))
-                .ForMember(dest => dest.LockedCompositeContentTypes, opt => opt.ResolveUsing(src => lockedCompositionsResolver.Resolve(src)))
-                .ForMember(dest => dest.Groups, opt => opt.ResolveUsing(src => propertyTypeGroupResolver.Resolve(src)))
+                .ForMember(dest => dest.LockedCompositeContentTypes, opt => opt.MapFrom(src => lockedCompositionsResolver.Resolve(src)))
+                .ForMember(dest => dest.Groups, opt => opt.MapFrom(src => propertyTypeGroupResolver.Resolve(src)))
                 .ForMember(dest => dest.AdditionalData, opt => opt.Ignore());
         }
 
@@ -160,7 +161,7 @@ namespace Umbraco.Web.Models.Mapping
             where TDestination : IContentTypeComposition
             where TSourcePropertyType : PropertyTypeBasic
         {
-            // fixme not so clean really
+            // TODO: not so clean really
             var isPublishing = typeof(IContentType).IsAssignableFrom(typeof(TDestination));
 
             mapping = mapping
@@ -184,7 +185,7 @@ namespace Umbraco.Web.Models.Mapping
             // ignore for members
             mapping = typeof(TDestination) == typeof(IMemberType)
                 ? mapping.ForMember(dto => dto.Variations, opt => opt.Ignore())
-                : mapping.ForMember(dto => dto.Variations, opt => opt.ResolveUsing<ContentTypeVariationsResolver<TSource, TSourcePropertyType, TDestination>>());
+                : mapping.ForMember(dto => dto.Variations, opt => opt.MapFrom<ContentTypeVariationsResolver<TSource, TSourcePropertyType, TDestination>>());
 
             mapping = mapping
                 .ForMember(
@@ -195,7 +196,7 @@ namespace Umbraco.Web.Models.Mapping
                 {
                     // handle property groups and property types
                     // note that ContentTypeSave has
-                    // - all groups, inherited and local; only *one* occurence per group *name*
+                    // - all groups, inherited and local; only *one* occurrence per group *name*
                     // - potentially including the generic properties group
                     // - all properties, inherited and local
                     //
@@ -296,7 +297,7 @@ namespace Umbraco.Web.Models.Mapping
             PropertyType destProperty;
             if (sourceProperty.Id > 0)
             {
-                // updateg an existing property
+                // updating an existing property
                 // ensure it is still there, then map/update
                 destProperty = destOrigProperties.FirstOrDefault(x => x.Id == sourceProperty.Id);
                 if (destProperty != null)
@@ -310,7 +311,7 @@ namespace Umbraco.Web.Models.Mapping
             }
 
             // insert a new property, or update an existing property that has
-            // been deletedin the meantime and we need to re-create
+            // been deleted in the meantime and we need to re-create
             // map/create
             destProperty = Mapper.Map<PropertyType>(sourceProperty);
             return destProperty;

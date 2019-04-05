@@ -18,8 +18,8 @@ namespace Umbraco.Web.Cache
         private readonly IPublishedSnapshotService _publishedSnapshotService;
         private readonly IdkMap _idkMap;
 
-        public MediaCacheRefresher(CacheHelper cacheHelper, IPublishedSnapshotService publishedSnapshotService, IdkMap idkMap)
-            : base(cacheHelper)
+        public MediaCacheRefresher(AppCaches appCaches, IPublishedSnapshotService publishedSnapshotService, IdkMap idkMap)
+            : base(appCaches)
         {
             _publishedSnapshotService = publishedSnapshotService;
             _idkMap = idkMap;
@@ -47,53 +47,27 @@ namespace Umbraco.Web.Cache
 
             if (anythingChanged)
             {
-                var mediaCache = CacheHelper.IsolatedRuntimeCache.GetCache<IMedia>();
+                Current.AppCaches.ClearPartialViewCache();
 
-                Current.ApplicationCache.ClearPartialViewCache();
+                var mediaCache = AppCaches.IsolatedCaches.Get<IMedia>();
 
                 foreach (var payload in payloads)
                 {
                     if (payload.ChangeTypes == TreeChangeTypes.Remove)
                        _idkMap.ClearCache(payload.Id);
 
-                    // note: ClearCacheByKeySearch - does StartsWith(...)
-
-                    // legacy alert!
-                    //
-                    // library cache library.GetMedia(int mediaId, bool deep) maintains a cache
-                    // of media xml - and of *deep* media xml - using the key
-                    // MediaCacheKey + "_" + mediaId + "_" + deep
-                    //
-                    // this clears the non-deep xml for the current media
-                    //
-                    Current.ApplicationCache.RuntimeCache.ClearCacheByKeySearch(
-                        $"{CacheKeys.MediaCacheKey}_{payload.Id}_False");
-
-                    // and then, for the entire path, we have to clear whatever might contain the media
-                    // bearing in mind there are probably nasty race conditions here - this is all legacy
-                    var k = $"{CacheKeys.MediaCacheKey}_{payload.Id}_";
-                    var x = Current.ApplicationCache.RuntimeCache.GetCacheItem(k)
-                        as Tuple<XElement, string>;
-                    if (x == null) continue;
-                    var path = x.Item2;
-
-                    foreach (var pathId in path.Split(',').Skip(1).Select(int.Parse))
-                    {
-                        // this clears the deep xml for the medias in the path (skipping -1)
-                        Current.ApplicationCache.RuntimeCache.ClearCacheByKeySearch(
-                            $"{CacheKeys.MediaCacheKey}_{pathId}_True");
-                    }
+                    if (!mediaCache) continue;
 
                     // repository cache
                     // it *was* done for each pathId but really that does not make sense
                     // only need to do it for the current media
-                    mediaCache.Result.ClearCacheItem(RepositoryCacheKeys.GetKey<IMedia>(payload.Id));
+                    mediaCache.Result.Clear(RepositoryCacheKeys.GetKey<IMedia>(payload.Id));
 
                     // remove those that are in the branch
                     if (payload.ChangeTypes.HasTypesAny(TreeChangeTypes.RefreshBranch | TreeChangeTypes.Remove))
                     {
                         var pathid = "," + payload.Id + ",";
-                        mediaCache.Result.ClearCacheObjectTypes<IMedia>((_, v) => v.Path.Contains(pathid));
+                        mediaCache.Result.ClearOfType<IMedia>((_, v) => v.Path.Contains(pathid));
                     }
                 }
             }
@@ -145,9 +119,9 @@ namespace Umbraco.Web.Cache
 
         #region Indirect
 
-        public static void RefreshMediaTypes(CacheHelper cacheHelper)
+        public static void RefreshMediaTypes(AppCaches appCaches)
         {
-            cacheHelper.IsolatedRuntimeCache.ClearCache<IMedia>();
+            appCaches.IsolatedCaches.ClearCache<IMedia>();
         }
 
         #endregion

@@ -2,6 +2,7 @@
 using Umbraco.Core.IO;
 using System.Collections.Generic;
 using Umbraco.Core;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Exceptions;
 using Umbraco.Web.Models.ContentEditing;
@@ -35,6 +36,7 @@ namespace Umbraco.Web.Models.Trees
             CssClasses = new List<string>();
              //default
             Icon = "icon-folder-close";
+            Path = "-1";
         }
 
         [DataMember(Name = "parentId", IsRequired = true)]
@@ -111,7 +113,7 @@ namespace Umbraco.Web.Models.Trees
                     return IOHelper.ResolveUrl("~" + Icon.TrimStart('~'));
 
                 //legacy icon path
-                return string.Format("{0}images/umbraco/{1}", UmbracoConfig.For.GlobalSettings().Path.EnsureEndsWith("/"), Icon);
+                return string.Format("{0}images/umbraco/{1}", Current.Configs.Global().Path.EnsureEndsWith("/"), Icon);
             }
         }
 

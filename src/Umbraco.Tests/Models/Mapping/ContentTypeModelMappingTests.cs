@@ -1,11 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using AutoMapper;
 using Moq;
 using NUnit.Framework;
 using Umbraco.Core;
-using Umbraco.Core.Composing;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.PropertyEditors;
@@ -34,12 +32,12 @@ namespace Umbraco.Tests.Models.Mapping
         {
             base.SetUp();
 
-            // fixme - are we initializing mappers that... have already been?
+            // FIXME: are we initializing mappers that... have already been?
             Mapper.Reset();
             Mapper.Initialize(configuration =>
             {
                 //initialize our content type mapper
-                var profile1 = new ContentTypeMapperProfile(_editorsMock.Object, _dataTypeService.Object, _fileService.Object, _contentTypeService.Object, Mock.Of<IMediaTypeService>());
+                var profile1 = new ContentTypeMapperProfile(_editorsMock.Object, _dataTypeService.Object, _fileService.Object, _contentTypeService.Object, Mock.Of<IMediaTypeService>(), Mock.Of<ILogger>());
                 configuration.AddProfile(profile1);
                 var profile2 = new EntityMapperProfile();
                 configuration.AddProfile(profile2);
@@ -55,13 +53,13 @@ namespace Umbraco.Tests.Models.Mapping
             var dataEditors = new DataEditorCollection(editors);
             _editorsMock = new Mock<PropertyEditorCollection>(dataEditors);
             _editorsMock.Setup(x => x[It.IsAny<string>()]).Returns(editors[0]);
-            Container.RegisterSingleton(f => _editorsMock.Object);
+            Composition.RegisterUnique(f => _editorsMock.Object);
 
-            Container.RegisterSingleton(_ => _contentTypeService.Object);
-            Container.RegisterSingleton(_ => _contentService.Object);
-            Container.RegisterSingleton(_ => _dataTypeService.Object);
-            Container.RegisterSingleton(_ => _entityService.Object);
-            Container.RegisterSingleton(_ => _fileService.Object);
+            Composition.RegisterUnique(_ => _contentTypeService.Object);
+            Composition.RegisterUnique(_ => _contentService.Object);
+            Composition.RegisterUnique(_ => _dataTypeService.Object);
+            Composition.RegisterUnique(_ => _entityService.Object);
+            Composition.RegisterUnique(_ => _fileService.Object);
         }
 
         [Test]
@@ -99,7 +97,7 @@ namespace Umbraco.Tests.Models.Mapping
             Assert.AreEqual(display.CreateDate, result.CreateDate);
             Assert.AreEqual(display.UpdateDate, result.UpdateDate);
 
-            //TODO: Now we need to assert all of the more complicated parts
+            // TODO: Now we need to assert all of the more complicated parts
             Assert.AreEqual(display.Groups.Count(), result.PropertyGroups.Count);
             for (var i = 0; i < display.Groups.Count(); i++)
             {
@@ -159,7 +157,7 @@ namespace Umbraco.Tests.Models.Mapping
             Assert.AreEqual(display.CreateDate, result.CreateDate);
             Assert.AreEqual(display.UpdateDate, result.UpdateDate);
 
-            //TODO: Now we need to assert all of the more complicated parts
+            // TODO: Now we need to assert all of the more complicated parts
             Assert.AreEqual(display.Groups.Count(), result.PropertyGroups.Count);
             for (var i = 0; i < display.Groups.Count(); i++)
             {
@@ -223,7 +221,7 @@ namespace Umbraco.Tests.Models.Mapping
             Assert.AreEqual(display.CreateDate, result.CreateDate);
             Assert.AreEqual(display.UpdateDate, result.UpdateDate);
 
-            //TODO: Now we need to assert all of the more complicated parts
+            // TODO: Now we need to assert all of the more complicated parts
             Assert.AreEqual(display.Groups.Count(), result.PropertyGroups.Count);
             for (var i = 0; i < display.Groups.Count(); i++)
             {
@@ -278,7 +276,7 @@ namespace Umbraco.Tests.Models.Mapping
 
             //Assert
 
-            //TODO: Now we need to assert all of the more complicated parts
+            // TODO: Now we need to assert all of the more complicated parts
             Assert.AreEqual(display.Groups.Count(x => x.Inherited == false), result.PropertyGroups.Count);
         }
 
@@ -305,7 +303,7 @@ namespace Umbraco.Tests.Models.Mapping
 
             //Assert
 
-            //TODO: Now we need to assert all of the more complicated parts
+            // TODO: Now we need to assert all of the more complicated parts
             Assert.AreEqual(display.Groups.Count(x => x.Inherited == false), result.PropertyGroups.Count);
         }
 
@@ -313,6 +311,8 @@ namespace Umbraco.Tests.Models.Mapping
         public void IMemberType_To_MemberTypeDisplay()
         {
             //Arrange
+            _dataTypeService.Setup(x => x.GetDataType(It.IsAny<int>()))
+                .Returns(new DataType(new VoidEditor(Mock.Of<ILogger>())));
 
             // setup the mocks to return the data we want to test against...
 
@@ -339,7 +339,7 @@ namespace Umbraco.Tests.Models.Mapping
             Assert.AreEqual(memberType.CreateDate, result.CreateDate);
             Assert.AreEqual(memberType.UpdateDate, result.UpdateDate);
 
-            //TODO: Now we need to assert all of the more complicated parts
+            // TODO: Now we need to assert all of the more complicated parts
 
             Assert.AreEqual(memberType.PropertyGroups.Count(), result.Groups.Count());
             for (var i = 0; i < memberType.PropertyGroups.Count(); i++)
@@ -371,6 +371,8 @@ namespace Umbraco.Tests.Models.Mapping
         public void IMediaType_To_MediaTypeDisplay()
         {
             //Arrange
+            _dataTypeService.Setup(x => x.GetDataType(It.IsAny<int>()))
+                .Returns(new DataType(new VoidEditor(Mock.Of<ILogger>())));
 
             // setup the mocks to return the data we want to test against...
 
@@ -395,7 +397,7 @@ namespace Umbraco.Tests.Models.Mapping
             Assert.AreEqual(mediaType.CreateDate, result.CreateDate);
             Assert.AreEqual(mediaType.UpdateDate, result.UpdateDate);
 
-            //TODO: Now we need to assert all of the more complicated parts
+            // TODO: Now we need to assert all of the more complicated parts
 
             Assert.AreEqual(mediaType.PropertyGroups.Count(), result.Groups.Count());
             for (var i = 0; i < mediaType.PropertyGroups.Count(); i++)
@@ -424,10 +426,12 @@ namespace Umbraco.Tests.Models.Mapping
         public void IContentType_To_ContentTypeDisplay()
         {
             //Arrange
+            _dataTypeService.Setup(x => x.GetDataType(It.IsAny<int>()))
+                .Returns(new DataType(new VoidEditor(Mock.Of<ILogger>())));
 
             // setup the mocks to return the data we want to test against...
 
-            var contentType = MockedContentTypes.CreateTextpageContentType();
+            var contentType = MockedContentTypes.CreateTextPageContentType();
             MockedContentTypes.EnsureAllIds(contentType, 8888);
 
             //Act
@@ -449,7 +453,7 @@ namespace Umbraco.Tests.Models.Mapping
             Assert.AreEqual(contentType.UpdateDate, result.UpdateDate);
             Assert.AreEqual(contentType.DefaultTemplate.Alias, result.DefaultTemplate.Alias);
 
-            //TODO: Now we need to assert all of the more complicated parts
+            // TODO: Now we need to assert all of the more complicated parts
 
             Assert.AreEqual(contentType.PropertyGroups.Count, result.Groups.Count());
             for (var i = 0; i < contentType.PropertyGroups.Count; i++)
@@ -689,6 +693,8 @@ namespace Umbraco.Tests.Models.Mapping
         public void IMediaTypeComposition_To_MediaTypeDisplay()
         {
             //Arrange
+            _dataTypeService.Setup(x => x.GetDataType(It.IsAny<int>()))
+                .Returns(new DataType(new VoidEditor(Mock.Of<ILogger>())));
 
             // setup the mocks to return the data we want to test against...
 
@@ -750,7 +756,7 @@ namespace Umbraco.Tests.Models.Mapping
             Assert.AreEqual(contentType.CreateDate, result.CreateDate);
             Assert.AreEqual(contentType.UpdateDate, result.UpdateDate);
 
-            //TODO: Now we need to assert all of the more complicated parts
+            // TODO: Now we need to assert all of the more complicated parts
 
             Assert.AreEqual(contentType.CompositionPropertyGroups.Select(x => x.Name).Distinct().Count(), result.Groups.Count(x => x.IsGenericProperties == false));
             Assert.AreEqual(1, result.Groups.Count(x => x.IsGenericProperties));
@@ -780,6 +786,8 @@ namespace Umbraco.Tests.Models.Mapping
         public void IContentTypeComposition_To_ContentTypeDisplay()
         {
             //Arrange
+            _dataTypeService.Setup(x => x.GetDataType(It.IsAny<int>()))
+                .Returns(new DataType(new VoidEditor(Mock.Of<ILogger>())));
 
             // setup the mocks to return the data we want to test against...
 
@@ -832,7 +840,7 @@ namespace Umbraco.Tests.Models.Mapping
             Assert.AreEqual(contentType.UpdateDate, result.UpdateDate);
             Assert.AreEqual(contentType.DefaultTemplate.Alias, result.DefaultTemplate.Alias);
 
-            //TODO: Now we need to assert all of the more complicated parts
+            // TODO: Now we need to assert all of the more complicated parts
 
             Assert.AreEqual(contentType.CompositionPropertyGroups.Select(x => x.Name).Distinct().Count(), result.Groups.Count(x => x.IsGenericProperties == false));
             Assert.AreEqual(1, result.Groups.Count(x => x.IsGenericProperties));

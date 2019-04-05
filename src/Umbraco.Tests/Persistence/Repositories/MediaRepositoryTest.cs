@@ -15,6 +15,7 @@ using Umbraco.Core.Persistence.Dtos;
 using Umbraco.Core.Persistence.Repositories.Implement;
 using Umbraco.Core.Scoping;
 using Umbraco.Tests.Testing;
+using Umbraco.Core.Services;
 
 namespace Umbraco.Tests.Persistence.Repositories
 {
@@ -29,14 +30,14 @@ namespace Umbraco.Tests.Persistence.Repositories
             CreateTestData();
         }
 
-        private MediaRepository CreateRepository(IScopeProvider provider, out MediaTypeRepository mediaTypeRepository, CacheHelper cacheHelper = null)
+        private MediaRepository CreateRepository(IScopeProvider provider, out MediaTypeRepository mediaTypeRepository, AppCaches appCaches = null)
         {
-            cacheHelper = cacheHelper ?? CacheHelper;
+            appCaches = appCaches ?? AppCaches;
             var scopeAccessor = (IScopeAccessor) provider;
 
-            mediaTypeRepository = new MediaTypeRepository(scopeAccessor, cacheHelper, Logger);
-            var tagRepository = new TagRepository(scopeAccessor, cacheHelper, Logger);
-            var repository = new MediaRepository(scopeAccessor, cacheHelper, Logger, mediaTypeRepository, tagRepository, Mock.Of<IContentSection>(), Mock.Of<ILanguageRepository>());
+            mediaTypeRepository = new MediaTypeRepository(scopeAccessor, appCaches, Logger);
+            var tagRepository = new TagRepository(scopeAccessor, appCaches, Logger);
+            var repository = new MediaRepository(scopeAccessor, appCaches, Logger, mediaTypeRepository, tagRepository, Mock.Of<ILanguageRepository>());
             return repository;
         }
 
@@ -45,24 +46,24 @@ namespace Umbraco.Tests.Persistence.Repositories
         {
             MediaTypeRepository mediaTypeRepository;
 
-            var realCache = new CacheHelper(
-                new ObjectCacheRuntimeCacheProvider(),
-                new StaticCacheProvider(),
-                new StaticCacheProvider(),
-                new IsolatedRuntimeCache(t => new ObjectCacheRuntimeCacheProvider()));
+            var realCache = new AppCaches(
+                new ObjectCacheAppCache(),
+                new DictionaryAppCache(),
+                new IsolatedCaches(t => new ObjectCacheAppCache()));
 
             var provider = TestObjects.GetScopeProvider(Logger);
             using (var scope = provider.CreateScope())
             {
-                var repository = CreateRepository(provider, out mediaTypeRepository, cacheHelper: realCache);
+                var repository = CreateRepository(provider, out mediaTypeRepository, appCaches: realCache);
 
                 var udb = (UmbracoDatabase)scope.Database;
 
                 udb.EnableSqlCount = false;
 
                 var mediaType = MockedContentTypes.CreateSimpleMediaType("umbTextpage1", "Textpage");
-                var media = MockedMedia.CreateSimpleMedia(mediaType, "hello", -1);
                 mediaTypeRepository.Save(mediaType);
+
+                var media = MockedMedia.CreateSimpleMedia(mediaType, "hello", -1);
                 repository.Save(media);
 
                 udb.EnableSqlCount = true;
@@ -271,7 +272,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                     var folder = MockedMedia.CreateMediaFolder(folderMediaType, -1);
                     repository.Save(folder);
                 }
-                
+
 
                 var types = new[] { 1031 };
                 var query = scope.SqlContext.Query<IMedia>().Where(x => types.Contains(x.ContentTypeId));
@@ -302,7 +303,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                     var folder = MockedMedia.CreateMediaFolder(folderMediaType, -1);
                     repository.Save(folder);
                 }
-                
+
 
                 var types = new[] { "Folder" };
                 var query = scope.SqlContext.Query<IMedia>().Where(x => types.Contains(x.ContentType.Alias));
@@ -325,7 +326,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 // Act
                 var query = scope.SqlContext.Query<IMedia>().Where(x => x.Level == 2);
                 long totalRecords;
-                var result = repository.GetPage(query, 0, 1, out totalRecords, "SortOrder", Direction.Ascending, true);
+                var result = repository.GetPage(query, 0, 1, out totalRecords, null, Ordering.By("SortOrder"));
 
                 // Assert
                 Assert.That(totalRecords, Is.GreaterThanOrEqualTo(2));
@@ -347,7 +348,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 // Act
                 var query = scope.SqlContext.Query<IMedia>().Where(x => x.Level == 2);
                 long totalRecords;
-                var result = repository.GetPage(query, 1, 1, out totalRecords, "SortOrder", Direction.Ascending, true);
+                var result = repository.GetPage(query, 1, 1, out totalRecords, null, Ordering.By("SortOrder"));
 
                 // Assert
                 Assert.That(totalRecords, Is.GreaterThanOrEqualTo(2));
@@ -369,7 +370,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 // Act
                 var query = scope.SqlContext.Query<IMedia>().Where(x => x.Level == 2);
                 long totalRecords;
-                var result = repository.GetPage(query, 0, 2, out totalRecords, "SortOrder", Direction.Ascending, true);
+                var result = repository.GetPage(query, 0, 2, out totalRecords, null, Ordering.By("SortOrder"));
 
                 // Assert
                 Assert.That(totalRecords, Is.GreaterThanOrEqualTo(2));
@@ -391,7 +392,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 // Act
                 var query = scope.SqlContext.Query<IMedia>().Where(x => x.Level == 2);
                 long totalRecords;
-                var result = repository.GetPage(query, 0, 1, out totalRecords, "SortOrder", Direction.Descending, true);
+                var result = repository.GetPage(query, 0, 1, out totalRecords, null, Ordering.By("SortOrder", Direction.Descending));
 
                 // Assert
                 Assert.That(totalRecords, Is.GreaterThanOrEqualTo(2));
@@ -412,8 +413,7 @@ namespace Umbraco.Tests.Persistence.Repositories
 
                 // Act
                 var query = scope.SqlContext.Query<IMedia>().Where(x => x.Level == 2);
-                long totalRecords;
-                var result = repository.GetPage(query, 0, 1, out totalRecords, "Name", Direction.Ascending, true);
+                var result = repository.GetPage(query, 0, 1, out var totalRecords, null, Ordering.By("Name"));
 
                 // Assert
                 Assert.That(totalRecords, Is.GreaterThanOrEqualTo(2));
@@ -434,10 +434,9 @@ namespace Umbraco.Tests.Persistence.Repositories
 
                 // Act
                 var query = scope.SqlContext.Query<IMedia>().Where(x => x.Level == 2);
-                long totalRecords;
 
                 var filter = scope.SqlContext.Query<IMedia>().Where(x => x.Name.Contains("File"));
-                var result = repository.GetPage(query, 0, 1, out totalRecords, "SortOrder", Direction.Ascending, true, filter);
+                var result = repository.GetPage(query, 0, 1, out var totalRecords, filter, Ordering.By("SortOrder"));
 
                 // Assert
                 Assert.That(totalRecords, Is.EqualTo(1));
@@ -453,15 +452,13 @@ namespace Umbraco.Tests.Persistence.Repositories
             var provider = TestObjects.GetScopeProvider(Logger);
             using (var scope = provider.CreateScope())
             {
-                MediaTypeRepository mediaTypeRepository;
-                var repository = CreateRepository(provider, out mediaTypeRepository);
+                var repository = CreateRepository(provider, out _);
 
                 // Act
                 var query = scope.SqlContext.Query<IMedia>().Where(x => x.Level == 2);
-                long totalRecords;
 
                 var filter = scope.SqlContext.Query<IMedia>().Where(x => x.Name.Contains("Test"));
-                var result = repository.GetPage(query, 0, 1, out totalRecords, "SortOrder", Direction.Ascending, true, filter);
+                var result = repository.GetPage(query, 0, 1, out var totalRecords, filter, Ordering.By("SortOrder"));
 
                 // Assert
                 Assert.That(totalRecords, Is.EqualTo(2));

@@ -13,7 +13,7 @@ function MemberTypesCreateController($scope, $location, navigationService, membe
         creatingFolder: false
     };
 
-    var node = $scope.dialogOptions.currentNode;
+    var node = $scope.currentNode;
     var section = appState.getSectionState("currentSection");
 
     $scope.showCreateFolder = function() {
@@ -35,7 +35,7 @@ function MemberTypesCreateController($scope, $location, navigationService, membe
 
             }, function(err) {
 
-               //TODO: Handle errors
+               // TODO: Handle errors
             });
         };
     }

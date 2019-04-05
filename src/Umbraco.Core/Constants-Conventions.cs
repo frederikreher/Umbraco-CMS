@@ -23,30 +23,12 @@ namespace Umbraco.Core
             {
                 public const string MemberUsernameRuleType = "MemberUsername";
                 public const string MemberRoleRuleType = "MemberRole";
-
-                [Obsolete("No longer supported, this is here for backwards compatibility only")]
-                public const string MemberIdRuleType = "MemberId";
-                [Obsolete("No longer supported, this is here for backwards compatibility only")]
-                public const string MemberGroupIdRuleType = "MemberGroupId";
             }
 
-            public static class Localization
-            {
-                /// <summary>
-                /// The root id for all top level dictionary items
-                /// </summary>
-                [Obsolete("There is no dictionary root item id anymore, it is simply null")]
-                public const string DictionaryItemRootId = "41c7638d-f529-4bff-853e-59a0c2fb1bde";
-            }
 
             public static class DataTypes
             {
                 public const string ListViewPrefix = "List View - ";
-            }
-
-            public static class PropertyGroups
-            {
-                public const string ListViewGroupName = "umbContainerView";
             }
 
             /// <summary>
@@ -109,6 +91,11 @@ namespace Umbraco.Core
                 /// Property alias for the Media's file extension.
                 /// </summary>
                 public const string Extension = "umbracoExtension";
+
+                /// <summary>
+                /// The default height/width of an image file if the size can't be determined from the metadata
+                /// </summary>
+                public const int DefaultSize = 200;
             }
 
             /// <summary>
@@ -208,7 +195,7 @@ namespace Umbraco.Core
                 public const string LastLockoutDateLabel = "Last Lockout Date";
 
                 /// <summary>
-                /// Property alias for the number of failed login attemps
+                /// Property alias for the number of failed login attempts
                 /// </summary>
                 public const string FailedPasswordAttempts = "umbracoMemberFailedPasswordAttempts";
 
@@ -222,71 +209,71 @@ namespace Umbraco.Core
                 public static Dictionary<string, PropertyType> GetStandardPropertyTypeStubs()
                 {
                     return new Dictionary<string, PropertyType>
+                    {
                         {
+                            Comments,
+                            new PropertyType(PropertyEditors.Aliases.TextArea, ValueStorageType.Ntext, true, Comments)
                             {
-                                Comments,
-                                new PropertyType(PropertyEditors.Aliases.TextArea, ValueStorageType.Ntext, true, Comments)
-                                    {
-                                        Name = CommentsLabel
-                                    }
-                            },
-                            {
-                                FailedPasswordAttempts,
-                                new PropertyType(PropertyEditors.Aliases.NoEdit, ValueStorageType.Integer, true, FailedPasswordAttempts)
-                                    {
-                                        Name = FailedPasswordAttemptsLabel
-                                    }
-                            },
-                            {
-                                IsApproved,
-                                new PropertyType(PropertyEditors.Aliases.Boolean, ValueStorageType.Integer, true, IsApproved)
-                                    {
-                                        Name = IsApprovedLabel
-                                    }
-                            },
-                            {
-                                IsLockedOut,
-                                new PropertyType(PropertyEditors.Aliases.Boolean, ValueStorageType.Integer, true, IsLockedOut)
-                                    {
-                                        Name = IsLockedOutLabel
-                                    }
-                            },
-                            {
-                                LastLockoutDate,
-                                new PropertyType(PropertyEditors.Aliases.NoEdit, ValueStorageType.Date, true, LastLockoutDate)
-                                    {
-                                        Name = LastLockoutDateLabel
-                                    }
-                            },
-                            {
-                                LastLoginDate,
-                                new PropertyType(PropertyEditors.Aliases.NoEdit, ValueStorageType.Date, true, LastLoginDate)
-                                    {
-                                        Name = LastLoginDateLabel
-                                    }
-                            },
-                            {
-                                LastPasswordChangeDate,
-                                new PropertyType(PropertyEditors.Aliases.NoEdit, ValueStorageType.Date, true, LastPasswordChangeDate)
-                                    {
-                                        Name = LastPasswordChangeDateLabel
-                                    }
-                            },
-                            {
-                                PasswordAnswer,
-                                new PropertyType(PropertyEditors.Aliases.NoEdit, ValueStorageType.Nvarchar, true, PasswordAnswer)
-                                    {
-                                        Name = PasswordAnswerLabel
-                                    }
-                            },
-                            {
-                                PasswordQuestion,
-                                new PropertyType(PropertyEditors.Aliases.NoEdit, ValueStorageType.Nvarchar, true, PasswordQuestion)
-                                    {
-                                        Name = PasswordQuestionLabel
-                                    }
+                                Name = CommentsLabel
                             }
-                        };
+                        },
+                        {
+                            FailedPasswordAttempts,
+                            new PropertyType(PropertyEditors.Aliases.Label, ValueStorageType.Integer, true, FailedPasswordAttempts)
+                            {
+                                Name = FailedPasswordAttemptsLabel
+                            }
+                        },
+                        {
+                            IsApproved,
+                            new PropertyType(PropertyEditors.Aliases.Boolean, ValueStorageType.Integer, true, IsApproved)
+                            {
+                                Name = IsApprovedLabel
+                            }
+                        },
+                        {
+                            IsLockedOut,
+                            new PropertyType(PropertyEditors.Aliases.Boolean, ValueStorageType.Integer, true, IsLockedOut)
+                            {
+                                Name = IsLockedOutLabel
+                            }
+                        },
+                        {
+                            LastLockoutDate,
+                            new PropertyType(PropertyEditors.Aliases.Label, ValueStorageType.Date, true, LastLockoutDate)
+                            {
+                                Name = LastLockoutDateLabel
+                            }
+                        },
+                        {
+                            LastLoginDate,
+                            new PropertyType(PropertyEditors.Aliases.Label, ValueStorageType.Date, true, LastLoginDate)
+                            {
+                                Name = LastLoginDateLabel
+                            }
+                        },
+                        {
+                            LastPasswordChangeDate,
+                            new PropertyType(PropertyEditors.Aliases.Label, ValueStorageType.Date, true, LastPasswordChangeDate)
+                            {
+                                Name = LastPasswordChangeDateLabel
+                            }
+                        },
+                        {
+                            PasswordAnswer,
+                            new PropertyType(PropertyEditors.Aliases.Label, ValueStorageType.Nvarchar, true, PasswordAnswer)
+                            {
+                                Name = PasswordAnswerLabel
+                            }
+                        },
+                        {
+                            PasswordQuestion,
+                            new PropertyType(PropertyEditors.Aliases.Label, ValueStorageType.Nvarchar, true, PasswordQuestion)
+                            {
+                                Name = PasswordQuestionLabel
+                            }
+                        }
+                    };
                 }
             }
 
@@ -340,6 +327,16 @@ namespace Umbraco.Core
                 /// ContentType alias for default relation type "Relate Parent Document On Delete".
                 /// </summary>
                 public const string RelateParentDocumentOnDeleteAlias = "relateParentDocumentOnDelete";
+
+                /// <summary>
+                /// ContentType name for default relation type "Relate Parent Media Folder On Delete".
+                /// </summary>
+                public const string RelateParentMediaFolderOnDeleteName = "Relate Parent Media Folder On Delete";
+
+                /// <summary>
+                /// ContentType alias for default relation type "Relate Parent Media Folder On Delete".
+                /// </summary>
+                public const string RelateParentMediaFolderOnDeleteAlias = "relateParentMediaFolderOnDelete";
             }
         }
     }

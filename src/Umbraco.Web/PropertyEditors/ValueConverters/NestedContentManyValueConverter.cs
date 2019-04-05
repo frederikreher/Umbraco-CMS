@@ -16,12 +16,12 @@ namespace Umbraco.Web.PropertyEditors.ValueConverters
     /// </summary>
     public class NestedContentManyValueConverter : NestedContentValueConverterBase
     {
-        private readonly ProfilingLogger _proflog;
+        private readonly IProfilingLogger _proflog;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="NestedContentManyValueConverter"/> class.
         /// </summary>
-        public NestedContentManyValueConverter(IPublishedSnapshotAccessor publishedSnapshotAccessor, IPublishedModelFactory publishedModelFactory, ProfilingLogger proflog)
+        public NestedContentManyValueConverter(IPublishedSnapshotAccessor publishedSnapshotAccessor, IPublishedModelFactory publishedModelFactory, IProfilingLogger proflog)
             : base(publishedSnapshotAccessor, publishedModelFactory)
         {
             _proflog = proflog;
@@ -55,18 +55,17 @@ namespace Umbraco.Web.PropertyEditors.ValueConverters
         {
             using (_proflog.DebugDuration<PublishedPropertyType>($"ConvertPropertyToNestedContent ({propertyType.DataType.Id})"))
             {
-                var value = (string)inter;
-                if (string.IsNullOrWhiteSpace(value)) return null;
-
-                var objects = JsonConvert.DeserializeObject<List<JObject>>(value);
-                if (objects.Count == 0)
-                    return Enumerable.Empty<IPublishedElement>();
-
                 var configuration = propertyType.DataType.ConfigurationAs<NestedContentConfiguration>();
                 var contentTypes = configuration.ContentTypes;
                 var elements = contentTypes.Length > 1
                     ? new List<IPublishedElement>()
                     : PublishedModelFactory.CreateModelList(contentTypes[0].Alias);
+
+                var value = (string)inter;
+                if (string.IsNullOrWhiteSpace(value)) return elements;
+
+                var objects = JsonConvert.DeserializeObject<List<JObject>>(value);
+                if (objects.Count == 0) return elements;
 
                 foreach (var sourceObject in objects)
                 {

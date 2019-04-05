@@ -14,7 +14,7 @@ namespace Umbraco.Core.Migrations.Install
     /// <summary>
     /// Creates the initial database schema during install.
     /// </summary>
-    internal class DatabaseSchemaCreator
+    public class DatabaseSchemaCreator
     {
         private readonly IUmbracoDatabase _database;
         private readonly ILogger _logger;
@@ -28,8 +28,9 @@ namespace Umbraco.Core.Migrations.Install
         private ISqlSyntaxProvider SqlSyntax => _database.SqlContext.SqlSyntax;
 
         // all tables, in order
-        public static readonly List<Type> OrderedTables = new List<Type>
+        internal static readonly List<Type> OrderedTables = new List<Type>
         {
+            typeof (UserDto),
             typeof (NodeDto),
             typeof (ContentTypeDto),
             typeof (TemplateDto),
@@ -49,8 +50,6 @@ namespace Umbraco.Core.Migrations.Install
             typeof (MemberTypeDto),
             typeof (MemberDto),
             typeof (Member2MemberGroupDto),
-            typeof (ContentXmlDto),
-            typeof (PreviewXmlDto),
             typeof (PropertyTypeGroupDto),
             typeof (PropertyTypeDto),
             typeof (PropertyDataDto),
@@ -58,9 +57,6 @@ namespace Umbraco.Core.Migrations.Install
             typeof (RelationDto),
             typeof (TagDto),
             typeof (TagRelationshipDto),
-            typeof (UserDto),
-            typeof (TaskTypeDto),
-            typeof (TaskDto),
             typeof (ContentType2ContentTypeDto),
             typeof (ContentTypeAllowedContentTypeDto),
             typeof (User2NodeNotifyDto),
@@ -83,7 +79,8 @@ namespace Umbraco.Core.Migrations.Install
             typeof (ConsentDto),
             typeof (AuditEntryDto),
             typeof (ContentVersionCultureVariationDto),
-            typeof (DocumentCultureVariationDto)
+            typeof (DocumentCultureVariationDto),
+            typeof (ContentScheduleDto)
         };
 
         /// <summary>
@@ -98,7 +95,7 @@ namespace Umbraco.Core.Migrations.Install
                 var tableNameAttribute = table.FirstAttribute<TableNameAttribute>();
                 var tableName = tableNameAttribute == null ? table.Name : tableNameAttribute.Value;
 
-                _logger.Info<DatabaseSchemaCreator>("Uninstall" + tableName);
+                _logger.Info<DatabaseSchemaCreator>("Uninstall {TableName}", tableName);
 
                 try
                 {
@@ -109,7 +106,7 @@ namespace Umbraco.Core.Migrations.Install
                 {
                     //swallow this for now, not sure how best to handle this with diff databases... though this is internal
                     // and only used for unit tests. If this fails its because the table doesn't exist... generally!
-                    _logger.Error<DatabaseSchemaCreator>("Could not drop table " + tableName, ex);
+                    _logger.Error<DatabaseSchemaCreator>(ex, "Could not drop table {TableName}", tableName);
                 }
             }
         }
@@ -117,8 +114,12 @@ namespace Umbraco.Core.Migrations.Install
         /// <summary>
         /// Initializes the database by creating the umbraco db schema.
         /// </summary>
+        /// <remarks>This needs to execute as part of a transaction.</remarks>
         public void InitializeDatabaseSchema()
         {
+            if (!_database.InTransaction)
+                throw new InvalidOperationException("Database is not in a transaction.");
+
             var e = new DatabaseCreationEventArgs();
             FireBeforeCreation(e);
 
@@ -135,21 +136,19 @@ namespace Umbraco.Core.Migrations.Install
         /// <summary>
         /// Validates the schema of the current database.
         /// </summary>
-        public DatabaseSchemaResult ValidateSchema()
+        internal DatabaseSchemaResult ValidateSchema()
+        {
+            return ValidateSchema(OrderedTables);
+        }
+
+        internal DatabaseSchemaResult ValidateSchema(IEnumerable<Type> orderedTables)
         {
             var result = new DatabaseSchemaResult(SqlSyntax);
 
-            //get the db index defs
-            result.DbIndexDefinitions = SqlSyntax.GetDefinedIndexes(_database)
-                .Select(x => new DbIndexDefinition
-                {
-                    TableName = x.Item1,
-                    IndexName = x.Item2,
-                    ColumnName = x.Item3,
-                    IsUnique = x.Item4
-                }).ToArray();
+            result.IndexDefinitions.AddRange(SqlSyntax.GetDefinedIndexes(_database)
+                .Select(x => new DbIndexDefinition(x)));
 
-            result.TableDefinitions.AddRange(OrderedTables
+            result.TableDefinitions.AddRange(orderedTables
                 .Select(x => DefinitionFactory.GetTableDefinition(x, SqlSyntax)));
 
             ValidateDbTables(result);
@@ -160,20 +159,21 @@ namespace Umbraco.Core.Migrations.Install
             return result;
         }
 
+        /// <summary>
+        /// This validates the Primary/Foreign keys in the database
+        /// </summary>
+        /// <param name="result"></param>
+        /// <remarks>
+        /// This does not validate any database constraints that are not PKs or FKs because Umbraco does not create a database with non PK/FK constraints.
+        /// Any unique "constraints" in the database are done with unique indexes.
+        /// </remarks>
         private void ValidateDbConstraints(DatabaseSchemaResult result)
         {
-            //MySql doesn't conform to the "normal" naming of constraints, so there is currently no point in doing these checks.
-            //TODO: At a later point we do other checks for MySql, but ideally it should be necessary to do special checks for different providers.
-            // ALso note that to get the constraints for MySql we have to open a connection which we currently have not.
-            if (SqlSyntax is MySqlSyntaxProvider)
-                return;
-
             //Check constraints in configured database against constraints in schema
             var constraintsInDatabase = SqlSyntax.GetConstraintsPerColumn(_database).DistinctBy(x => x.Item3).ToList();
             var foreignKeysInDatabase = constraintsInDatabase.Where(x => x.Item3.InvariantStartsWith("FK_")).Select(x => x.Item3).ToList();
             var primaryKeysInDatabase = constraintsInDatabase.Where(x => x.Item3.InvariantStartsWith("PK_")).Select(x => x.Item3).ToList();
-            var indexesInDatabase = constraintsInDatabase.Where(x => x.Item3.InvariantStartsWith("IX_")).Select(x => x.Item3).ToList();
-            var indexesInSchema = result.TableDefinitions.SelectMany(x => x.Indexes.Select(y => y.Name)).ToList();
+
             var unknownConstraintsInDatabase =
                 constraintsInDatabase.Where(
                     x =>
@@ -183,12 +183,12 @@ namespace Umbraco.Core.Migrations.Install
             var primaryKeysInSchema = result.TableDefinitions.SelectMany(x => x.Columns.Select(y => y.PrimaryKeyName))
                 .Where(x => x.IsNullOrWhiteSpace() == false).ToList();
 
-            //Add valid and invalid foreign key differences to the result object
-            // We'll need to do invariant contains with case insensitivity because foreign key, primary key, and even index naming w/ MySQL is not standardized
+            // Add valid and invalid foreign key differences to the result object
+            // We'll need to do invariant contains with case insensitivity because foreign key, primary key is not standardized
             // In theory you could have: FK_ or fk_ ...or really any standard that your development department (or developer) chooses to use.
             foreach (var unknown in unknownConstraintsInDatabase)
             {
-                if (foreignKeysInSchema.InvariantContains(unknown) || primaryKeysInSchema.InvariantContains(unknown) || indexesInSchema.InvariantContains(unknown))
+                if (foreignKeysInSchema.InvariantContains(unknown) || primaryKeysInSchema.InvariantContains(unknown))
                 {
                     result.ValidConstraints.Add(unknown);
                 }
@@ -230,23 +230,6 @@ namespace Umbraco.Core.Migrations.Install
                 result.Errors.Add(new Tuple<string, string>("Constraint", primaryKey));
             }
 
-            //Constaints:
-
-            //NOTE: SD: The colIndex checks above should really take care of this but I need to keep this here because it was here before
-            // and some schema validation checks might rely on this data remaining here!
-            //Add valid and invalid index differences to the result object
-            var validIndexDifferences = indexesInDatabase.Intersect(indexesInSchema, StringComparer.InvariantCultureIgnoreCase);
-            foreach (var index in validIndexDifferences)
-            {
-                result.ValidConstraints.Add(index);
-            }
-            var invalidIndexDifferences =
-                indexesInDatabase.Except(indexesInSchema, StringComparer.InvariantCultureIgnoreCase)
-                                .Union(indexesInSchema.Except(indexesInDatabase, StringComparer.InvariantCultureIgnoreCase));
-            foreach (var index in invalidIndexDifferences)
-            {
-                result.Errors.Add(new Tuple<string, string>("Constraint", index));
-            }
         }
 
         private void ValidateDbColumns(DatabaseSchemaResult result)
@@ -296,7 +279,7 @@ namespace Umbraco.Core.Migrations.Install
         {
             //These are just column indexes NOT constraints or Keys
             //var colIndexesInDatabase = result.DbIndexDefinitions.Where(x => x.IndexName.InvariantStartsWith("IX_")).Select(x => x.IndexName).ToList();
-            var colIndexesInDatabase = result.DbIndexDefinitions.Select(x => x.IndexName).ToList();
+            var colIndexesInDatabase = result.IndexDefinitions.Select(x => x.IndexName).ToList();
             var indexesInSchema = result.TableDefinitions.SelectMany(x => x.Indexes.Select(y => y.Name)).ToList();
 
             //Add valid and invalid index differences to the result object
@@ -352,12 +335,62 @@ namespace Umbraco.Core.Migrations.Install
 
         #region Utilities
 
+        /// <summary>
+        /// Returns whether a table with the specified <paramref name="tableName"/> exists in the database.
+        /// </summary>
+        /// <param name="tableName">The name of the table.</param>
+        /// <returns><c>true</c> if the table exists; otherwise <c>false</c>.</returns>
+        /// <example>
+        /// <code>
+        /// if (schemaHelper.TableExist("MyTable"))
+        /// {
+        ///     // do something when the table exists
+        /// }
+        /// </code>
+        /// </example>
         public bool TableExists(string tableName)
         {
             return SqlSyntax.DoesTableExist(_database, tableName);
         }
 
-        // this is used in tests
+        /// <summary>
+        /// Returns whether the table for the specified <typeparamref name="T"/> exists in the database.
+        /// </summary>
+        /// <typeparam name="T">The type representing the DTO/table.</typeparam>
+        /// <returns><c>true</c> if the table exists; otherwise <c>false</c>.</returns>
+        /// <example>
+        /// <code>
+        /// if (schemaHelper.TableExist&lt;MyDto&gt;)
+        /// {
+        ///     // do something when the table exists
+        /// }
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// If <typeparamref name="T"/> has been decorated with an <see cref="TableNameAttribute"/>, the name from that
+        /// attribute will be used for the table name. If the attribute is not present, the name
+        /// <typeparamref name="T"/> will be used instead.
+        /// </remarks>
+        public bool TableExists<T>()
+        {
+            var table = DefinitionFactory.GetTableDefinition(typeof(T), SqlSyntax);
+            return table != null && TableExists(table.Name);
+        }
+
+        /// <summary>
+        /// Creates a new table in the database based on the type of <typeparamref name="T"/>.
+        /// </summary>
+        /// <typeparam name="T">The type representing the DTO/table.</typeparam>
+        /// <param name="overwrite">Whether the table should be overwritten if it already exists.</param>
+        /// <remarks>
+        /// If <typeparamref name="T"/> has been decorated with an <see cref="TableNameAttribute"/>, the name from that
+        /// attribute will be used for the table name. If the attribute is not present, the name
+        /// <typeparamref name="T"/> will be used instead.
+        ///
+        /// If a table with the same name already exists, the <paramref name="overwrite"/> parameter will determine
+        /// whether the table is overwritten. If <c>true</c>, the table will be overwritten, whereas this method will
+        /// not do anything if the parameter is <c>false</c>.
+        /// </remarks>
         internal void CreateTable<T>(bool overwrite = false)
             where T : new()
         {
@@ -365,8 +398,28 @@ namespace Umbraco.Core.Migrations.Install
             CreateTable(overwrite, tableType, new DatabaseDataCreator(_database, _logger));
         }
 
-        public void CreateTable(bool overwrite, Type modelType, DatabaseDataCreator dataCreation)
+        /// <summary>
+        /// Creates a new table in the database for the specified <paramref name="modelType"/>.
+        /// </summary>
+        /// <param name="overwrite">Whether the table should be overwritten if it already exists.</param>
+        /// <param name="modelType">The representing the table.</param>
+        /// <param name="dataCreation"></param>
+        /// <remarks>
+        /// If <paramref name="modelType"/> has been decorated with an <see cref="TableNameAttribute"/>, the name from
+        /// that  attribute will be used for the table name. If the attribute is not present, the name
+        /// <paramref name="modelType"/> will be used instead.
+        ///
+        /// If a table with the same name already exists, the <paramref name="overwrite"/> parameter will determine
+        /// whether the table is overwritten. If <c>true</c>, the table will be overwritten, whereas this method will
+        /// not do anything if the parameter is <c>false</c>.
+        ///
+        /// This need to execute as part of a transaction.
+        /// </remarks>
+        internal void CreateTable(bool overwrite, Type modelType, DatabaseDataCreator dataCreation)
         {
+            if (!_database.InTransaction)
+                throw new InvalidOperationException("Database is not in a transaction.");
+
             var tableDefinition = DefinitionFactory.GetTableDefinition(modelType, SqlSyntax);
             var tableName = tableDefinition.Name;
 
@@ -378,65 +431,80 @@ namespace Umbraco.Core.Migrations.Install
             var tableExist = TableExists(tableName);
             if (overwrite && tableExist)
             {
+                _logger.Info<DatabaseSchemaCreator>("Table {TableName} already exists, but will be recreated", tableName);
+
                 DropTable(tableName);
                 tableExist = false;
             }
 
-            if (tableExist == false)
+            if (tableExist)
             {
-                using (var transaction = _database.GetTransaction())
-                {
-                    //Execute the Create Table sql
-                    var created = _database.Execute(new Sql(createSql));
-                    _logger.Info<DatabaseSchemaCreator>($"Create Table '{tableName}' ({created}):\n {createSql}");
-
-                    //If any statements exists for the primary key execute them here
-                    if (string.IsNullOrEmpty(createPrimaryKeySql) == false)
-                    {
-                        var createdPk = _database.Execute(new Sql(createPrimaryKeySql));
-                        _logger.Info<DatabaseSchemaCreator>($"Create Primary Key ({createdPk}):\n {createPrimaryKeySql}");
-                    }
-
-                    //Turn on identity insert if db provider is not mysql
-                    if (SqlSyntax.SupportsIdentityInsert() && tableDefinition.Columns.Any(x => x.IsIdentity))
-                        _database.Execute(new Sql($"SET IDENTITY_INSERT {SqlSyntax.GetQuotedTableName(tableName)} ON "));
-
-                    //Call the NewTable-event to trigger the insert of base/default data
-                    //OnNewTable(tableName, _db, e, _logger);
-
-                    dataCreation.InitializeBaseData(tableName);
-
-                    //Turn off identity insert if db provider is not mysql
-                    if (SqlSyntax.SupportsIdentityInsert() && tableDefinition.Columns.Any(x => x.IsIdentity))
-                        _database.Execute(new Sql($"SET IDENTITY_INSERT {SqlSyntax.GetQuotedTableName(tableName)} OFF;"));
-
-                    //Special case for MySql
-                    if (SqlSyntax is MySqlSyntaxProvider && tableName.Equals("umbracoUser"))
-                    {
-                        _database.Update<UserDto>("SET id = @IdAfter WHERE id = @IdBefore AND userLogin = @Login", new { IdAfter = 0, IdBefore = 1, Login = "admin" });
-                    }
-
-                    //Loop through index statements and execute sql
-                    foreach (var sql in indexSql)
-                    {
-                        var createdIndex = _database.Execute(new Sql(sql));
-                        _logger.Info<DatabaseSchemaCreator>($"Create Index ({createdIndex}):\n {sql}");
-                    }
-
-                    //Loop through foreignkey statements and execute sql
-                    foreach (var sql in foreignSql)
-                    {
-                        var createdFk = _database.Execute(new Sql(sql));
-                        _logger.Info<DatabaseSchemaCreator>($"Create Foreign Key ({createdFk}):\n {sql}");
-                    }
-
-                    transaction.Complete();
-                }
+                // The table exists and was not recreated/overwritten.
+                _logger.Info<Database>("Table {TableName} already exists - no changes were made", tableName);
+                return;
             }
 
-            _logger.Info<DatabaseSchemaCreator>($"Created table '{tableName}'");
+            //Execute the Create Table sql
+            var created = _database.Execute(new Sql(createSql));
+                    _logger.Info<DatabaseSchemaCreator>("Create Table {TableName} ({Created}): \n {Sql}", tableName, created, createSql);
+
+            //If any statements exists for the primary key execute them here
+            if (string.IsNullOrEmpty(createPrimaryKeySql) == false)
+            {
+                var createdPk = _database.Execute(new Sql(createPrimaryKeySql));
+                _logger.Info<DatabaseSchemaCreator>("Create Primary Key ({CreatedPk}):\n {Sql}", createdPk, createPrimaryKeySql);
+            }
+
+            if (SqlSyntax.SupportsIdentityInsert() && tableDefinition.Columns.Any(x => x.IsIdentity))
+                _database.Execute(new Sql($"SET IDENTITY_INSERT {SqlSyntax.GetQuotedTableName(tableName)} ON "));
+
+            //Call the NewTable-event to trigger the insert of base/default data
+            //OnNewTable(tableName, _db, e, _logger);
+
+            dataCreation.InitializeBaseData(tableName);
+
+            if (SqlSyntax.SupportsIdentityInsert() && tableDefinition.Columns.Any(x => x.IsIdentity))
+                _database.Execute(new Sql($"SET IDENTITY_INSERT {SqlSyntax.GetQuotedTableName(tableName)} OFF;"));
+
+            //Loop through index statements and execute sql
+            foreach (var sql in indexSql)
+            {
+                var createdIndex = _database.Execute(new Sql(sql));
+                _logger.Info<DatabaseSchemaCreator>("Create Index ({CreatedIndex}):\n {Sql}", createdIndex, sql);
+            }
+
+            //Loop through foreignkey statements and execute sql
+            foreach (var sql in foreignSql)
+            {
+                var createdFk = _database.Execute(new Sql(sql));
+                _logger.Info<DatabaseSchemaCreator>("Create Foreign Key ({CreatedFk}):\n {Sql}", createdFk, sql);
+            }
+
+            if (overwrite)
+            {
+                        _logger.Info<Database>("Table {TableName} was recreated", tableName);
+            }
+            else
+            {
+                        _logger.Info<Database>("New table {TableName} was created", tableName);
+
+            }
         }
 
+        /// <summary>
+        /// Drops the table for the specified <typeparamref name="T"/>.
+        /// </summary>
+        /// <typeparam name="T">The type representing the DTO/table.</typeparam>
+        /// <example>
+        /// <code>
+        /// schemaHelper.DropTable&lt;MyDto&gt;);
+        /// </code>
+        /// </example>
+        /// <remarks>
+        /// If <typeparamref name="T"/> has been decorated with an <see cref="TableNameAttribute"/>, the name from that
+        /// attribute will be used for the table name. If the attribute is not present, the name
+        /// <typeparamref name="T"/> will be used instead.
+        /// </remarks>
         public void DropTable(string tableName)
         {
             var sql = new Sql(string.Format(SqlSyntax.DropTable, SqlSyntax.GetQuotedTableName(tableName)));

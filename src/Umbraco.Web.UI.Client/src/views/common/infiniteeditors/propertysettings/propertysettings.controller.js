@@ -17,33 +17,9 @@
         vm.showValidationPattern = false;
         vm.focusOnPatternField = false;
         vm.focusOnMandatoryField = false;
-        vm.selectedValidationType = {};
-        vm.validationTypes = [
-            {
-                "name": localizationService.localize("validation_validateAsEmail"),
-                "key": "email",
-                "pattern": "[a-zA-Z0-9_\.\+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-\.]+",
-                "enableEditing": true
-            },
-            {
-                "name": localizationService.localize("validation_validateAsNumber"),
-                "key": "number",
-                "pattern": "^[0-9]*$",
-                "enableEditing": true
-            },
-            {
-                "name": localizationService.localize("validation_validateAsUrl"),
-                "key": "url",
-                "pattern": "https?\:\/\/[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}",
-                "enableEditing": true
-            },
-            {
-                "name": localizationService.localize("validation_enterCustomValidation"),
-                "key": "custom",
-                "pattern": "",
-                "enableEditing": true
-            }
-        ];
+        vm.selectedValidationType = null;
+        vm.validationTypes = [];
+        vm.labels = {};
 
         vm.changeValidationType = changeValidationType;
         vm.changeValidationPattern = changeValidationPattern;
@@ -53,17 +29,75 @@
         vm.submit = submit;
         vm.close = close;
 
-        userService.getCurrentUser().then(function(user) {
-            vm.showSensitiveData = user.userGroups.indexOf("sensitiveData") != -1;
-        });
+        vm.toggleAllowCultureVariants = toggleAllowCultureVariants;
+        vm.toggleValidation = toggleValidation;
+        vm.toggleShowOnMemberProfile = toggleShowOnMemberProfile;
+        vm.toggleMemberCanEdit = toggleMemberCanEdit;
+        vm.toggleIsSensitiveData = toggleIsSensitiveData;
 
-        function activate() {
-            //make the default the same as the content type
-            if (!$scope.model.property.id) {
+        function onInit() {
+
+            userService.getCurrentUser().then(function(user) {
+                vm.showSensitiveData = user.userGroups.indexOf("sensitiveData") != -1;
+            });
+
+            //make the default the same as the content type            
+            if (!$scope.model.property.dataTypeId) {
                 $scope.model.property.allowCultureVariant = $scope.model.contentTypeAllowCultureVariant;
             }
             
-            matchValidationType();
+            loadValidationTypes();
+            
+        }
+
+        function loadValidationTypes() {
+
+            var labels = [
+                "validation_validateAsEmail", 
+                "validation_validateAsNumber", 
+                "validation_validateAsUrl", 
+                "validation_enterCustomValidation"
+            ];
+
+            localizationService.localizeMany(labels)
+                .then(function(data){
+
+                    vm.labels.validateAsEmail = data[0];
+                    vm.labels.validateAsNumber = data[1];
+                    vm.labels.validateAsUrl = data[2];
+                    vm.labels.customValidation = data[3];
+
+                    vm.validationTypes = [
+                        {
+                            "name": vm.labels.validateAsEmail,
+                            "key": "email",
+                            "pattern": "[a-zA-Z0-9_\.\+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-\.]+",
+                            "enableEditing": true
+                        },
+                        {
+                            "name": vm.labels.validateAsNumber,
+                            "key": "number",
+                            "pattern": "^[0-9]*$",
+                            "enableEditing": true
+                        },
+                        {
+                            "name": vm.labels.validateAsUrl,
+                            "key": "url",
+                            "pattern": "https?\:\/\/[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}",
+                            "enableEditing": true
+                        },
+                        {
+                            "name": vm.labels.customValidation,
+                            "key": "custom",
+                            "pattern": "",
+                            "enableEditing": true
+                        }
+                    ];
+
+                    matchValidationType();
+
+                });
+
         }
 
         function changeValidationPattern() {
@@ -109,7 +143,6 @@
             vm.focusOnMandatoryField = false;
 
             var dataTypeSettings = {
-                title: "Data type settings",
                 view: "views/common/infiniteeditors/datatypesettings/datatypesettings.html",
                 id: property.dataTypeId,
                 submit: function(model) {
@@ -205,7 +238,31 @@
 
         }
 
-        activate();
+        function toggleValue(settingValue) {
+            return !settingValue;
+        }
+
+        function toggleAllowCultureVariants() {            
+            $scope.model.property.allowCultureVariant = toggleValue($scope.model.property.allowCultureVariant);
+        }
+
+        function toggleValidation() {
+            $scope.model.property.validation.mandatory = toggleValue($scope.model.property.validation.mandatory);            
+        }
+
+        function toggleShowOnMemberProfile() {
+            $scope.model.property.showOnMemberProfile = toggleValue($scope.model.property.showOnMemberProfile);           
+        }
+
+        function toggleMemberCanEdit() {
+            $scope.model.property.memberCanEdit = toggleValue($scope.model.property.memberCanEdit);            
+        }
+
+        function toggleIsSensitiveData() {
+            $scope.model.property.isSensitiveData = toggleValue($scope.model.property.isSensitiveData);             
+        }
+
+        onInit();
 
     }
 

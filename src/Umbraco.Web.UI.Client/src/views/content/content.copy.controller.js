@@ -1,7 +1,6 @@
 angular.module("umbraco").controller("Umbraco.Editors.Content.CopyController",
     function ($scope, userService, eventsService, contentResource, navigationService, appState, treeService, localizationService, notificationsService) {
 
-	    var dialogOptions = $scope.dialogOptions;
 	    var searchText = "Search...";
 	    localizationService.localize("general_search").then(function (value) {
 	        searchText = value + "...";
@@ -20,12 +19,19 @@ angular.module("umbraco").controller("Umbraco.Editors.Content.CopyController",
 	    }
 	    $scope.treeModel = {
 	        hideHeader: false
-	    }
+        }
+        $scope.toggle = toggleHandler;
 	    userService.getCurrentUser().then(function (userData) {
-            $scope.treeModel.hideHeader = userData.startContentIds.length > 0 && userData.startContentIds.indexOf(-1) == -1;	     
+            $scope.treeModel.hideHeader = userData.startContentIds.length > 0 && userData.startContentIds.indexOf(-1) == -1;
 	    });
 
-	    var node = dialogOptions.currentNode;
+	    $scope.source = _.clone($scope.currentNode);
+
+        function treeLoadedHandler(args) {
+            if ($scope.source && $scope.source.path) {
+                $scope.dialogTreeApi.syncTree({ path: $scope.source.path, activate: false });
+            }
+        }
 
 	    function nodeSelectHandler(args) {
 
@@ -51,7 +57,31 @@ angular.module("umbraco").controller("Umbraco.Editors.Content.CopyController",
           	if (args.node.metaData.isContainer) {
 				openMiniListView(args.node);
 			}
-	    }
+        }
+
+        function toggleHandler(type){
+            // If the relateToOriginal toggle is clicked
+            if(type === "relate"){
+                if($scope.relateToOriginal){
+                    $scope.relateToOriginal = false;
+                    return;
+                }
+                $scope.relateToOriginal = true;
+            }
+
+            // If the recurvise toggle is clicked
+            if(type === "recursive"){
+                if($scope.recursive){
+                    $scope.recursive = false;
+                    return;
+                }
+                $scope.recursive = true;
+            }
+		}
+		
+		$scope.closeDialog = function() {
+			navigationService.hideDialog();
+		};
 
 	    $scope.hideSearch = function () {
 	        $scope.searchInfo.showSearch = false;
@@ -63,7 +93,7 @@ angular.module("umbraco").controller("Umbraco.Editors.Content.CopyController",
 	    // method to select a search result
 	    $scope.selectResult = function (evt, result) {
 	        result.selected = result.selected === true ? false : true;
-	        nodeSelectHandler(evt, { event: evt, node: result });
+	        nodeSelectHandler({ event: evt, node: result });
 	    };
 
 	    //callback when there are search results
@@ -77,7 +107,7 @@ angular.module("umbraco").controller("Umbraco.Editors.Content.CopyController",
 	        $scope.busy = true;
 	        $scope.error = false;
 
-	        contentResource.copy({ parentId: $scope.target.id, id: node.id, relateToOriginal: $scope.relateToOriginal, recursive: $scope.recursive })
+	        contentResource.copy({ parentId: $scope.target.id, id: $scope.source.id, relateToOriginal: $scope.relateToOriginal, recursive: $scope.recursive })
                 .then(function (path) {
                     $scope.error = false;
                     $scope.success = true;
@@ -100,17 +130,12 @@ angular.module("umbraco").controller("Umbraco.Editors.Content.CopyController",
                 }, function (err) {
                     $scope.success = false;
                     $scope.error = err;
-                    $scope.busy = false;
-                    //show any notifications
-                    if (angular.isArray(err.data.notifications)) {
-                        for (var i = 0; i < err.data.notifications.length; i++) {
-                            notificationsService.showNotification(err.data.notifications[i]);
-                        }
-                    }
+                    $scope.busy = false;                   
                 });
 	    };
 
         $scope.onTreeInit = function () {
+            $scope.dialogTreeApi.callbacks.treeLoaded(treeLoadedHandler);
             $scope.dialogTreeApi.callbacks.treeNodeSelect(nodeSelectHandler);
             $scope.dialogTreeApi.callbacks.treeNodeExpanded(nodeExpandedHandler);
         }

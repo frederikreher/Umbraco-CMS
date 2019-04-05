@@ -1,29 +1,34 @@
-using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http.Formatting;
 using AutoMapper;
 using Umbraco.Core;
-using Umbraco.Core.Services;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.Entities;
+using Umbraco.Web.Actions;
 using Umbraco.Web.Models.ContentEditing;
 using Umbraco.Web.Models.Trees;
 using Umbraco.Web.Mvc;
-using Umbraco.Web.Search;
 using Umbraco.Web.WebApi.Filters;
-using Umbraco.Web._Legacy.Actions;
 using Constants = Umbraco.Core.Constants;
 
 namespace Umbraco.Web.Trees
 {
     [UmbracoTreeAuthorize(Constants.Trees.Templates)]
-    [Tree(Constants.Applications.Settings, Constants.Trees.Templates, null, sortOrder:1)]
+    [Tree(Constants.Applications.Settings, Constants.Trees.Templates, SortOrder = 6, TreeGroup = Constants.Trees.Groups.Templating)]
     [PluginController("UmbracoTrees")]
     [CoreTree]
     public class TemplatesTreeController : TreeController, ISearchableTree
     {
+        protected override TreeNode CreateRootNode(FormDataCollection queryStrings)
+        {
+            var root = base.CreateRootNode(queryStrings);
+            //check if there are any templates
+            root.HasChildren = Services.FileService.GetTemplates(-1).Any();
+            return root;
+        }
+
         /// <summary>
         /// The method called to render the contents of the tree structure
         /// </summary>
@@ -39,19 +44,19 @@ namespace Umbraco.Web.Trees
         {
             var nodes = new TreeNodeCollection();
 
-            var found = id == Constants.System.Root.ToInvariantString()
+            var found = id == Constants.System.RootString
                 ? Services.FileService.GetTemplates(-1)
                 : Services.FileService.GetTemplates(int.Parse(id));
 
             nodes.AddRange(found.Select(template => CreateTreeNode(
                 template.Id.ToString(CultureInfo.InvariantCulture),
-                //TODO: Fix parent ID stuff for templates
+                // TODO: Fix parent ID stuff for templates
                 "-1",
                 queryStrings,
                 template.Name,
                 template.IsMasterTemplate ? "icon-newspaper" : "icon-newspaper-alt",
                 template.IsMasterTemplate,
-                GetEditorPath(template, queryStrings),
+                null,
                 Udi.Create(ObjectTypes.GetUdiType(Constants.ObjectTypes.TemplateType), template.Key)
             )));
 
@@ -69,13 +74,13 @@ namespace Umbraco.Web.Trees
             var menu = new MenuItemCollection();
 
             //Create the normal create action
-            var item = menu.Items.Add<ActionNew>(Services.TextService.Localize("actions", ActionNew.Instance.Alias));
-            item.NavigateToRoute(string.Format("{0}/templates/edit/{1}?create=true", queryStrings.GetValue<string>("application"), id));
+            var item = menu.Items.Add<ActionNew>(Services.TextService, opensDialog: true);
+            item.NavigateToRoute($"{queryStrings.GetRequiredValue<string>("application")}/templates/edit/{id}?create=true");
 
-            if (id == Constants.System.Root.ToInvariantString())
+            if (id == Constants.System.RootString)
             {
                 //refresh action
-                menu.Items.Add<RefreshNode, ActionRefresh>(Services.TextService.Localize("actions", ActionRefresh.Instance.Alias), true);
+                menu.Items.Add(new RefreshNode(Services.TextService, true));
 
                 return menu;
             }
@@ -88,11 +93,11 @@ namespace Umbraco.Web.Trees
             if (template.IsMasterTemplate == false)
             {
                 //add delete option if it doesn't have children
-                menu.Items.Add<ActionDelete>(Services.TextService.Localize("actions", ActionDelete.Instance.Alias), true);
+                menu.Items.Add<ActionDelete>(Services.TextService, true, opensDialog: true);
             }
 
             //add refresh
-            menu.Items.Add<RefreshNode, ActionRefresh>(Services.TextService.Localize("actions", ActionRefresh.Instance.Alias), true);
+            menu.Items.Add(new RefreshNode(Services.TextService, true));
 
 
             return menu;
@@ -107,27 +112,18 @@ namespace Umbraco.Web.Trees
                 Key = template.Key,
                 Name = template.Name,
                 NodeObjectType = Constants.ObjectTypes.Template,
-                //TODO: Fix parent/paths on templates
+                // TODO: Fix parent/paths on templates
                 ParentId = -1,
                 Path = template.Path,
                 UpdateDate = template.UpdateDate
             };
         }
 
-        private string GetEditorPath(ITemplate template, FormDataCollection queryStrings)
+        public IEnumerable<SearchResultEntity> Search(string query, int pageSize, long pageIndex, out long totalFound, string searchFrom = null)
         {
-            //TODO: Rebuild the language editor in angular, then we dont need to have this at all (which is just a path to the legacy editor)
-
-            return Services.FileService.DetermineTemplateRenderingEngine(template) == RenderingEngine.WebForms
-                ? "/" + queryStrings.GetValue<string>("application") + "/framed/" +
-                  Uri.EscapeDataString("settings/editTemplate.aspx?templateID=" + template.Id)
-                : null;
-        }
-
-        public IEnumerable<SearchResultItem> Search(string query, int pageSize, long pageIndex, out long totalFound, string searchFrom = null)
-        {
-            var results = Services.EntityService.GetPagedDescendants(UmbracoObjectTypes.Template, pageIndex, pageSize, out totalFound, filter: query);
-            return Mapper.Map<IEnumerable<SearchResultItem>>(results);
+            var results = Services.EntityService.GetPagedDescendants(UmbracoObjectTypes.Template, pageIndex, pageSize, out totalFound,
+                filter: SqlContext.Query<IUmbracoEntity>().Where(x => x.Name.Contains(query)));
+            return Mapper.Map<IEnumerable<SearchResultEntity>>(results);
         }
     }
 }

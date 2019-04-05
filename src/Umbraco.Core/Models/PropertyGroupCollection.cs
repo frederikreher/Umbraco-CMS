@@ -8,15 +8,18 @@ using System.Threading;
 
 namespace Umbraco.Core.Models
 {
+
     /// <summary>
     /// Represents a collection of <see cref="PropertyGroup"/> objects
     /// </summary>
     [Serializable]
     [DataContract]
+    // TODO: Change this to ObservableDictionary so we can reduce the INotifyCollectionChanged implementation details
     public class PropertyGroupCollection : KeyedCollection<string, PropertyGroup>, INotifyCollectionChanged, IDeepCloneable
     {
         private readonly ReaderWriterLockSlim _addLocker = new ReaderWriterLockSlim();
 
+        // TODO: this doesn't seem to be used anywhere
         internal Action OnAdd;
 
         internal PropertyGroupCollection()
@@ -71,7 +74,7 @@ namespace Umbraco.Core.Models
             {
                 _addLocker.EnterWriteLock();
 
-                //Note this is done to ensure existig groups can be renamed
+                //Note this is done to ensure existing groups can be renamed
                 if (item.HasIdentity && item.Id > 0)
                 {
                     var exists = Contains(item.Id);
@@ -168,7 +171,7 @@ namespace Umbraco.Core.Models
             var clone = new PropertyGroupCollection();
             foreach (var group in this)
             {
-                clone.Add((PropertyGroup) group.DeepClone());
+                clone.Add((PropertyGroup)group.DeepClone());
             }
             return clone;
         }

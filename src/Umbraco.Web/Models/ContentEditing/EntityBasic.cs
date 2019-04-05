@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Runtime.Serialization;
+using System.Web.Http.ModelBinding;
 using Newtonsoft.Json;
 using Umbraco.Core;
 using Umbraco.Core.Models.Validation;
 using Umbraco.Core.Serialization;
+using Umbraco.Web.WebApi;
 
 namespace Umbraco.Web.Models.ContentEditing
 {
@@ -52,7 +54,7 @@ namespace Umbraco.Web.Models.ContentEditing
         /// This will only be populated for some entities like macros
         /// </summary>
         /// <remarks>
-        /// This is overrideable to specify different validation attributes if required
+        /// It is possible to override this to specify different validation attributes if required
         /// </remarks>
         [DataMember(Name = "alias")]
         public virtual string Alias { get; set; }

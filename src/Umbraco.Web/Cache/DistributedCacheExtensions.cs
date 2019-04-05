@@ -1,5 +1,4 @@
-﻿using System;
-using System.Linq;
+﻿using System.Linq;
 using Umbraco.Core.Models;
 using Umbraco.Core.Services.Changes;
 
@@ -15,24 +14,6 @@ namespace Umbraco.Web.Cache
         public static void RefreshPublicAccess(this DistributedCache dc)
         {
             dc.RefreshAll(PublicAccessCacheRefresher.UniqueId);
-        }
-
-        #endregion
-
-        #region ApplicationTreeCache
-
-        public static void RefreshAllApplicationTreeCache(this DistributedCache dc)
-        {
-            dc.RefreshAll(ApplicationTreeCacheRefresher.UniqueId);
-        }
-
-        #endregion
-
-        #region ApplicationCache
-
-        public static void RefreshAllApplicationCache(this DistributedCache dc)
-        {
-            dc.RefreshAll(ApplicationCacheRefresher.UniqueId);
         }
 
         #endregion
@@ -71,26 +52,6 @@ namespace Umbraco.Web.Cache
         public static void RefreshAllUserGroupCache(this DistributedCache dc)
         {
             dc.RefreshAll(UserGroupCacheRefresher.UniqueId);
-        }
-
-        #endregion
-
-        #region User group permissions cache
-
-        public static void RemoveUserGroupPermissionsCache(this DistributedCache dc, int groupId)
-        {
-            dc.Remove(UserGroupPermissionsCacheRefresher.UniqueId, groupId);
-        }
-
-        public static void RefreshUserGroupPermissionsCache(this DistributedCache dc, int groupId)
-        {
-            //TODO: Not sure if we need this yet depends if we start caching permissions
-            //dc.Refresh(UserGroupPermissionsCacheRefresher.UniqueId, groupId);
-        }
-
-        public static void RefreshAllUserGroupPermissionsCache(this DistributedCache dc)
-        {
-            dc.RefreshAll(UserGroupPermissionsCacheRefresher.UniqueId);
         }
 
         #endregion
@@ -175,17 +136,6 @@ namespace Umbraco.Web.Cache
             dc.Remove(MemberCacheRefresher.UniqueId, x => x.Id, members);
         }
 
-        [Obsolete("Use the RefreshMemberCache with strongly typed IMember objects instead")]
-        public static void RefreshMemberCache(this DistributedCache dc, int memberId)
-        {
-            dc.Refresh(MemberCacheRefresher.UniqueId, memberId);
-        }
-
-        [Obsolete("Use the RemoveMemberCache with strongly typed IMember objects instead")]
-        public static void RemoveMemberCache(this DistributedCache dc, int memberId)
-        {
-            dc.Remove(MemberCacheRefresher.UniqueId, memberId);
-        }
 
         #endregion
 

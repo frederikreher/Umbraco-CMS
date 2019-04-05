@@ -1,13 +1,10 @@
 ﻿using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Security.Claims;
 using System.Security.Principal;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace Umbraco.Core.Security
 {
@@ -63,5 +60,6 @@ namespace Umbraco.Core.Security
         /// Used so that we aren't creating a new CultureInfo object for every single request
         /// </summary>
         private static readonly ConcurrentDictionary<string, CultureInfo> UserCultures = new ConcurrentDictionary<string, CultureInfo>();
+
     }
 }

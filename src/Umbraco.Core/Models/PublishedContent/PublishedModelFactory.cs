@@ -68,10 +68,10 @@ namespace Umbraco.Core.Models.PublishedContent
                 var typeName = attribute == null ? type.Name : attribute.ContentTypeAlias;
 
                 if (modelInfos.TryGetValue(typeName, out var modelInfo))
-                    throw new InvalidOperationException($"Both types {type.FullName} and {modelInfo.ModelType.FullName} want to be a model type for content type with alias \"{typeName}\".");
+                    throw new InvalidOperationException($"Both types '{type.AssemblyQualifiedName}' and '{modelInfo.ModelType.AssemblyQualifiedName}' want to be a model type for content type with alias \"{typeName}\".");
 
                 // have to use an unsafe ctor because we don't know the types, really
-                var modelCtor = ReflectionUtilities.EmitCtorUnsafe<Func<object, object>>(constructor);
+                var modelCtor = ReflectionUtilities.EmitConstructorUnsafe<Func<object, object>>(constructor);
                 modelInfos[typeName] = new ModelInfo { ParameterType = parameterType, ModelType = type, Ctor = modelCtor };
                 modelTypeMap[typeName] = type;
             }
@@ -112,7 +112,7 @@ namespace Umbraco.Core.Models.PublishedContent
             if (ctor != null) return ctor();
 
             var listType = typeof(List<>).MakeGenericType(modelInfo.ModelType);
-            ctor = modelInfo.ListCtor = ReflectionUtilities.EmitCtor<Func<IList>>(declaring: listType);
+            ctor = modelInfo.ListCtor = ReflectionUtilities.EmitConstructor<Func<IList>>(declaring: listType);
             return ctor();
         }
 

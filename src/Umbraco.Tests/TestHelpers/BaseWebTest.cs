@@ -1,10 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using LightInject;
 using Moq;
 using NUnit.Framework;
+using Umbraco.Core;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
@@ -13,6 +13,8 @@ using Umbraco.Core.PropertyEditors;
 using Umbraco.Core.Services;
 using Umbraco.Tests.PublishedContent;
 using Umbraco.Tests.TestHelpers.Stubs;
+using Umbraco.Tests.Testing.Objects.Accessors;
+using Umbraco.Web.Models.PublishedContent;
 using Umbraco.Web.Routing;
 
 namespace Umbraco.Tests.TestHelpers
@@ -21,6 +23,14 @@ namespace Umbraco.Tests.TestHelpers
     [Apartment(ApartmentState.STA)]
     public abstract class BaseWebTest : TestWithDatabaseBase
     {
+        protected override void Compose()
+        {
+            base.Compose();
+
+            Composition.RegisterUnique<IPublishedValueFallback, PublishedValueFallback>();
+            Composition.RegisterUnique<IProfilingLogger, ProfilingLogger>();
+        }
+
         protected override void Initialize()
         {
             base.Initialize();
@@ -33,8 +43,10 @@ namespace Umbraco.Tests.TestHelpers
 
             var factory = new PublishedContentTypeFactory(Mock.Of<IPublishedModelFactory>(), new PropertyValueConverterCollection(Array.Empty<IPropertyValueConverter>()), dataTypeService);
             var type = new AutoPublishedContentType(0, "anything", new PublishedPropertyType[] { });
-            ContentTypesCache.GetPublishedContentTypeByAlias = alias => type;
+            ContentTypesCache.GetPublishedContentTypeByAlias = alias => GetPublishedContentTypeByAlias(alias) ?? type;
         }
+
+        protected virtual PublishedContentType GetPublishedContentTypeByAlias(string alias) => null;
 
         protected override string GetXmlContent(int templateId)
         {
@@ -73,18 +85,19 @@ namespace Umbraco.Tests.TestHelpers
 </root>";
         }
 
-        internal PublishedRouter CreatePublishedRouter(IServiceContainer container = null, ContentFinderCollection contentFinders = null)
+        internal PublishedRouter CreatePublishedRouter(IFactory container = null, ContentFinderCollection contentFinders = null)
         {
             return CreatePublishedRouter(TestObjects.GetUmbracoSettings().WebRouting, container, contentFinders);
         }
 
-        internal static PublishedRouter CreatePublishedRouter(IWebRoutingSection webRoutingSection, IServiceContainer container = null, ContentFinderCollection contentFinders = null)
+        internal static PublishedRouter CreatePublishedRouter(IWebRoutingSection webRoutingSection, IFactory container = null, ContentFinderCollection contentFinders = null)
         {
             return new PublishedRouter(
                 webRoutingSection,
                 contentFinders ?? new ContentFinderCollection(Enumerable.Empty<IContentFinder>()),
                 new TestLastChanceFinder(),
-                container?.TryGetInstance<ServiceContext>() ?? new ServiceContext(),
+                new TestVariationContextAccessor(),
+                container?.TryGetInstance<ServiceContext>() ?? ServiceContext.CreatePartial(),
                 new ProfilingLogger(Mock.Of<ILogger>(), Mock.Of<IProfiler>()));
         }
     }

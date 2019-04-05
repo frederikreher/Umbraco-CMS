@@ -1,6 +1,9 @@
-<form name="IconPickerForm" novalidate val-form-manager>
+<form name="IconPickerForm"
+    ng-controller="Umbraco.Editors.IconPickerController as vm"
+    novalidate
+    val-form-manager>
 
-<umb-editor-view ng-controller="Umbraco.Editors.IconPickerController as vm">
+<umb-editor-view>
 
     <umb-editor-header
         name="model.title"
@@ -27,43 +30,29 @@
                                 no-dirty-check />
                     </div>
                 </div>
-                
+
                 <div class="umb-control-group">
-                    <select ng-model="color" class="input-block-level">
-                        <option value=""><localize key="colors_black">Black</localize></option>
-                        <option value="color-blue-grey"><localize key="colors_bluegrey">Blue Grey</localize></option>
-                        <option value="color-grey"><localize key="colors_grey">Grey</localize></option>
-                        <option value="color-brown"><localize key="colors_brown">Brown</localize></option>
-                        <option value="color-blue"><localize key="colors_blue">Blue</localize></option>
-                        <option value="color-light-blue"><localize key="colors_lightblue">Light Blue</localize></option>
-                        <option value="color-cyan"><localize key="colors_cyan">Cyan</localize></option>
-                        <option value="color-green"><localize key="colors_green">Green</localize></option>
-                        <option value="color-light-green"><localize key="colors_lightgreen">Light Green</localize></option>
-                        <option value="color-yellow"><localize key="colors_yellow">Yellow</localize></option>
-                        <option value="color-lime"><localize key="colors_lime">Lime</localize></option>
-                        <option value="color-amber"><localize key="colors_amber">Amber</localize></option>
-                        <option value="color-orange"><localize key="colors_orange">Orange</localize></option>
-                        <option value="color-deep-orange"><localize key="colors_deeporange">Deep Orange</localize></option>
-                        <option value="color-red"><localize key="colors_red">Red</localize></option>
-                        <option value="color-pink"><localize key="colors_pink">Pink</localize></option>
-                        <option value="color-purple"><localize key="colors_purple">Purple</localize></option>
-                        <option value="color-deep-purple"><localize key="colors_deeppurple">Deep Purple</localize></option>
-                        <option value="color-indigo"><localize key="colors_indigo">Indigo</localize></option>
-                    </select>
+                    <umb-color-swatches
+                        use-color-class="true"
+                        colors="vm.colors"
+                        selected-color="vm.color"
+                        size="s"
+                        on-select="vm.selectColor(color)">
+                    </umb-color-swatches>
                 </div>
-                
+
                 <umb-load-indicator ng-if="vm.loading"></umb-load-indicator>
-            
+
                 <div class="umb-control-group" ng-show="!vm.loading && filtered.length > 0 ">
-                    <ul class="umb-iconpicker" ng-class="color" ng-show="vm.icons">
-                        <li class="umb-iconpicker-item" ng-repeat="icon in filtered = (vm.icons | filter: searchTerm) track by $id(icon)">
-                            <a href="#" title="{{icon}}" ng-click="vm.selectIcon(icon, color)" prevent-default>
+                    <ul class="umb-iconpicker" ng-class="vm.color.value" ng-show="vm.icons">
+                        <li class="umb-iconpicker-item" ng-class="{'-selected': icon == model.icon}" ng-repeat="icon in filtered = (vm.icons | filter: searchTerm) track by $id(icon)">
+                            <a href="#" title="{{icon}}" ng-click="vm.selectIcon(icon, vm.color.value)" prevent-default>
                                 <i class="{{icon}} large"></i>
                             </a>
                         </li>
                     </ul>
                 </div>
-                
+
                 <umb-empty-state
                     ng-if="filtered.length === 0"
                     position="center">
@@ -80,7 +69,15 @@
                 type="button"
                 button-style="link"
                 label-key="general_close"
+                shortcut="esc"
                 action="vm.close()">
+            </umb-button>
+            <umb-button
+                type="button"
+                button-style="success"
+                label-key="general_submit"
+                state="vm.saveButtonState"
+                action="vm.submit(model)">
             </umb-button>
         </umb-editor-footer-content-right>
     </umb-editor-footer>

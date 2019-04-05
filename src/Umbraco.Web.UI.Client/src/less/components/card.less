@@ -70,7 +70,7 @@
      margin: 0;
  }
 
-.umb-card-list li{
+.umb-card-list li {
     border-bottom: @gray-10 1px solid;
     padding-bottom: 3px;
     display: block;
@@ -96,17 +96,18 @@
 	font-size: 12px;
 	text-align: center;
 	width: 100px;
-	height: 105px;
 	box-sizing: border-box;
 	position: relative;
 }
 
 .umb-card-grid li.-four-in-row {
-	flex: 0 0 25%;
+    flex: 0 0 25%;
+    max-width: 25%;
 }
 
 .umb-card-grid li.-three-in-row {
 	flex: 0 0 33.33%;
+    max-width:33.33%;
 }
 
 .umb-card-grid .umb-card-grid-item {
@@ -114,21 +115,33 @@
 	width: 100%;
 	height: 100%;
 	border-radius: 3px;
+<<<<<<< HEAD
 	position: relative;
+=======
+    padding-bottom: 5px;
+>>>>>>> v8/dev
 }
 
 
  .umb-card-grid .umb-card-grid-item:hover,
+<<<<<<< HEAD
  .umb-card-grid .umb-card-grid-item:focus  {
 	background: @gray-10;
 	//color: white;
+=======
+ .umb-card-grid .umb-card-grid-item:focus,
+ .umb-card-grid .umb-card-grid-item:hover > *,
+ .umb-card-grid .umb-card-grid-item:focus > *  {
+	background: @ui-option-hover;
+	color: @ui-option-type-hover;
+>>>>>>> v8/dev
 	cursor: pointer;
 	outline: none;
 	border-radius: 3px;
 }
 
 .umb-card-grid a {
-     color: @gray-2;
+     color: @ui-option-type;
      text-decoration: none;
  }
 
@@ -136,7 +149,7 @@
      font-size: 30px;
      line-height: 50px;
      display: block;
-	  color: @gray-3;
+	  color: @ui-option-type;
  }
 
  .umb-card-grid .umb-card-grid__checkmark {
@@ -172,9 +185,9 @@
 }
 
 .umb-btn-round:hover, .umb-btn-round:hover *{
-  background: @turquoise !important;
+  background: @blueDark !important;
   color: @white !important;
-  border-color: @turquoise !important;
+  border-color: @blueDark !important;
   text-decoration:none;
  }
 

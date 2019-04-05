@@ -17,7 +17,7 @@ namespace Umbraco.Core.Strings
         /// Converts an Utf8 string into an Ascii string.
         /// </summary>
         /// <param name="text">The text to convert.</param>
-        /// <param name="fail">The character to used to replace characters that cannot properly be converted.</param>
+        /// <param name="fail">The character to use to replace characters that cannot properly be converted.</param>
         /// <returns>The converted text.</returns>
         public static string ToAsciiString(string text, char fail = '?')
         {
@@ -39,7 +39,7 @@ namespace Umbraco.Core.Strings
         /// Converts an Utf8 string into an array of Ascii characters.
         /// </summary>
         /// <param name="text">The text to convert.</param>
-        /// <param name="fail">The character to used to replace characters that cannot properly be converted.</param>
+        /// <param name="fail">The character to use to replace characters that cannot properly be converted.</param>
         /// <returns>The converted text.</returns>
         public static char[] ToAsciiCharArray(string text, char fail = '?')
         {
@@ -66,7 +66,7 @@ namespace Umbraco.Core.Strings
         /// </summary>
         /// <param name="input">The input array.</param>
         /// <param name="output">The output array.</param>
-        /// <param name="fail">The character to used to replace characters that cannot properly be converted.</param>
+        /// <param name="fail">The character to use to replace characters that cannot properly be converted.</param>
         /// <returns>The number of characters in the output array.</returns>
         /// <remarks>The caller must ensure that the output array is big enough.</remarks>
         /// <exception cref="OverflowException">The output array is not big enough.</exception>
@@ -112,7 +112,7 @@ namespace Umbraco.Core.Strings
         /// <param name="ipos">The input position.</param>
         /// <param name="output">The output array.</param>
         /// <param name="opos">The output position.</param>
-        /// <param name="fail">The character to used to replace characters that cannot properly be converted.</param>
+        /// <param name="fail">The character to use to replace characters that cannot properly be converted.</param>
         /// <remarks>
         /// <para>Adapted from various sources on the 'net including <c>Lucene.Net.Analysis.ASCIIFoldingFilter</c>.</para>
         /// <para>Input should contain Utf8 characters exclusively and NOT Unicode.</para>
@@ -3322,7 +3322,7 @@ namespace Umbraco.Core.Strings
 
                     // BEGIN CUSTOM TRANSLITERATION OF CYRILIC CHARS
 
-                    #region Cyrilic chars
+                    #region Cyrillic chars
 
                     // russian uppercase "А Б В Г Д Е Ё Ж З И Й К Л М Н О П Р С Т У Ф Х Ц Ч Ш Щ Ъ Ы Ь Э Ю Я"
                     // russian lowercase "а б в г д е ё ж з и й к л м н о п р с т у ф х ц ч ш щ ъ ы ь э ю я"
@@ -3337,10 +3337,9 @@ namespace Umbraco.Core.Strings
                     // time for a T4 template?
                     // also we should support extensibility so ppl can register more cases in external code
 
-                    // fixme
-                    // transliterates Анастасия as Anastasiya, and not Anastasia
+                    // TODO: transliterates Анастасия as Anastasiya, and not Anastasia
                     // Ольга --> Ol'ga, Татьяна --> Tat'yana -- that's bad (?)
-                    // Note: should ä (german umlaut) become a or ae ?
+                    // Note: should ä (German umlaut) become a or ae ?
 
                     case '\u0410': // А
                         output[opos++] = 'A';

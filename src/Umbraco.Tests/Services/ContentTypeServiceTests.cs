@@ -1,10 +1,8 @@
-﻿using System.Runtime.Remoting;
-using NUnit.Framework;
+﻿using NUnit.Framework;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using NPoco;
 using Umbraco.Core;
 using Umbraco.Core.Events;
 using Umbraco.Core.Exceptions;
@@ -12,55 +10,402 @@ using Umbraco.Core.Models;
 using Umbraco.Core.Persistence.Dtos;
 using Umbraco.Core.Services;
 using Umbraco.Core.Services.Implement;
-using Umbraco.Tests.TestHelpers;
+using Umbraco.Tests.LegacyXmlPublishedCache;
 using Umbraco.Tests.TestHelpers.Entities;
 using Umbraco.Tests.Testing;
+using Umbraco.Tests.Scoping;
 
 namespace Umbraco.Tests.Services
 {
     [TestFixture]
+    [Category("Slow")]
     [Apartment(ApartmentState.STA)]
     [UmbracoTest(Database = UmbracoTestOptions.Database.NewSchemaPerTest, PublishedRepositoryEvents = true)]
     public class ContentTypeServiceTests : TestWithSomeContentBase
     {
         [Test]
-        public void Deleting_Media_Type_With_Hierarchy_Of_Media_Items_Moves_Orphaned_Media_To_Recycle_Bin()
+        public void CanSaveAndGetIsElement()
         {
-            IMediaType contentType1 = MockedContentTypes.CreateSimpleMediaType("test1", "Test1");
-            ServiceContext.MediaTypeService.Save(contentType1);
-            IMediaType contentType2 = MockedContentTypes.CreateSimpleMediaType("test2", "Test2");
-            ServiceContext.MediaTypeService.Save(contentType2);
-            IMediaType contentType3 = MockedContentTypes.CreateSimpleMediaType("test3", "Test3");
-            ServiceContext.MediaTypeService.Save(contentType3);
-
-            var contentTypes = new[] { contentType1, contentType2, contentType3 };
-            var parentId = -1;
-
-            var ids = new List<int>();
-
-            for (int i = 0; i < 2; i++)
+            //create content type with a property type that varies by culture
+            IContentType contentType = MockedContentTypes.CreateBasicContentType();
+            contentType.Variations = ContentVariation.Nothing;
+            var contentCollection = new PropertyTypeCollection(true);
+            contentCollection.Add(new PropertyType("test", ValueStorageType.Ntext)
             {
-                for (var index = 0; index < contentTypes.Length; index++)
-                {
-                    var contentType = contentTypes[index];
-                    var contentItem = MockedMedia.CreateSimpleMedia(contentType, "MyName_" + index + "_" + i, parentId);
-                    ServiceContext.MediaService.Save(contentItem);
-                    parentId = contentItem.Id;
+                Alias = "title",
+                Name = "Title",
+                Description = "",
+                Mandatory = false,
+                SortOrder = 1,
+                DataTypeId = -88,
+                Variations = ContentVariation.Nothing
+            });
+            contentType.PropertyGroups.Add(new PropertyGroup(contentCollection) { Name = "Content", SortOrder = 1 });
+            ServiceContext.ContentTypeService.Save(contentType);
 
-                    ids.Add(contentItem.Id);
-                }
-            }
+            contentType = ServiceContext.ContentTypeService.Get(contentType.Id);
+            Assert.IsFalse(contentType.IsElement);
 
-            //delete the first content type, all other content of different content types should be in the recycle bin
-            ServiceContext.MediaTypeService.Delete(contentTypes[0]);
+            contentType.IsElement = true;
+            ServiceContext.ContentTypeService.Save(contentType);
 
-            var found = ServiceContext.MediaService.GetByIds(ids);
+            contentType = ServiceContext.ContentTypeService.Get(contentType.Id);
+            Assert.IsTrue(contentType.IsElement);
+        }
 
-            Assert.AreEqual(4, found.Count());
-            foreach (var content in found)
+        [Test]
+        public void Change_Content_Type_Variation_Clears_Redirects()
+        {
+            //create content type with a property type that varies by culture
+            var contentType = MockedContentTypes.CreateBasicContentType();
+            contentType.Variations = ContentVariation.Nothing;
+            var contentCollection = new PropertyTypeCollection(true);
+            contentCollection.Add(new PropertyType("test", ValueStorageType.Ntext)
             {
-                Assert.IsTrue(content.Trashed);
-            }
+                Alias = "title",
+                Name = "Title",
+                Description = "",
+                Mandatory = false,
+                SortOrder = 1,
+                DataTypeId = -88,
+                Variations = ContentVariation.Nothing
+            });
+            contentType.PropertyGroups.Add(new PropertyGroup(contentCollection) { Name = "Content", SortOrder = 1 });
+            ServiceContext.ContentTypeService.Save(contentType);
+            var contentType2 = MockedContentTypes.CreateBasicContentType("test");
+            ServiceContext.ContentTypeService.Save(contentType2);
+
+            //create some content of this content type
+            IContent doc = MockedContent.CreateBasicContent(contentType);
+            doc.Name = "Hello1";
+            ServiceContext.ContentService.Save(doc);
+
+            IContent doc2 = MockedContent.CreateBasicContent(contentType2);
+            ServiceContext.ContentService.Save(doc2);
+
+            ServiceContext.RedirectUrlService.Register("hello/world", doc.Key);
+            ServiceContext.RedirectUrlService.Register("hello2/world2", doc2.Key);
+
+            Assert.AreEqual(1, ServiceContext.RedirectUrlService.GetContentRedirectUrls(doc.Key).Count());
+            Assert.AreEqual(1, ServiceContext.RedirectUrlService.GetContentRedirectUrls(doc2.Key).Count());
+
+            //change variation
+            contentType.Variations = ContentVariation.Culture;
+            ServiceContext.ContentTypeService.Save(contentType);
+
+            Assert.AreEqual(0, ServiceContext.RedirectUrlService.GetContentRedirectUrls(doc.Key).Count());
+            Assert.AreEqual(1, ServiceContext.RedirectUrlService.GetContentRedirectUrls(doc2.Key).Count());
+
+        }
+
+        [Test]
+        public void Change_Content_Type_From_Invariant_Variant()
+        {
+            //create content type with a property type that varies by culture
+            var contentType = MockedContentTypes.CreateBasicContentType();
+            contentType.Variations = ContentVariation.Nothing;
+            var contentCollection = new PropertyTypeCollection(true);
+            contentCollection.Add(new PropertyType("test", ValueStorageType.Ntext)
+            {
+                Alias = "title",
+                Name = "Title",
+                Description = "",
+                Mandatory = false,
+                SortOrder = 1,
+                DataTypeId = -88,
+                Variations = ContentVariation.Nothing
+            });
+            contentType.PropertyGroups.Add(new PropertyGroup(contentCollection) { Name = "Content", SortOrder = 1 });
+            ServiceContext.ContentTypeService.Save(contentType);
+
+            //create some content of this content type
+            IContent doc = MockedContent.CreateBasicContent(contentType);
+            doc.Name = "Hello1";
+            doc.SetValue("title", "hello world");
+            ServiceContext.ContentService.Save(doc);
+
+            Assert.AreEqual("Hello1", doc.Name);
+            Assert.AreEqual("hello world", doc.GetValue("title"));
+
+            //change the content type to be variant, we will also update the name here to detect the copy changes
+            doc.Name = "Hello2";
+            ServiceContext.ContentService.Save(doc);
+            contentType.Variations = ContentVariation.Culture;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+
+            Assert.AreEqual("Hello2", doc.GetCultureName("en-US"));
+            Assert.AreEqual("hello world", doc.GetValue("title")); //We are not checking against en-US here because properties will remain invariant
+
+            //change back property type to be invariant, we will also update the name here to detect the copy changes
+            doc.SetCultureName("Hello3", "en-US");
+            ServiceContext.ContentService.Save(doc);
+            contentType.Variations = ContentVariation.Nothing;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+
+            Assert.AreEqual("Hello3", doc.Name);
+            Assert.AreEqual("hello world", doc.GetValue("title"));
+        }
+
+        [Test]
+        public void Change_Content_Type_From_Variant_Invariant()
+        {
+            //create content type with a property type that varies by culture
+            var contentType = MockedContentTypes.CreateBasicContentType();
+            contentType.Variations = ContentVariation.Culture;
+            var contentCollection = new PropertyTypeCollection(true);
+            contentCollection.Add(new PropertyType("test", ValueStorageType.Ntext)
+            {
+                Alias = "title",
+                Name = "Title",
+                Description = "",
+                Mandatory = false,
+                SortOrder = 1,
+                DataTypeId = -88,
+                Variations = ContentVariation.Culture
+            });
+            contentType.PropertyGroups.Add(new PropertyGroup(contentCollection) { Name = "Content", SortOrder = 1 });
+            ServiceContext.ContentTypeService.Save(contentType);
+
+            //create some content of this content type
+            IContent doc = MockedContent.CreateBasicContent(contentType);
+            doc.SetCultureName("Hello1", "en-US");
+            doc.SetValue("title", "hello world", "en-US");
+            ServiceContext.ContentService.Save(doc);
+
+            Assert.AreEqual("Hello1", doc.GetCultureName("en-US"));
+            Assert.AreEqual("hello world", doc.GetValue("title", "en-US"));
+
+            //change the content type to be invariant, we will also update the name here to detect the copy changes
+            doc.SetCultureName("Hello2", "en-US");
+            ServiceContext.ContentService.Save(doc);
+            contentType.Variations = ContentVariation.Nothing;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+
+            Assert.AreEqual("Hello2", doc.Name);
+            Assert.AreEqual("hello world", doc.GetValue("title"));
+
+            //change back property type to be variant, we will also update the name here to detect the copy changes
+            doc.Name = "Hello3";
+            ServiceContext.ContentService.Save(doc);
+            contentType.Variations = ContentVariation.Culture;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+
+            //at this stage all property types were switched to invariant so even though the variant value
+            //exists it will not be returned because the property type is invariant,
+            //so this check proves that null will be returned
+            Assert.IsNull(doc.GetValue("title", "en-US"));
+
+            //we can now switch the property type to be variant and the value can be returned again
+            contentType.PropertyTypes.First().Variations = ContentVariation.Culture;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+
+            Assert.AreEqual("Hello3", doc.GetCultureName("en-US"));
+            Assert.AreEqual("hello world", doc.GetValue("title", "en-US"));
+
+        }
+
+        [Test]
+        public void Change_Property_Type_From_Invariant_Variant()
+        {
+            //create content type with a property type that varies by culture
+            var contentType = MockedContentTypes.CreateBasicContentType();
+            contentType.Variations = ContentVariation.Nothing;
+            var contentCollection = new PropertyTypeCollection(true);
+            contentCollection.Add(new PropertyType("test", ValueStorageType.Ntext)
+            {
+                Alias = "title",
+                Name = "Title",
+                Description = "",
+                Mandatory = false,
+                SortOrder = 1,
+                DataTypeId = -88,
+                Variations = ContentVariation.Nothing
+            });
+            contentType.PropertyGroups.Add(new PropertyGroup(contentCollection) { Name = "Content", SortOrder = 1 });
+            ServiceContext.ContentTypeService.Save(contentType);
+
+            //create some content of this content type
+            IContent doc = MockedContent.CreateBasicContent(contentType);
+            doc.Name = "Home";
+            doc.SetValue("title", "hello world");
+            ServiceContext.ContentService.Save(doc);
+
+            Assert.AreEqual("hello world", doc.GetValue("title"));
+
+            //change the property type to be variant
+            contentType.PropertyTypes.First().Variations = ContentVariation.Culture;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+
+            Assert.AreEqual("hello world", doc.GetValue("title", "en-US"));
+
+            //change back property type to be invariant
+            contentType.PropertyTypes.First().Variations = ContentVariation.Nothing;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+
+            Assert.AreEqual("hello world", doc.GetValue("title"));
+        }
+
+        [Test]
+        public void Change_Property_Type_From_Variant_Invariant()
+        {
+            //create content type with a property type that varies by culture
+            var contentType = MockedContentTypes.CreateBasicContentType();
+            contentType.Variations = ContentVariation.Culture;
+            var contentCollection = new PropertyTypeCollection(true);
+            contentCollection.Add(new PropertyType("test", ValueStorageType.Ntext)
+            {
+                Alias = "title",
+                Name = "Title",
+                Description = "",
+                Mandatory = false,
+                SortOrder = 1,
+                DataTypeId = -88,
+                Variations = ContentVariation.Culture
+            });
+            contentType.PropertyGroups.Add(new PropertyGroup(contentCollection) { Name = "Content", SortOrder = 1 });
+            ServiceContext.ContentTypeService.Save(contentType);
+
+            //create some content of this content type
+            IContent doc = MockedContent.CreateBasicContent(contentType);
+            doc.SetCultureName("Home", "en-US");
+            doc.SetValue("title", "hello world", "en-US");
+            ServiceContext.ContentService.Save(doc);
+
+            Assert.AreEqual("hello world", doc.GetValue("title", "en-US"));
+
+            //change the property type to be invariant
+            contentType.PropertyTypes.First().Variations = ContentVariation.Nothing;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+
+            Assert.AreEqual("hello world", doc.GetValue("title"));
+
+            //change back property type to be variant
+            contentType.PropertyTypes.First().Variations = ContentVariation.Culture;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+
+            Assert.AreEqual("hello world", doc.GetValue("title", "en-US"));
+        }
+
+        [Test]
+        public void Change_Property_Type_From_Variant_Invariant_On_A_Composition()
+        {
+            //create content type with a property type that varies by culture
+            var contentType = MockedContentTypes.CreateBasicContentType();
+            contentType.Variations = ContentVariation.Culture;
+            var contentCollection = new PropertyTypeCollection(true);
+            contentCollection.Add(new PropertyType("test", ValueStorageType.Ntext)
+            {
+                Alias = "title",
+                Name = "Title",
+                Description = "",
+                Mandatory = false,
+                SortOrder = 1,
+                DataTypeId = -88,
+                Variations = ContentVariation.Culture
+            });
+            contentType.PropertyGroups.Add(new PropertyGroup(contentCollection) { Name = "Content", SortOrder = 1 });
+            ServiceContext.ContentTypeService.Save(contentType);
+
+            //compose this from the other one
+            var contentType2 = MockedContentTypes.CreateBasicContentType("test");
+            contentType2.Variations = ContentVariation.Culture;
+            contentType2.AddContentType(contentType);
+            ServiceContext.ContentTypeService.Save(contentType2);
+
+            //create some content of this content type
+            IContent doc = MockedContent.CreateBasicContent(contentType);
+            doc.SetCultureName("Home", "en-US");
+            doc.SetValue("title", "hello world", "en-US");
+            ServiceContext.ContentService.Save(doc);
+
+            IContent doc2 = MockedContent.CreateBasicContent(contentType2);
+            doc2.SetCultureName("Home", "en-US");
+            doc2.SetValue("title", "hello world", "en-US");
+            ServiceContext.ContentService.Save(doc2);
+
+            //change the property type to be invariant
+            contentType.PropertyTypes.First().Variations = ContentVariation.Nothing;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+            doc2 = ServiceContext.ContentService.GetById(doc2.Id); //re-get
+
+            Assert.AreEqual("hello world", doc.GetValue("title"));
+            Assert.AreEqual("hello world", doc2.GetValue("title"));
+
+            //change back property type to be variant
+            contentType.PropertyTypes.First().Variations = ContentVariation.Culture;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+            doc2 = ServiceContext.ContentService.GetById(doc2.Id); //re-get
+
+            Assert.AreEqual("hello world", doc.GetValue("title", "en-US"));
+            Assert.AreEqual("hello world", doc2.GetValue("title", "en-US"));
+        }
+
+        [Test]
+        public void Change_Content_Type_From_Variant_Invariant_On_A_Composition()
+        {
+            //create content type with a property type that varies by culture
+            var contentType = MockedContentTypes.CreateBasicContentType();
+            contentType.Variations = ContentVariation.Culture;
+            var contentCollection = new PropertyTypeCollection(true);
+            contentCollection.Add(new PropertyType("test", ValueStorageType.Ntext)
+            {
+                Alias = "title",
+                Name = "Title",
+                Description = "",
+                Mandatory = false,
+                SortOrder = 1,
+                DataTypeId = -88,
+                Variations = ContentVariation.Culture
+            });
+            contentType.PropertyGroups.Add(new PropertyGroup(contentCollection) { Name = "Content", SortOrder = 1 });
+            ServiceContext.ContentTypeService.Save(contentType);
+
+            //compose this from the other one
+            var contentType2 = MockedContentTypes.CreateBasicContentType("test");
+            contentType2.Variations = ContentVariation.Culture;
+            contentType2.AddContentType(contentType);
+            ServiceContext.ContentTypeService.Save(contentType2);
+
+            //create some content of this content type
+            IContent doc = MockedContent.CreateBasicContent(contentType);
+            doc.SetCultureName("Home", "en-US");
+            doc.SetValue("title", "hello world", "en-US");
+            ServiceContext.ContentService.Save(doc);
+
+            IContent doc2 = MockedContent.CreateBasicContent(contentType2);
+            doc2.SetCultureName("Home", "en-US");
+            doc2.SetValue("title", "hello world", "en-US");
+            ServiceContext.ContentService.Save(doc2);
+
+            //change the content type to be invariant
+            contentType.Variations = ContentVariation.Nothing;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+            doc2 = ServiceContext.ContentService.GetById(doc2.Id); //re-get
+
+            Assert.AreEqual("hello world", doc.GetValue("title"));
+            Assert.AreEqual("hello world", doc2.GetValue("title"));
+
+            //change back content type to be variant
+            contentType.Variations = ContentVariation.Culture;
+            ServiceContext.ContentTypeService.Save(contentType);
+            doc = ServiceContext.ContentService.GetById(doc.Id); //re-get
+            doc2 = ServiceContext.ContentService.GetById(doc2.Id); //re-get
+
+            //this will be null because the doc type was changed back to variant but it's property types don't get changed back
+            Assert.IsNull(doc.GetValue("title", "en-US"));
+            Assert.IsNull(doc2.GetValue("title", "en-US"));
         }
 
         [Test]
@@ -88,7 +433,6 @@ namespace Umbraco.Tests.Services
                     var contentType = contentTypes[index];
                     var contentItem = MockedContent.CreateSimpleContent(contentType, "MyName_" + index + "_" + i, parentId);
                     ServiceContext.ContentService.Save(contentItem);
-                    contentItem.TryPublishValues();
                     ServiceContext.ContentService.SaveAndPublish(contentItem);
                     parentId = contentItem.Id;
 
@@ -105,60 +449,6 @@ namespace Umbraco.Tests.Services
             foreach (var content in found)
             {
                 Assert.IsTrue(content.Trashed);
-            }
-        }
-
-        [Test]
-        public void Deleting_Media_Types_With_Hierarchy_Of_Media_Items_Doesnt_Raise_Trashed_Event_For_Deleted_Items()
-        {
-            MediaService.Trashed += MediaServiceOnTrashed;
-
-            try
-            {
-                IMediaType contentType1 = MockedContentTypes.CreateSimpleMediaType("test1", "Test1");
-                ServiceContext.MediaTypeService.Save(contentType1);
-                IMediaType contentType2 = MockedContentTypes.CreateSimpleMediaType("test2", "Test2");
-                ServiceContext.MediaTypeService.Save(contentType2);
-                IMediaType contentType3 = MockedContentTypes.CreateSimpleMediaType("test3", "Test3");
-                ServiceContext.MediaTypeService.Save(contentType3);
-
-                var contentTypes = new[] { contentType1, contentType2, contentType3 };
-                var parentId = -1;
-
-                var ids = new List<int>();
-
-                for (int i = 0; i < 2; i++)
-                {
-                    for (var index = 0; index < contentTypes.Length; index++)
-                    {
-                        var contentType = contentTypes[index];
-                        var contentItem = MockedMedia.CreateSimpleMedia(contentType, "MyName_" + index + "_" + i, parentId);
-                        ServiceContext.MediaService.Save(contentItem);
-                        parentId = contentItem.Id;
-
-                        ids.Add(contentItem.Id);
-                    }
-                }
-
-                foreach (var contentType in contentTypes.Reverse())
-                {
-                    ServiceContext.MediaTypeService.Delete(contentType);
-                }
-            }
-            finally
-            {
-                MediaService.Trashed -= MediaServiceOnTrashed;
-            }
-        }
-
-        private void MediaServiceOnTrashed(IMediaService sender, MoveEventArgs<IMedia> e)
-        {
-            foreach (var item in e.MoveInfoCollection)
-            {
-                //if this item doesn't exist then Fail!
-                var exists = ServiceContext.MediaService.GetById(item.Entity.Id);
-                if (exists == null)
-                    Assert.Fail("The item doesn't exist");
             }
         }
 
@@ -189,7 +479,6 @@ namespace Umbraco.Tests.Services
                         var contentType = contentTypes[index];
                         var contentItem = MockedContent.CreateSimpleContent(contentType, "MyName_" + index + "_" + i, parentId);
                         ServiceContext.ContentService.Save(contentItem);
-                        contentItem.TryPublishValues();
                         ServiceContext.ContentService.SaveAndPublish(contentItem);
                         parentId = contentItem.Id;
                     }
@@ -225,19 +514,16 @@ namespace Umbraco.Tests.Services
 
                 var root = MockedContent.CreateSimpleContent(contentType1, "Root", -1);
                 ServiceContext.ContentService.Save(root);
-                root.TryPublishValues();
                 ServiceContext.ContentService.SaveAndPublish(root);
 
                 var level1 = MockedContent.CreateSimpleContent(contentType2, "L1", root.Id);
                 ServiceContext.ContentService.Save(level1);
-                level1.TryPublishValues();
                 ServiceContext.ContentService.SaveAndPublish(level1);
 
                 for (int i = 0; i < 2; i++)
                 {
                     var level3 = MockedContent.CreateSimpleContent(contentType3, "L2" + i, level1.Id);
                     ServiceContext.ContentService.Save(level3);
-                    level3.TryPublishValues();
                     ServiceContext.ContentService.SaveAndPublish(level3);
                 }
 
@@ -263,14 +549,12 @@ namespace Umbraco.Tests.Services
         [Test]
         public void Deleting_PropertyType_Removes_The_Property_From_Content()
         {
-            IContentType contentType1 = MockedContentTypes.CreateTextpageContentType("test1", "Test1");
+            IContentType contentType1 = MockedContentTypes.CreateTextPageContentType("test1", "Test1");
             ServiceContext.FileService.SaveTemplate(contentType1.DefaultTemplate);
             ServiceContext.ContentTypeService.Save(contentType1);
             IContent contentItem = MockedContent.CreateTextpageContent(contentType1, "Testing", -1);
-            contentItem.TryPublishValues();
             ServiceContext.ContentService.SaveAndPublish(contentItem);
             var initProps = contentItem.Properties.Count;
-            var initPropTypes = contentItem.PropertyTypes.Count();
 
             //remove a property
             contentType1.RemovePropertyType(contentType1.PropertyTypes.First().Alias);
@@ -279,32 +563,29 @@ namespace Umbraco.Tests.Services
             //re-load it from the db
             contentItem = ServiceContext.ContentService.GetById(contentItem.Id);
 
-            Assert.AreEqual(initPropTypes - 1, contentItem.PropertyTypes.Count());
             Assert.AreEqual(initProps - 1, contentItem.Properties.Count);
         }
 
         [Test]
         public void Rebuild_Content_Xml_On_Alias_Change()
         {
-            var contentType1 = MockedContentTypes.CreateTextpageContentType("test1", "Test1");
+            var contentType1 = MockedContentTypes.CreateTextPageContentType("test1", "Test1");
             ServiceContext.FileService.SaveTemplate(contentType1.DefaultTemplate);
             ServiceContext.ContentTypeService.Save(contentType1);
 
-            var contentType2 = MockedContentTypes.CreateTextpageContentType("test2", "Test2");
+            var contentType2 = MockedContentTypes.CreateTextPageContentType("test2", "Test2");
             ServiceContext.FileService.SaveTemplate(contentType2.DefaultTemplate);
             ServiceContext.ContentTypeService.Save(contentType2);
 
             var contentItems1 = MockedContent.CreateTextpageContent(contentType1, -1, 10).ToArray();
             foreach (var x in contentItems1)
             {
-                x.TryPublishValues();
                 ServiceContext.ContentService.SaveAndPublish(x);
             }
 
             var contentItems2 = MockedContent.CreateTextpageContent(contentType2, -1, 5).ToArray();
             foreach (var x in contentItems2)
             {
-                x.TryPublishValues();
                 ServiceContext.ContentService.SaveAndPublish(x);
             }
 
@@ -356,13 +637,12 @@ namespace Umbraco.Tests.Services
         [Test]
         public void Rebuild_Content_Xml_On_Property_Removal()
         {
-            var contentType1 = MockedContentTypes.CreateTextpageContentType("test1", "Test1");
+            var contentType1 = MockedContentTypes.CreateTextPageContentType("test1", "Test1");
             ServiceContext.FileService.SaveTemplate(contentType1.DefaultTemplate);
             ServiceContext.ContentTypeService.Save(contentType1);
             var contentItems1 = MockedContent.CreateTextpageContent(contentType1, -1, 10).ToArray();
             foreach (var x in contentItems1)
             {
-                x.TryPublishValues();
                 ServiceContext.ContentService.SaveAndPublish(x);
             }
             var alias = contentType1.PropertyTypes.First().Alias;
@@ -496,7 +776,6 @@ namespace Umbraco.Tests.Services
 
             // Act
             var homeDoc = cs.Create("Home Page", -1, contentTypeAlias);
-            homeDoc.TryPublishValues();
             cs.SaveAndPublish(homeDoc);
 
             // Assert
@@ -735,12 +1014,13 @@ namespace Umbraco.Tests.Services
             var metaContentType = MockedContentTypes.CreateMetaContentType();
             service.Save(metaContentType);
 
-            var simpleContentType = MockedContentTypes.CreateSimpleContentType("category", "Category", metaContentType);
+            var simpleContentType = MockedContentTypes.CreateSimpleContentType("category", "Category", metaContentType) as IContentType;
             service.Save(simpleContentType);
             var categoryId = simpleContentType.Id;
 
             // Act
             var sut = simpleContentType.DeepCloneWithResetIdentities("newcategory");
+            Assert.IsNotNull(sut);
             service.Save(sut);
 
             // Assert
@@ -772,11 +1052,12 @@ namespace Umbraco.Tests.Services
             var parentContentType2 = MockedContentTypes.CreateSimpleContentType("parent2", "Parent2", null, true);
             service.Save(parentContentType2);
 
-            var simpleContentType = MockedContentTypes.CreateSimpleContentType("category", "Category", parentContentType1, true);
+            var simpleContentType = MockedContentTypes.CreateSimpleContentType("category", "Category", parentContentType1, true) as IContentType;
             service.Save(simpleContentType);
 
             // Act
             var clone = simpleContentType.DeepCloneWithResetIdentities("newcategory");
+            Assert.IsNotNull(clone);
             clone.RemoveContentType("parent1");
             clone.AddContentType(parentContentType2);
             clone.ParentId = parentContentType2.Id;
@@ -1371,50 +1652,65 @@ namespace Umbraco.Tests.Services
             // Arrange
             var service = ServiceContext.ContentTypeService;
 
+            // create 'page' content type with a 'Content_' group
             var page = MockedContentTypes.CreateSimpleContentType("page", "Page", null, false, "Content_");
+            Assert.IsTrue(page.PropertyGroups.Contains("Content_"));
+            Assert.AreEqual(3, page.PropertyTypes.Count());
             service.Save(page);
+
+            // create 'contentPage' content type as a child of 'page'
             var contentPage = MockedContentTypes.CreateSimpleContentType("contentPage", "Content Page", page, true);
-            service.Save(contentPage);
-            var composition = MockedContentTypes.CreateMetaContentType();
-            composition.AddPropertyGroup("Content");
-            service.Save(composition);
-            //Adding Meta-composition to child doc type
-            contentPage.AddContentType(composition);
+            Assert.AreEqual(3, contentPage.PropertyTypes.Count());
             service.Save(contentPage);
 
-            // Act
-            var propertyTypeOne = new PropertyType(Constants.PropertyEditors.Aliases.TextBox, ValueStorageType.Ntext, "testTextbox")
+            // add 'Content' group to 'meta' content type
+            var meta = MockedContentTypes.CreateMetaContentType();
+            meta.AddPropertyGroup("Content");
+            Assert.AreEqual(2, meta.PropertyTypes.Count());
+            service.Save(meta);
+
+            // add 'meta' content type to 'contentPage' composition
+            contentPage.AddContentType(meta);
+            service.Save(contentPage);
+
+            // add property 'prop1' to 'contentPage' group 'Content_'
+            var prop1 = new PropertyType(Constants.PropertyEditors.Aliases.TextBox, ValueStorageType.Ntext, "testTextbox")
             {
                  Name = "Test Textbox", Description = "",  Mandatory = false, SortOrder = 1, DataTypeId = -88
             };
-            var firstOneAdded = contentPage.AddPropertyType(propertyTypeOne, "Content_");
-            var propertyTypeTwo = new PropertyType(Constants.PropertyEditors.Aliases.TextBox, ValueStorageType.Ntext, "anotherTextbox")
+            var prop1Added = contentPage.AddPropertyType(prop1, "Content_");
+            Assert.IsTrue(prop1Added);
+
+            // add property 'prop2' to 'contentPage' group 'Content'
+            var prop2 = new PropertyType(Constants.PropertyEditors.Aliases.TextBox, ValueStorageType.Ntext, "anotherTextbox")
             {
                  Name = "Another Test Textbox", Description = "",  Mandatory = false, SortOrder = 1, DataTypeId = -88
             };
-            var secondOneAdded = contentPage.AddPropertyType(propertyTypeTwo, "Content");
+            var prop2Added = contentPage.AddPropertyType(prop2, "Content");
+            Assert.IsTrue(prop2Added);
+
+            // save 'contentPage' content type
             service.Save(contentPage);
 
-            Assert.That(page.PropertyGroups.Contains("Content_"), Is.True);
-            var propertyGroup = page.PropertyGroups["Content_"];
-            page.PropertyGroups.Add(new PropertyGroup(true) { Id = propertyGroup.Id, Name = "ContentTab", SortOrder = 0});
+            var group = page.PropertyGroups["Content_"];
+            group.Name = "ContentTab"; // rename the group
             service.Save(page);
+            Assert.AreEqual(3, page.PropertyTypes.Count());
 
-            // Assert
-            Assert.That(firstOneAdded, Is.True);
-            Assert.That(secondOneAdded, Is.True);
+            // get 'contentPage' content type again
+            var contentPageAgain = service.Get("contentPage");
+            Assert.IsNotNull(contentPageAgain);
 
-            var contentType = service.Get("contentPage");
-            Assert.That(contentType, Is.Not.Null);
+            // assert that 'Content_' group is still there because we don't propagate renames
+            var findGroup = contentPageAgain.CompositionPropertyGroups.FirstOrDefault(x => x.Name == "Content_");
+            Assert.IsNotNull(findGroup);
 
-            var compositionPropertyGroups = contentType.CompositionPropertyGroups;
-
-            // now it is still 1, because we don't propagate renames anymore
-            Assert.That(compositionPropertyGroups.Count(x => x.Name.Equals("Content_")), Is.EqualTo(1));
-
-            var propertyTypeCount = contentType.PropertyTypes.Count();
-            var compPropertyTypeCount = contentType.CompositionPropertyTypes.Count();
+            // count all property types (local and composed)
+            var propertyTypeCount = contentPageAgain.PropertyTypes.Count();
             Assert.That(propertyTypeCount, Is.EqualTo(5));
+
+            // count composed property types
+            var compPropertyTypeCount = contentPageAgain.CompositionPropertyTypes.Count();
             Assert.That(compPropertyTypeCount, Is.EqualTo(10));
         }
 
@@ -1726,19 +2022,36 @@ namespace Umbraco.Tests.Services
         }
 
         [Test]
-        public void Empty_Description_Is_Always_Null_After_Saving_Media_Type()
+        public void Variations_In_Compositions()
         {
-            var service = ServiceContext.MediaTypeService;
-            var mediaType = MockedContentTypes.CreateSimpleMediaType("mediaType", "Media Type");
-            mediaType.Description = null;
-            service.Save(mediaType);
+            var service = ServiceContext.ContentTypeService;
+            var typeA = MockedContentTypes.CreateSimpleContentType("a", "A");
+            typeA.Variations = ContentVariation.Culture; // make it variant
+            typeA.PropertyTypes.First(x => x.Alias.InvariantEquals("title")).Variations = ContentVariation.Culture; // with a variant property
+            service.Save(typeA);
 
-            var mediaType2 = MockedContentTypes.CreateSimpleMediaType("mediaType2", "Media Type 2");
-            mediaType2.Description = string.Empty;
-            service.Save(mediaType2);
+            var typeB = MockedContentTypes.CreateSimpleContentType("b", "B", typeA, true);
+            typeB.Variations = ContentVariation.Nothing; // make it invariant
+            service.Save(typeB);
 
-            Assert.IsNull(mediaType.Description);
-            Assert.IsNull(mediaType2.Description);
+            var typeC = MockedContentTypes.CreateSimpleContentType("c", "C", typeA, true);
+            typeC.Variations = ContentVariation.Culture; // make it variant
+            service.Save(typeC);
+
+            // property is variant on A
+            var test = service.Get(typeA.Id);
+            Assert.AreEqual(ContentVariation.Culture, test.CompositionPropertyTypes.First(x => x.Alias.InvariantEquals("title")).Variations);
+            Assert.AreEqual(ContentVariation.Culture, test.CompositionPropertyGroups.First().PropertyTypes.First(x => x.Alias.InvariantEquals("title")).Variations);
+
+            // but not on B
+            test = service.Get(typeB.Id);
+            Assert.AreEqual(ContentVariation.Nothing, test.CompositionPropertyTypes.First(x => x.Alias.InvariantEquals("title")).Variations);
+            Assert.AreEqual(ContentVariation.Nothing, test.CompositionPropertyGroups.First().PropertyTypes.First(x => x.Alias.InvariantEquals("title")).Variations);
+
+            // but on C
+            test = service.Get(typeC.Id);
+            Assert.AreEqual(ContentVariation.Culture, test.CompositionPropertyTypes.First(x => x.Alias.InvariantEquals("title")).Variations);
+            Assert.AreEqual(ContentVariation.Culture, test.CompositionPropertyGroups.First().PropertyTypes.First(x => x.Alias.InvariantEquals("title")).Variations);
         }
 
         private ContentType CreateComponent()

@@ -16,11 +16,11 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
     /// </summary>
     internal class MediaTypeRepository : ContentTypeRepositoryBase<IMediaType>, IMediaTypeRepository
     {
-        public MediaTypeRepository(IScopeAccessor scopeAccessor, CacheHelper cache, ILogger logger)
+        public MediaTypeRepository(IScopeAccessor scopeAccessor, AppCaches cache, ILogger logger)
             : base(scopeAccessor, cache, logger)
         { }
 
-        protected override bool IsPublishing => MediaType.IsPublishingConst;
+        protected override bool SupportsPublishing => MediaType.SupportsPublishingConst;
 
         protected override IRepositoryCachePolicy<IMediaType, int> CreateCachePolicy()
         {
@@ -55,11 +55,11 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             if (ids.Any())
             {
                 //NOTE: This logic should never be executed according to our cache policy
-                return ContentTypeQueryMapper.GetMediaTypes(Database, SqlSyntax, IsPublishing, this)
+                return ContentTypeQueryMapper.GetMediaTypes(Database, SqlSyntax, SupportsPublishing, this)
                     .Where(x => ids.Contains(x.Id));
             }
 
-            return ContentTypeQueryMapper.GetMediaTypes(Database, SqlSyntax, IsPublishing, this);
+            return ContentTypeQueryMapper.GetMediaTypes(Database, SqlSyntax, SupportsPublishing, this);
         }
 
         protected override IEnumerable<IMediaType> PerformGetAll(params Guid[] ids)
@@ -85,7 +85,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             var dtos = Database.Fetch<ContentTypeDto>(sql);
 
             return
-                //This returns a lookup from the GetAll cached looup
+                //This returns a lookup from the GetAll cached lookup
                 (dtos.Any()
                     ? GetMany(dtos.DistinctBy(x => x.NodeId).Select(x => x.NodeId).ToArray())
                     : Enumerable.Empty<IMediaType>())

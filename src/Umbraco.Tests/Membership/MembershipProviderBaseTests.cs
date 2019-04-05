@@ -3,17 +3,9 @@ using System.Collections.Specialized;
 using System.Configuration.Provider;
 using System.Security.Cryptography;
 using System.Web.Security;
-using LightInject;
 using Moq;
 using NUnit.Framework;
-using Umbraco.Core;
-using Umbraco.Core.Composing;
-using Umbraco.Core.IO;
-using Umbraco.Core.Logging;
-using Umbraco.Core.Persistence;
-using Umbraco.Core.Scoping;
 using Umbraco.Core.Security;
-using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.Testing;
 
 namespace Umbraco.Tests.Membership
@@ -128,8 +120,7 @@ namespace Umbraco.Tests.Membership
             Assert.Throws<ProviderException>(() => provider.GetPassword("test", "test"));
         }
 
-        // fixme
-        // in v7 this test relies on ApplicationContext.Current being null, which makes little
+        // FIXME: in v7 this test relies on ApplicationContext.Current being null, which makes little
         // sense, not going to port the weird code in MembershipProviderBase.ResetPassword, so
         // what shall we do?
         [Test]

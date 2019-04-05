@@ -12,7 +12,6 @@ using Umbraco.Web.Models;
 using Umbraco.Web.Routing;
 using System.Collections.Generic;
 using Current = Umbraco.Web.Composing.Current;
-using LightInject;
 using Umbraco.Web.Features;
 
 namespace Umbraco.Web.Mvc
@@ -31,17 +30,12 @@ namespace Umbraco.Web.Mvc
         private readonly IUmbracoContextAccessor _umbracoContextAccessor;
         private readonly UmbracoContext _umbracoContext;
 
-        // fixme - that one could / should accept a PublishedRouter (engine) to work on the PublishedRequest (published content request)
         public RenderRouteHandler(IUmbracoContextAccessor umbracoContextAccessor, IControllerFactory controllerFactory)
         {
             _umbracoContextAccessor = umbracoContextAccessor ?? throw new ArgumentNullException(nameof(umbracoContextAccessor));
             _controllerFactory = controllerFactory ?? throw new ArgumentNullException(nameof(controllerFactory));
         }
 
-        // fixme - what about that one?
-        // called by TemplateRenderer - which is created in
-        //   library - could get an engine without problem it's all ugly anyways
-        //   UmbracoComponentRenderer - ?? that one is not so obvious
         public RenderRouteHandler(UmbracoContext umbracoContext, IControllerFactory controllerFactory)
         {
             _umbracoContext = umbracoContext ?? throw new ArgumentNullException(nameof(umbracoContext));
@@ -50,12 +44,12 @@ namespace Umbraco.Web.Mvc
 
         private UmbracoContext UmbracoContext => _umbracoContext ?? _umbracoContextAccessor.UmbracoContext;
 
-        private UmbracoFeatures Features => Current.Container.GetInstance<UmbracoFeatures>(); // fixme inject
+        private UmbracoFeatures Features => Current.Factory.GetInstance<UmbracoFeatures>(); // TODO: inject
 
         #region IRouteHandler Members
 
         /// <summary>
-        /// Assigns the correct controller based on the Umbraco request and returns a standard MvcHandler to prcess the response,
+        /// Assigns the correct controller based on the Umbraco request and returns a standard MvcHandler to process the response,
         /// this also stores the render model into the data tokens for the current RouteData.
         /// </summary>
         /// <param name="requestContext"></param>
@@ -319,8 +313,11 @@ namespace Umbraco.Web.Mvc
                 }
                 else
                 {
-                    Current.Logger.Warn<RenderRouteHandler>(() =>
-                        $"The current Document Type {request.PublishedContent.ContentType.Alias} matches a locally declared controller of type {controllerType.FullName}. Custom Controllers for Umbraco routing must implement '{typeof(IRenderController).FullName}' and inherit from '{typeof(ControllerBase).FullName}'.");
+                    Current.Logger.Warn<RenderRouteHandler>("The current Document Type {ContentTypeAlias} matches a locally declared controller of type {ControllerName}. Custom Controllers for Umbraco routing must implement '{UmbracoRenderController}' and inherit from '{UmbracoControllerBase}'.",
+                        request.PublishedContent.ContentType.Alias,
+                        controllerType.FullName,
+                        typeof(IRenderController).FullName,
+                        typeof(ControllerBase).FullName);
 
                     //we cannot route to this custom controller since it is not of the correct type so we'll continue with the defaults
                     // that have already been set above.
@@ -350,13 +347,6 @@ namespace Umbraco.Web.Mvc
                 // to Mvc since Mvc can't do much
                 return new PublishedContentNotFoundHandler("In addition, no template exists to render the custom 404.");
 
-            // so we have a template, so we should have a rendering engine
-            if (request.RenderingEngine == RenderingEngine.WebForms) // back to webforms ?
-                return GetWebFormsHandler();
-
-            if (request.RenderingEngine != RenderingEngine.Mvc) // else ?
-                return new PublishedContentNotFoundHandler("In addition, no rendering engine exists to render the custom 404.");
-
             return null;
         }
 
@@ -379,13 +369,6 @@ namespace Umbraco.Web.Mvc
                 return HandlePostedValues(requestContext, postedInfo);
             }
 
-            //Now we can check if we are supposed to render WebForms when the route has not been hijacked
-            if (request.RenderingEngine == RenderingEngine.WebForms
-                && request.HasTemplate
-                && routeDef.HasHijackedRoute == false)
-            {
-                return GetWebFormsHandler();
-            }
 
             //Here we need to check if there is no hijacked route and no template assigned,
             //if this is the case we want to return a blank page, but we'll leave that up to the NoTemplateHandler.
@@ -394,9 +377,7 @@ namespace Umbraco.Web.Mvc
             if ((request.HasTemplate == false && Features.Disabled.DisableTemplates == false)
                 && routeDef.HasHijackedRoute == false)
             {
-                // fixme - better find a way to inject that engine? or at least Current.Engine of some sort!
-                var engine = Core.Composing.Current.Container.GetInstance<PublishedRouter>();
-                request.UpdateOnMissingTemplate(); // request will go 404
+                request.UpdateToNotFound(); // request will go 404
 
                 // HandleHttpResponseStatus returns a value indicating that the request should
                 // not be processed any further, eg because it has been redirect. then, exit.
@@ -405,11 +386,8 @@ namespace Umbraco.Web.Mvc
 
                 var handler = GetHandlerOnMissingTemplate(request);
 
-                // if it's not null it can be either the PublishedContentNotFoundHandler (no document was
-                // found to handle 404, or document with no template was found) or the WebForms handler
-                // (a document was found and its template is WebForms)
-
-                // if it's null it means that a document was found and its template is Mvc
+                // if it's not null it's the PublishedContentNotFoundHandler (no document was found to handle 404, or document with no template was found)
+                // if it's null it means that a document was found
 
                 // if we have a handler, return now
                 if (handler != null)
@@ -424,7 +402,7 @@ namespace Umbraco.Web.Mvc
                 routeDef = GetUmbracoRouteDefinition(requestContext, request);
             }
 
-            //no post values, just route to the controller/action requried (local)
+            //no post values, just route to the controller/action required (local)
 
             requestContext.RouteData.Values["controller"] = routeDef.ControllerName;
             if (string.IsNullOrWhiteSpace(routeDef.ActionName) == false)
@@ -433,22 +411,13 @@ namespace Umbraco.Web.Mvc
             // Set the session state requirements
             requestContext.HttpContext.SetSessionStateBehavior(GetSessionStateBehavior(requestContext, routeDef.ControllerName));
 
-            // reset the friendly path so in the controllers and anything occuring after this point in time,
+            // reset the friendly path so in the controllers and anything occurring after this point in time,
             //the URL is reset back to the original request.
             requestContext.HttpContext.RewritePath(UmbracoContext.OriginalRequestUrl.PathAndQuery);
 
             return new UmbracoMvcHandler(requestContext);
         }
-
-        /// <summary>
-        /// Returns the handler for webforms requests
-        /// </summary>
-        /// <returns></returns>
-        internal static IHttpHandler GetWebFormsHandler()
-        {
-            return (global::umbraco.UmbracoDefault)BuildManager.CreateInstanceFromVirtualPath("~/default.aspx", typeof(global::umbraco.UmbracoDefault));
-        }
-
+        
         private SessionStateBehavior GetSessionStateBehavior(RequestContext requestContext, string controllerName)
         {
             return _controllerFactory.GetControllerSessionBehavior(requestContext, controllerName);

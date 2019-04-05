@@ -2,10 +2,11 @@
 using System.Linq;
 using System.Web.Mvc;
 using System.Web.Routing;
-using LightInject;
+using System.Web.Security;
 using Moq;
 using NUnit.Framework;
 using Umbraco.Core;
+using Umbraco.Core.Cache;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Tests.TestHelpers;
@@ -13,15 +14,20 @@ using Umbraco.Tests.TestHelpers.Stubs;
 using Umbraco.Web;
 using Umbraco.Web.Models;
 using Umbraco.Web.Mvc;
-using Umbraco.Web.Routing;
 using Umbraco.Web.WebApi;
 using Umbraco.Core.Strings;
 using Umbraco.Core.Composing;
+using Umbraco.Core.Configuration;
+using Umbraco.Core.Dictionary;
 using Umbraco.Core.Models.PublishedContent;
+using Umbraco.Core.Persistence;
+using Umbraco.Core.Services;
 using Umbraco.Tests.PublishedContent;
 using Umbraco.Tests.Testing;
 using Umbraco.Tests.Testing.Objects.Accessors;
+using Umbraco.Web.PublishedCache;
 using Umbraco.Web.Runtime;
+using Umbraco.Web.Security;
 using Current = Umbraco.Web.Composing.Current;
 
 namespace Umbraco.Tests.Routing
@@ -34,7 +40,7 @@ namespace Umbraco.Tests.Routing
         {
             base.SetUp();
 
-            WebRuntimeComponent.CreateRoutes(
+            WebFinalComponent.CreateRoutes(
                 new TestUmbracoContextAccessor(),
                 TestObjects.GetGlobalSettings(),
                 new SurfaceControllerTypeCollection(Enumerable.Empty<Type>()),
@@ -47,17 +53,8 @@ namespace Umbraco.Tests.Routing
                 : base(umbracoApplication)
             { }
 
-            public override void Boot(ServiceContainer container)
-            {
-                // do it before anything else - this is the only place where it's possible
-                var logger = Mock.Of<ILogger>();
-                container.RegisterInstance<ILogger>(logger);
-                var profiler = Mock.Of<IProfiler>();
-                container.RegisterInstance<IProfiler>(profiler);
-                container.RegisterInstance<ProfilingLogger>(new ProfilingLogger(logger, profiler));
-
-                base.Boot(container);
-            }
+            protected override ILogger GetLogger() => Mock.Of<ILogger>();
+            protected override IProfiler GetProfiler() => Mock.Of<IProfiler>();
         }
 
         protected override void Compose()
@@ -65,15 +62,15 @@ namespace Umbraco.Tests.Routing
             base.Compose();
 
             // set the default RenderMvcController
-            Current.DefaultRenderMvcControllerType = typeof(RenderMvcController); // fixme WRONG!
+            Current.DefaultRenderMvcControllerType = typeof(RenderMvcController); // FIXME: Wrong!
 
-            var surfaceControllerTypes = new SurfaceControllerTypeCollection(Current.TypeLoader.GetSurfaceControllers());
-            Container.RegisterInstance(surfaceControllerTypes);
+            var surfaceControllerTypes = new SurfaceControllerTypeCollection(Composition.TypeLoader.GetSurfaceControllers());
+            Composition.RegisterUnique(surfaceControllerTypes);
 
-            var umbracoApiControllerTypes = new UmbracoApiControllerTypeCollection(Current.TypeLoader.GetUmbracoApiControllers());
-            Container.RegisterInstance(umbracoApiControllerTypes);
+            var umbracoApiControllerTypes = new UmbracoApiControllerTypeCollection(Composition.TypeLoader.GetUmbracoApiControllers());
+            Composition.RegisterUnique(umbracoApiControllerTypes);
 
-            Container.RegisterSingleton<IShortStringHelper>(_ => new DefaultShortStringHelper(SettingsForTests.GetDefaultUmbracoSettings()));
+            Composition.RegisterUnique<IShortStringHelper>(_ => new DefaultShortStringHelper(SettingsForTests.GetDefaultUmbracoSettings()));
         }
 
         public override void TearDown()
@@ -84,7 +81,6 @@ namespace Umbraco.Tests.Routing
 
         Template CreateTemplate(string alias)
         {
-            var path = "template";
             var name = "Template";
             var template = new Template(name, alias);
             template.Content = ""; // else saving throws with a dirty internal error
@@ -106,9 +102,9 @@ namespace Umbraco.Tests.Routing
             var frequest = publishedRouter.CreateRequest(umbracoContext);
             frequest.PublishedContent = umbracoContext.ContentCache.GetById(1174);
             frequest.TemplateModel = template;
-            frequest.RenderingEngine = RenderingEngine.Mvc;
 
-            var handler = new RenderRouteHandler(umbracoContext, new TestControllerFactory(umbracoContext, Mock.Of<ILogger>()));
+            var umbracoContextAccessor = new TestUmbracoContextAccessor(umbracoContext);
+            var handler = new RenderRouteHandler(umbracoContext, new TestControllerFactory(umbracoContextAccessor, Mock.Of<ILogger>()));
 
             handler.GetHandlerForRoute(umbracoContext.HttpContext.Request.RequestContext, frequest);
             Assert.AreEqual("RenderMvc", routeData.Values["controller"].ToString());
@@ -119,7 +115,7 @@ namespace Umbraco.Tests.Routing
 
         //test all template name styles to match the ActionName
 
-        //[TestCase("home-\\234^^*32page")]        //TODO: This fails!
+        //[TestCase("home-\\234^^*32page")]        // TODO: This fails!
         [TestCase("home-page")]
         [TestCase("home-page")]
         [TestCase("home-page")]
@@ -143,10 +139,21 @@ namespace Umbraco.Tests.Routing
             frequest.PublishedContent = umbracoContext.ContentCache.GetById(1172);
             frequest.TemplateModel = template;
 
+            var umbracoContextAccessor = new TestUmbracoContextAccessor(umbracoContext);
             var type = new AutoPublishedContentType(22, "CustomDocument", new PublishedPropertyType[] { });
             ContentTypesCache.GetPublishedContentTypeByAlias = alias => type;
 
-            var handler = new RenderRouteHandler(umbracoContext, new TestControllerFactory(umbracoContext, Mock.Of<ILogger>()));
+            var handler = new RenderRouteHandler(umbracoContext, new TestControllerFactory(umbracoContextAccessor, Mock.Of<ILogger>(), context =>
+            {
+                var membershipHelper = new MembershipHelper(
+                    umbracoContext.HttpContext, Mock.Of<IPublishedMemberCache>(), Mock.Of<MembershipProvider>(), Mock.Of<RoleProvider>(), Mock.Of<IMemberService>(), Mock.Of<IMemberTypeService>(), Mock.Of<IUserService>(), Mock.Of<IPublicAccessService>(), Mock.Of<AppCaches>(), Mock.Of<ILogger>());
+               return new CustomDocumentController(Factory.GetInstance<IGlobalSettings>(),
+                    umbracoContextAccessor,
+                    Factory.GetInstance<ServiceContext>(),
+                    Factory.GetInstance<AppCaches>(),
+                    Factory.GetInstance<IProfilingLogger>(),
+                    new UmbracoHelper(Mock.Of<IPublishedContent>(), Mock.Of<ITagQuery>(), Mock.Of<ICultureDictionaryFactory>(), Mock.Of<IUmbracoComponentRenderer>(), Mock.Of<IPublishedContentQuery>(), membershipHelper));
+            }));
 
             handler.GetHandlerForRoute(umbracoContext.HttpContext.Request.RequestContext, frequest);
             Assert.AreEqual("CustomDocument", routeData.Values["controller"].ToString());
@@ -182,6 +189,11 @@ namespace Umbraco.Tests.Routing
         /// </summary>
         public class CustomDocumentController : RenderMvcController
         {
+            public CustomDocumentController(IGlobalSettings globalSettings, IUmbracoContextAccessor umbracoContextAccessor, ServiceContext services, AppCaches appCaches, IProfilingLogger profilingLogger, UmbracoHelper umbracoHelper)
+                : base(globalSettings, umbracoContextAccessor, services, appCaches, profilingLogger, umbracoHelper)
+            {
+            }
+
             public ActionResult HomePage(ContentModel model)
             {
                 return View();

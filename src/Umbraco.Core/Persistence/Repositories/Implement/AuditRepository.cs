@@ -1,10 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using LightInject;
 using NPoco;
 using Umbraco.Core.Cache;
-using Umbraco.Core.Composing.CompositionRoots;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.Persistence.DatabaseModelDefinitions;
@@ -16,8 +14,8 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 {
     internal class AuditRepository : NPocoRepositoryBase<int, IAuditItem>, IAuditRepository
     {
-        public AuditRepository(IScopeAccessor scopeAccessor, [Inject(RepositoryCompositionRoot.DisabledCache)] CacheHelper cache, ILogger logger)
-            : base(scopeAccessor, cache, logger)
+        public AuditRepository(IScopeAccessor scopeAccessor, ILogger logger)
+            : base(scopeAccessor, AppCaches.NoCache, logger)
         { }
 
         protected override void PersistNewItem(IAuditItem entity)
@@ -28,20 +26,24 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                 Datestamp = DateTime.Now,
                 Header = entity.AuditType.ToString(),
                 NodeId = entity.Id,
-                UserId = entity.UserId
+                UserId = entity.UserId,
+                EntityType = entity.EntityType,
+                Parameters = entity.Parameters
             });
         }
 
         protected override void PersistUpdatedItem(IAuditItem entity)
         {
-            // wtf?! inserting when updating?!
+            // inserting when updating because we never update a log entry, perhaps this should throw?
             Database.Insert(new LogDto
             {
                 Comment = entity.Comment,
                 Datestamp = DateTime.Now,
                 Header = entity.AuditType.ToString(),
                 NodeId = entity.Id,
-                UserId = entity.UserId
+                UserId = entity.UserId,
+                EntityType = entity.EntityType,
+                Parameters = entity.Parameters
             });
         }
 
@@ -53,7 +55,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             var dto = Database.First<LogDto>(sql);
             return dto == null
                 ? null
-                : new AuditItem(dto.NodeId, dto.Comment, Enum<AuditType>.Parse(dto.Header), dto.UserId);
+                : new AuditItem(dto.NodeId, Enum<AuditType>.Parse(dto.Header), dto.UserId ?? Constants.Security.UnknownUserId, dto.EntityType, dto.Comment, dto.Parameters);
         }
 
         protected override IEnumerable<IAuditItem> PerformGetAll(params int[] ids)
@@ -69,7 +71,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
             var dtos = Database.Fetch<LogDto>(sql);
 
-            return dtos.Select(x => new AuditItem(x.NodeId, x.Comment, Enum<AuditType>.Parse(x.Header), x.UserId)).ToArray();
+            return dtos.Select(x => new AuditItem(x.NodeId, Enum<AuditType>.Parse(x.Header), x.UserId ?? Constants.Security.UnknownUserId, x.EntityType, x.Comment, x.Parameters)).ToList();
         }
 
         protected override Sql<ISqlContext> GetBaseQuery(bool isCount)
@@ -160,10 +162,10 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             totalRecords = page.TotalItems;
 
             var items = page.Items.Select(
-                dto => new AuditItem(dto.Id, dto.Comment, Enum<AuditType>.Parse(dto.Header), dto.UserId)).ToArray();
+                dto => new AuditItem(dto.Id, Enum<AuditType>.ParseOrNull(dto.Header) ?? AuditType.Custom, dto.UserId ?? Constants.Security.UnknownUserId, dto.EntityType, dto.Comment, dto.Parameters)).ToList();
 
             // map the DateStamp
-            for (var i = 0; i < items.Length; i++)
+            for (var i = 0; i < items.Count; i++)
                 items[i].CreateDate = page.Items[i].Datestamp;
 
             return items;

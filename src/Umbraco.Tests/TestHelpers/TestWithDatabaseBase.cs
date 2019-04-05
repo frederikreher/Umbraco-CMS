@@ -19,19 +19,17 @@ using Umbraco.Core.PropertyEditors;
 using Umbraco.Core.Services;
 using Umbraco.Web;
 using Umbraco.Web.PublishedCache;
-using Umbraco.Web.PublishedCache.XmlPublishedCache;
 using Umbraco.Web.Security;
 using Umbraco.Web.Routing;
 using File = System.IO.File;
 using Umbraco.Core.Composing;
 using Umbraco.Core.Persistence.Mappers;
 using Umbraco.Core.Scoping;
-using Umbraco.Tests.TestHelpers.Stubs;
 using Umbraco.Tests.Testing;
-using LightInject;
 using Umbraco.Core.Migrations.Install;
 using Umbraco.Core.Models.PublishedContent;
 using Umbraco.Core.Persistence.Repositories;
+using Umbraco.Tests.LegacyXmlPublishedCache;
 using Umbraco.Tests.Testing.Objects.Accessors;
 
 namespace Umbraco.Tests.TestHelpers
@@ -49,12 +47,8 @@ namespace Umbraco.Tests.TestHelpers
     [UmbracoTest(WithApplication = true)]
     public abstract class TestWithDatabaseBase : UmbracoTestBase
     {
-        private CacheHelper _disabledCacheHelper;
-
         private string _databasePath;
         private static byte[] _databaseBytes;
-
-        protected CacheHelper DisabledCache => _disabledCacheHelper ?? (_disabledCacheHelper = CacheHelper.CreateDisabledCacheHelper());
 
         protected PublishedContentTypeCache ContentTypesCache { get; private set; }
 
@@ -63,6 +57,8 @@ namespace Umbraco.Tests.TestHelpers
         protected ServiceContext ServiceContext => Current.Services;
 
         internal ScopeProvider ScopeProvider => Current.ScopeProvider as ScopeProvider;
+
+        protected ISqlContext SqlContext => Factory.GetInstance<ISqlContext>();
 
         public override void SetUp()
         {
@@ -76,23 +72,21 @@ namespace Umbraco.Tests.TestHelpers
         {
             base.Compose();
 
-            Container.Register<ISqlSyntaxProvider, SqlCeSyntaxProvider>();
-            Container.Register(factory => PublishedSnapshotService);
-            Container.Register(factory => DefaultCultureAccessor);
+            Composition.Register<ISqlSyntaxProvider, SqlCeSyntaxProvider>();
+            Composition.Register(factory => PublishedSnapshotService);
+            Composition.Register(factory => DefaultCultureAccessor);
 
-            Container.GetInstance<DataEditorCollectionBuilder>()
+            Composition.WithCollectionBuilder<DataEditorCollectionBuilder>()
                 .Clear()
-                .Add(f => f.GetInstance<TypeLoader>().GetDataEditors());
+                .Add(() => Composition.TypeLoader.GetDataEditors());
 
-            Container.RegisterSingleton(f =>
+            Composition.RegisterUnique(f =>
             {
                 if (Options.Database == UmbracoTestOptions.Database.None)
                     return TestObjects.GetDatabaseFactoryMock();
 
-                var sqlSyntaxProviders = new[] { new SqlCeSyntaxProvider() };
-                var logger = f.GetInstance<ILogger>();
-                var mappers = f.GetInstance<IMapperCollection>();
-                var factory = new UmbracoDatabaseFactory(GetDbConnectionString(), GetDbProviderName(), sqlSyntaxProviders, logger, mappers);
+                var lazyMappers = new Lazy<IMapperCollection>(f.GetInstance<IMapperCollection>);
+                var factory = new UmbracoDatabaseFactory(GetDbConnectionString(), GetDbProviderName(), f.GetInstance<ILogger>(), lazyMappers);
                 factory.ResetForTests();
                 return factory;
             });
@@ -106,11 +100,11 @@ namespace Umbraco.Tests.TestHelpers
 
         public override void TearDown()
         {
-            var profilingLogger = Container.TryGetInstance<ProfilingLogger>();
-            var timer = profilingLogger?.TraceDuration<TestWithDatabaseBase>("teardown"); // fixme move that one up
+            var profilingLogger = Factory.TryGetInstance<IProfilingLogger>();
+            var timer = profilingLogger?.TraceDuration<TestWithDatabaseBase>("teardown"); // FIXME: move that one up
             try
             {
-                // fixme - should we first kill all scopes?
+                // FIXME: should we first kill all scopes?
                 if (Options.Database == UmbracoTestOptions.Database.NewSchemaPerTest)
                     RemoveDatabaseFile();
 
@@ -132,17 +126,16 @@ namespace Umbraco.Tests.TestHelpers
         {
             using (ProfilingLogger.TraceDuration<TestWithDatabaseBase>("Create database."))
             {
-                CreateSqlCeDatabase(); // todo faster!
+                CreateSqlCeDatabase(); // TODO: faster!
             }
 
             // ensure the configuration matches the current version for tests
-            var globalSettingsMock = Mock.Get(TestObjects.GetGlobalSettings()); //this will modify the IGlobalSettings instance stored in the container
+            var globalSettingsMock = Mock.Get(Factory.GetInstance<IGlobalSettings>()); //this will modify the IGlobalSettings instance stored in the container
             globalSettingsMock.Setup(x => x.ConfigurationStatus).Returns(UmbracoVersion.Current.ToString(3));
-            SettingsForTests.ConfigureSettings(globalSettingsMock.Object);
 
             using (ProfilingLogger.TraceDuration<TestWithDatabaseBase>("Initialize database."))
             {
-                InitializeDatabase(); // todo faster!
+                InitializeDatabase(); // TODO: faster!
             }
         }
 
@@ -235,7 +228,7 @@ namespace Umbraco.Tests.TestHelpers
 
         protected IPublishedSnapshotService PublishedSnapshotService { get; set; }
 
-        protected override void Initialize() // fixme - should NOT be here!
+        protected override void Initialize() // FIXME: should NOT be here!
         {
             base.Initialize();
 
@@ -252,13 +245,13 @@ namespace Umbraco.Tests.TestHelpers
 
         protected virtual IPublishedSnapshotService CreatePublishedSnapshotService()
         {
-            var cache = NullCacheProvider.Instance;
+            var cache = NoAppCache.Instance;
 
             ContentTypesCache = new PublishedContentTypeCache(
-                Container.GetInstance<IContentTypeService>(),
-                Container.GetInstance<IMediaTypeService>(),
-                Container.GetInstance<IMemberTypeService>(),
-                Container.GetInstance<IPublishedContentTypeFactory>(),
+                Factory.GetInstance<IContentTypeService>(),
+                Factory.GetInstance<IMediaTypeService>(),
+                Factory.GetInstance<IMemberTypeService>(),
+                Factory.GetInstance<IPublishedContentTypeFactory>(),
                 Logger);
 
             // testing=true so XmlStore will not use the file nor the database
@@ -267,13 +260,15 @@ namespace Umbraco.Tests.TestHelpers
             var variationContextAccessor = new TestVariationContextAccessor();
             var service = new PublishedSnapshotService(
                 ServiceContext,
-                Container.GetInstance<IPublishedContentTypeFactory>(),
+                Factory.GetInstance<IPublishedContentTypeFactory>(),
                 ScopeProvider,
                 cache, publishedSnapshotAccessor, variationContextAccessor,
-                Container.GetInstance<IDocumentRepository>(), Container.GetInstance<IMediaRepository>(), Container.GetInstance<IMemberRepository>(),
+                Factory.GetInstance<IUmbracoContextAccessor>(),
+                Factory.GetInstance<IDocumentRepository>(), Factory.GetInstance<IMediaRepository>(), Factory.GetInstance<IMemberRepository>(),
                 DefaultCultureAccessor,
                 Logger,
-                Container.GetInstance<IGlobalSettings>(), new SiteDomainHelper(),
+                Factory.GetInstance<IGlobalSettings>(), new SiteDomainHelper(),
+                Factory.GetInstance<IEntityXmlSerializer>(),
                 ContentTypesCache,
                 null, true, Options.PublishedRepositoryEvents);
 
@@ -311,6 +306,13 @@ namespace Umbraco.Tests.TestHelpers
                     var schemaHelper = new DatabaseSchemaCreator(scope.Database, Logger);
                     //Create the umbraco database and its base data
                     schemaHelper.InitializeDatabaseSchema();
+
+                    //Special case, we need to create the xml cache tables manually since they are not part of the default
+                    //setup.
+                    //TODO: Remove this when we update all tests to use nucache
+                    schemaHelper.CreateTable<ContentXmlDto>();
+                    schemaHelper.CreateTable<PreviewXmlDto>();
+
                     scope.Complete();
                 }
 
@@ -318,7 +320,7 @@ namespace Umbraco.Tests.TestHelpers
             }
         }
 
-        // fixme is this needed?
+        // FIXME: is this needed?
         private void CloseDbConnections(IUmbracoDatabase database)
         {
             //Ensure that any database connections from a previous test is disposed.
@@ -344,7 +346,7 @@ namespace Umbraco.Tests.TestHelpers
             }
             catch (Exception ex)
             {
-                Logger.Error<TestWithDatabaseBase>("Could not remove the old database file", ex);
+                Logger.Error<TestWithDatabaseBase>(ex, "Could not remove the old database file");
 
                 // swallow this exception - that's because a sub class might require further teardown logic
                 onFail?.Invoke(ex);
@@ -374,11 +376,11 @@ namespace Umbraco.Tests.TestHelpers
             var umbracoContext = new UmbracoContext(
                 httpContext,
                 service,
-                new WebSecurity(httpContext, Container.GetInstance<IUserService>(),
-                Container.GetInstance<IGlobalSettings>()),
-                umbracoSettings ?? Container.GetInstance<IUmbracoSettingsSection>(),
+                new WebSecurity(httpContext, Factory.GetInstance<IUserService>(),
+                    Factory.GetInstance<IGlobalSettings>()),
+                umbracoSettings ?? Factory.GetInstance<IUmbracoSettingsSection>(),
                 urlProviders ?? Enumerable.Empty<IUrlProvider>(),
-                globalSettings ?? Container.GetInstance<IGlobalSettings>(),
+                globalSettings ?? Factory.GetInstance<IGlobalSettings>(),
                 new TestVariationContextAccessor());
 
             if (setSingleton)

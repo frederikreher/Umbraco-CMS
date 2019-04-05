@@ -18,6 +18,18 @@ namespace Umbraco.Core.PropertyEditors
         bool IsConverter(PublishedPropertyType propertyType);
 
         /// <summary>
+        /// Determines whether a value is an actual value, or not a value.
+        /// </summary>
+        /// <remarks>
+        /// <para>Called for Source, Inter and Object levels, until one does not return null.</para>
+        /// <para>Can return true (is a value), false (is not a value), or null to indicate that it
+        /// cannot be determined at the specified level. For instance, if source is a string that
+        /// could contain JSON, the decision could be made on the intermediate value. Or, if it is
+        /// a picker, it could be made on the object value (the actual picked object).</para>
+        /// </remarks>
+        bool? IsValue(object value, PropertyValueLevel level);
+
+        /// <summary>
         /// Gets the type of values returned by the converter.
         /// </summary>
         /// <param name="propertyType">The property type.</param>
@@ -50,7 +62,7 @@ namespace Umbraco.Core.PropertyEditors
         /// <para>The converter should be prepared to handle both situations.</para>
         /// <para>When source values are strings, the converter must handle empty strings, whitespace
         /// strings, and xml-whitespace strings appropriately, ie it should know whether to preserve
-        /// whitespaces.</para>
+        /// white spaces.</para>
         /// </remarks>
         object ConvertSourceToIntermediate(IPublishedElement owner, PublishedPropertyType propertyType, object source, bool preview);
 
@@ -87,7 +99,7 @@ namespace Umbraco.Core.PropertyEditors
         /// indicating that no value has been assigned to the property. It is up to the converter to determine
         /// what to return in that case: either <c>null</c>, or the default value...</para>
         /// <para>If successful, the result should be either <c>null</c>, a string, or an <c>XPathNavigator</c>
-        /// instance. Whether an xml-whitespace string should be returned as <c>null</c> or litterally, is
+        /// instance. Whether an xml-whitespace string should be returned as <c>null</c> or literally, is
         /// up to the converter.</para>
         /// <para>The converter may want to return an XML fragment that represent a part of the content tree,
         /// but should pay attention not to create infinite loops that would kill XPath and XSLT.</para>

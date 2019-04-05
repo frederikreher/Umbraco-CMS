@@ -1,7 +1,9 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using AutoMapper;
 using Umbraco.Core.Models;
+using Umbraco.Core.Services;
 using Umbraco.Web.Models.ContentEditing;
 
 namespace Umbraco.Web.Models.Mapping
@@ -11,16 +13,26 @@ namespace Umbraco.Web.Models.Mapping
     /// </summary>
     internal class MemberBasicPropertiesResolver : IValueResolver<IMember, MemberBasic, IEnumerable<ContentPropertyBasic>>
     {
+        private readonly IUmbracoContextAccessor _umbracoContextAccessor;
+        private readonly IMemberTypeService _memberTypeService;
+
+        public MemberBasicPropertiesResolver(IUmbracoContextAccessor umbracoContextAccessor, IMemberTypeService memberTypeService)
+        {
+            _umbracoContextAccessor = umbracoContextAccessor ?? throw new ArgumentNullException(nameof(umbracoContextAccessor));
+            _memberTypeService = memberTypeService ?? throw new ArgumentNullException(nameof(memberTypeService));
+        }
+
         public IEnumerable<ContentPropertyBasic> Resolve(IMember source, MemberBasic destination, IEnumerable<ContentPropertyBasic> destMember, ResolutionContext context)
         {
-            var umbracoContext = context.GetUmbracoContext();
+            var umbracoContext = _umbracoContextAccessor.UmbracoContext;
+            if (umbracoContext == null) throw new InvalidOperationException("Cannot resolve value without an UmbracoContext available");
 
             var result = Mapper.Map<IEnumerable<Property>, IEnumerable<ContentPropertyBasic>>(
                     // Sort properties so items from different compositions appear in correct order (see U4-9298). Map sorted properties.
                     source.Properties.OrderBy(prop => prop.PropertyType.SortOrder))
                 .ToList();
 
-            var memberType = source.ContentType;
+            var memberType = _memberTypeService.Get(source.ContentTypeId);
 
             //now update the IsSensitive value
             foreach (var prop in result)

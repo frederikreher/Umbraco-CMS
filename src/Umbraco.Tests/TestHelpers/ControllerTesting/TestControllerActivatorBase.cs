@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -9,26 +8,19 @@ using System.Web.Http.Controllers;
 using System.Web.Http.Dispatcher;
 using System.Web.Security;
 using Moq;
-using Semver;
-using Umbraco.Core;
 using Umbraco.Core.Cache;
-using Umbraco.Core.Composing;
-using Umbraco.Core.Configuration;
 using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.Dictionary;
-using Umbraco.Core.Models;
 using Umbraco.Core.Models.Membership;
 using Umbraco.Core.Models.PublishedContent;
 using Umbraco.Core.Security;
 using Umbraco.Core.Services;
-using Umbraco.Tests.TestHelpers.Stubs;
 using Umbraco.Web;
 using Umbraco.Web.PublishedCache;
 using Umbraco.Web.Routing;
 using Umbraco.Web.Security;
 using Umbraco.Web.WebApi;
-using LightInject;
-using System.Globalization;
+using Umbraco.Core.Logging;
 using Umbraco.Tests.Testing.Objects.Accessors;
 
 namespace Umbraco.Tests.TestHelpers.ControllerTesting
@@ -58,7 +50,7 @@ namespace Umbraco.Tests.TestHelpers.ControllerTesting
             var mockedDataTypeService = Mock.Of<IDataTypeService>();
             var mockedContentTypeService = Mock.Of<IContentTypeService>();
 
-            var serviceContext = new ServiceContext(
+            var serviceContext = ServiceContext.CreatePartial(
                 userService: mockedUserService,
                 contentService: mockedContentService,
                 mediaService: mockedMediaService,
@@ -67,12 +59,11 @@ namespace Umbraco.Tests.TestHelpers.ControllerTesting
                 memberTypeService: mockedMemberTypeService,
                 dataTypeService: mockedDataTypeService,
                 contentTypeService: mockedContentTypeService,
-                localizedTextService:Mock.Of<ILocalizedTextService>(),
-                sectionService:Mock.Of<ISectionService>());
+                localizedTextService:Mock.Of<ILocalizedTextService>());
 
             var globalSettings = SettingsForTests.GenerateMockGlobalSettings();
 
-            // fixme v8?
+            // FIXME: v8?
             ////new app context
             //var dbCtx = new Mock<DatabaseContext>(Mock.Of<IDatabaseFactory>(), Mock.Of<ILogger>(), Mock.Of<ISqlSyntaxProvider>(), "test");
             ////ensure these are set so that the appctx is 'Configured'
@@ -96,7 +87,11 @@ namespace Umbraco.Tests.TestHelpers.ControllerTesting
             var httpContext = Mock.Of<HttpContextBase>(
                 http => http.User == owinContext.Authentication.User
                         //ensure the request exists with a cookies collection
-                        && http.Request == Mock.Of<HttpRequestBase>(r => r.Cookies == new HttpCookieCollection())
+                        && http.Request == Mock.Of<HttpRequestBase>(r => r.Cookies == new HttpCookieCollection()
+                            && r.RequestContext == new System.Web.Routing.RequestContext
+                            {
+                                RouteData = new System.Web.Routing.RouteData()
+                            })
                         //ensure the request exists with an items collection
                         && http.Items == httpContextItems);
             //chuck it into the props since this is what MS does when hosted and it's needed there
@@ -137,44 +132,35 @@ namespace Umbraco.Tests.TestHelpers.ControllerTesting
             var publishedSnapshotService = new Mock<IPublishedSnapshotService>();
             publishedSnapshotService.Setup(x => x.CreatePublishedSnapshot(It.IsAny<string>())).Returns(publishedSnapshot.Object);
 
-            //var umbracoContextAccessor = new TestUmbracoContextAccessor();
-            //Umbraco.Web.Composing.Current.UmbracoContextAccessor = umbracoContextAccessor;
             var umbracoContextAccessor = Umbraco.Web.Composing.Current.UmbracoContextAccessor;
-            Current.Container.Register(factory => umbracoContextAccessor.UmbracoContext); // but really, should we inject this?!
 
-            var umbCtx = UmbracoContext.EnsureContext(
-                umbracoContextAccessor,
-                httpContext,
+            var umbCtx = new UmbracoContext(httpContext,
                 publishedSnapshotService.Object,
                 webSecurity.Object,
-                Mock.Of<IUmbracoSettingsSection>(section => section.WebRouting == Mock.Of<IWebRoutingSection>(routingSection => routingSection.UrlProviderMode == UrlProviderMode.Auto.ToString())),
+                Mock.Of<IUmbracoSettingsSection>(section => section.WebRouting == Mock.Of<IWebRoutingSection>(routingSection => routingSection.UrlProviderMode == "Auto")),
                 Enumerable.Empty<IUrlProvider>(),
                 globalSettings,
-                new TestVariationContextAccessor(),
-                true); //replace it
+                new TestVariationContextAccessor());
+
+            //replace it
+            umbracoContextAccessor.UmbracoContext = umbCtx;
 
             var urlHelper = new Mock<IUrlProvider>();
             urlHelper.Setup(provider => provider.GetUrl(It.IsAny<UmbracoContext>(), It.IsAny<IPublishedContent>(), It.IsAny<UrlProviderMode>(), It.IsAny<string>(), It.IsAny<Uri>()))
-                .Returns("/hello/world/1234");
+                .Returns(UrlInfo.Url("/hello/world/1234"));
 
-            var membershipHelper = new MembershipHelper(umbCtx, Mock.Of<MembershipProvider>(), Mock.Of<RoleProvider>());
+            var membershipHelper = new MembershipHelper(umbCtx.HttpContext, Mock.Of<IPublishedMemberCache>(), Mock.Of<MembershipProvider>(), Mock.Of<RoleProvider>(), Mock.Of<IMemberService>(), Mock.Of<IMemberTypeService>(), Mock.Of<IUserService>(), Mock.Of<IPublicAccessService>(), Mock.Of<AppCaches>(), Mock.Of<ILogger>());
 
-            var mockedTypedContent = Mock.Of<IPublishedContentQuery>();
-
-            var umbHelper = new UmbracoHelper(umbCtx,
-                Mock.Of<IPublishedContent>(),
-                mockedTypedContent,
+            var umbHelper = new UmbracoHelper(Mock.Of<IPublishedContent>(),
                 Mock.Of<ITagQuery>(),
-                Mock.Of<IDataTypeService>(),
-                Mock.Of<ICultureDictionary>(),
+                Mock.Of<ICultureDictionaryFactory>(),
                 Mock.Of<IUmbracoComponentRenderer>(),
-                membershipHelper,
-                serviceContext,
-                CacheHelper.NoCache);
+                Mock.Of<IPublishedContentQuery>(),
+                membershipHelper);
 
-            return CreateController(controllerType, request, umbHelper);
+            return CreateController(controllerType, request, umbracoContextAccessor, umbHelper);
         }
 
-        protected abstract ApiController CreateController(Type controllerType, HttpRequestMessage msg, UmbracoHelper helper);
+        protected abstract ApiController CreateController(Type controllerType, HttpRequestMessage msg, IUmbracoContextAccessor umbracoContextAccessor, UmbracoHelper helper);
     }
 }

@@ -8,25 +8,27 @@ using Umbraco.Core.IO;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models.Membership;
 using Umbraco.Core.Persistence.Mappers;
+using Umbraco.Core.Persistence.DatabaseModelDefinitions;
 using Umbraco.Core.Persistence.Repositories;
 using Umbraco.Core.Persistence.Repositories.Implement;
 using Umbraco.Core.Scoping;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.TestHelpers.Entities;
 using Umbraco.Tests.Testing;
+using Umbraco.Core.Persistence;
 
 namespace Umbraco.Tests.Persistence.Repositories
 {
     [TestFixture]
-    [UmbracoTest(Database = UmbracoTestOptions.Database.NewSchemaPerTest, WithApplication = true)]
+    [UmbracoTest(Database = UmbracoTestOptions.Database.NewSchemaPerTest, WithApplication = true, Logger = UmbracoTestOptions.Logger.Console)]
     public class UserRepositoryTest : TestWithDatabaseBase
     {
         private MediaRepository CreateMediaRepository(IScopeProvider provider, out IMediaTypeRepository mediaTypeRepository)
         {
             var accessor = (IScopeAccessor) provider;
-            mediaTypeRepository = new MediaTypeRepository(accessor, CacheHelper, Mock.Of<ILogger>());
-            var tagRepository = new TagRepository(accessor, CacheHelper, Mock.Of<ILogger>());
-            var repository = new MediaRepository(accessor, CacheHelper, Mock.Of<ILogger>(), mediaTypeRepository, tagRepository, Mock.Of<IContentSection>(), Mock.Of<ILanguageRepository>());
+            mediaTypeRepository = new MediaTypeRepository(accessor, AppCaches, Mock.Of<ILogger>());
+            var tagRepository = new TagRepository(accessor, AppCaches, Mock.Of<ILogger>());
+            var repository = new MediaRepository(accessor, AppCaches, Mock.Of<ILogger>(), mediaTypeRepository, tagRepository, Mock.Of<ILanguageRepository>());
             return repository;
         }
 
@@ -39,25 +41,25 @@ namespace Umbraco.Tests.Persistence.Repositories
         private DocumentRepository CreateContentRepository(IScopeProvider provider, out IContentTypeRepository contentTypeRepository, out ITemplateRepository templateRepository)
         {
             var accessor = (IScopeAccessor) provider;
-            templateRepository = new TemplateRepository(accessor, CacheHelper, Logger, Mock.Of<ITemplatesSection>(), Mock.Of<IFileSystem>(), Mock.Of<IFileSystem>());
-            var tagRepository = new TagRepository(accessor, CacheHelper, Logger);
-            contentTypeRepository = new ContentTypeRepository(accessor, CacheHelper, Logger, templateRepository);
-            var languageRepository = new LanguageRepository(accessor, CacheHelper, Logger);
-            var repository = new DocumentRepository(accessor, CacheHelper, Logger, contentTypeRepository, templateRepository, tagRepository, languageRepository, Mock.Of<IContentSection>());
+            templateRepository = new TemplateRepository(accessor, AppCaches, Logger, TestObjects.GetFileSystemsMock());
+            var tagRepository = new TagRepository(accessor, AppCaches, Logger);
+            contentTypeRepository = new ContentTypeRepository(accessor, AppCaches, Logger, templateRepository);
+            var languageRepository = new LanguageRepository(accessor, AppCaches, Logger);
+            var repository = new DocumentRepository(accessor, AppCaches, Logger, contentTypeRepository, templateRepository, tagRepository, languageRepository);
             return repository;
         }
 
         private UserRepository CreateRepository(IScopeProvider provider)
         {
             var accessor = (IScopeAccessor) provider;
-            var repository = new UserRepository(accessor, CacheHelper.CreateDisabledCacheHelper(), Mock.Of<ILogger>(), Mock.Of<IMapperCollection>(), TestObjects.GetGlobalSettings());
+            var repository = new UserRepository(accessor, AppCaches.Disabled, Logger, Mappers, TestObjects.GetGlobalSettings());
             return repository;
         }
 
         private UserGroupRepository CreateUserGroupRepository(IScopeProvider provider)
         {
             var accessor = (IScopeAccessor) provider;
-            return new UserGroupRepository(accessor, CacheHelper.CreateDisabledCacheHelper(), Mock.Of<ILogger>());
+            return new UserGroupRepository(accessor, AppCaches.Disabled, Logger);
         }
 
         [Test]
@@ -73,7 +75,7 @@ namespace Umbraco.Tests.Persistence.Repositories
 
                 // Act
                 repository.Save(user);
-                
+
 
                 // Assert
                 Assert.That(user.HasIdentity, Is.True);
@@ -94,9 +96,9 @@ namespace Umbraco.Tests.Persistence.Repositories
 
                 // Act
                 repository.Save(user1);
-                
+
                 repository.Save(use2);
-                
+
 
                 // Assert
                 Assert.That(user1.HasIdentity, Is.True);
@@ -115,7 +117,7 @@ namespace Umbraco.Tests.Persistence.Repositories
 
                 var user = MockedUser.CreateUser();
                 repository.Save(user);
-                
+
 
                 // Act
                 var resolved = repository.Get((int)user.Id);
@@ -130,9 +132,7 @@ namespace Umbraco.Tests.Persistence.Repositories
         public void Can_Perform_Update_On_UserRepository()
         {
             var ct = MockedContentTypes.CreateBasicContentType("test");
-            var content = MockedContent.CreateBasicContent(ct);
             var mt = MockedContentTypes.CreateSimpleMediaType("testmedia", "TestMedia");
-            var media = MockedMedia.CreateSimpleMedia(mt, "asdf", -1);
 
             // Arrange
             var provider = TestObjects.GetScopeProvider(Logger);
@@ -145,11 +145,12 @@ namespace Umbraco.Tests.Persistence.Repositories
 
                 contentTypeRepo.Save(ct);
                 mediaTypeRepo.Save(mt);
-                
+
+                var content = MockedContent.CreateBasicContent(ct);
+                var media = MockedMedia.CreateSimpleMedia(mt, "asdf", -1);
 
                 contentRepository.Save(content);
                 mediaRepository.Save(media);
-                
 
                 var user = CreateAndCommitUserWithGroup(userRepository, userGroupRepository);
 
@@ -169,7 +170,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 resolved.Username = "newName";
 
                 userRepository.Save(resolved);
-                
+
                 var updatedItem = (User) userRepository.Get(user.Id);
 
                 // Assert
@@ -202,13 +203,13 @@ namespace Umbraco.Tests.Persistence.Repositories
 
                 // Act
                 repository.Save(user);
-                
+
                 var id = user.Id;
 
-                var repository2 = new UserRepository((IScopeAccessor) provider, CacheHelper.CreateDisabledCacheHelper(), Logger, Mock.Of<IMapperCollection>(),TestObjects.GetGlobalSettings());
+                var repository2 = new UserRepository((IScopeAccessor) provider, AppCaches.Disabled, Logger, Mock.Of<IMapperCollection>(),TestObjects.GetGlobalSettings());
 
                 repository2.Delete(user);
-                
+
 
                 var resolved = repository2.Get((int) id);
 
@@ -232,8 +233,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 // Act
                 var updatedItem = repository.Get(user.Id);
 
-                // fixme
-                // this test cannot work, user has 2 sections but the way it's created,
+                // FIXME: this test cannot work, user has 2 sections but the way it's created,
                 // they don't show, so the comparison with updatedItem fails - fix!
 
                 // Assert
@@ -338,7 +338,72 @@ namespace Umbraco.Tests.Persistence.Repositories
                 var result = repository.Count(query);
 
                 // Assert
-                Assert.That(result, Is.GreaterThanOrEqualTo(2));
+                Assert.AreEqual(2, result);
+            }
+        }
+
+        [Test]
+        public void Can_Get_Paged_Results_By_Query_And_Filter_And_Groups()
+        {
+            var provider = TestObjects.GetScopeProvider(Logger);
+            using (var scope = provider.CreateScope())
+            {
+                var repository = CreateRepository(provider);
+
+                var users = CreateAndCommitMultipleUsers(repository);
+                var query = provider.SqlContext.Query<IUser>().Where(x => x.Username == "TestUser1" || x.Username == "TestUser2");
+
+                try
+                {
+                    scope.Database.AsUmbracoDatabase().EnableSqlTrace = true;
+                    scope.Database.AsUmbracoDatabase().EnableSqlCount = true;
+
+                    // Act
+                    var result = repository.GetPagedResultsByQuery(query, 0, 10, out var totalRecs, user => user.Id, Direction.Ascending,
+                            excludeUserGroups: new[] { Constants.Security.TranslatorGroupAlias },
+                            filter: provider.SqlContext.Query<IUser>().Where(x => x.Id > -1));
+
+                    // Assert
+                    Assert.AreEqual(2, totalRecs);
+                }
+                finally
+                {
+                    scope.Database.AsUmbracoDatabase().EnableSqlTrace = false;
+                    scope.Database.AsUmbracoDatabase().EnableSqlCount = false;
+                }
+            }
+
+        }
+
+        [Test]
+        public void Can_Get_Paged_Results_With_Filter_And_Groups()
+        {
+            var provider = TestObjects.GetScopeProvider(Logger);
+            using (var scope = provider.CreateScope())
+            {
+                var repository = CreateRepository(provider);
+
+                var users = CreateAndCommitMultipleUsers(repository);
+
+                try
+                {
+                    scope.Database.AsUmbracoDatabase().EnableSqlTrace = true;
+                    scope.Database.AsUmbracoDatabase().EnableSqlCount = true;
+
+                    // Act
+                    var result = repository.GetPagedResultsByQuery(null, 0, 10, out var totalRecs, user => user.Id, Direction.Ascending,
+                        includeUserGroups: new[] { Constants.Security.AdminGroupAlias, Constants.Security.SensitiveDataGroupAlias },
+                        excludeUserGroups: new[] { Constants.Security.TranslatorGroupAlias },
+                        filter: provider.SqlContext.Query<IUser>().Where(x => x.Id == -1));
+
+                    // Assert
+                    Assert.AreEqual(1, totalRecs);
+                }
+                finally
+                {
+                    scope.Database.AsUmbracoDatabase().EnableSqlTrace = false;
+                    scope.Database.AsUmbracoDatabase().EnableSqlCount = false;
+                }
             }
         }
 
@@ -363,7 +428,7 @@ namespace Umbraco.Tests.Persistence.Repositories
         {
             var user = MockedUser.CreateUser();
             repository.Save(user);
-            
+
 
             var group = MockedUserGroup.CreateUserGroup();
             userGroupRepository.AddOrUpdateGroupWithUsers(@group, new[] { user.Id });

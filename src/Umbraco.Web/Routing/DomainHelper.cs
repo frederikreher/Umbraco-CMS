@@ -30,10 +30,10 @@ namespace Umbraco.Web.Routing
         /// <param name="culture">The culture, or null.</param>
         /// <returns>The domain and its uri, if any, that best matches the specified uri and culture, else null.</returns>
         /// <remarks>
-        /// <para>f at least a domain is set on the node then the method returns the domain that
+        /// <para>If at least a domain is set on the node then the method returns the domain that
         /// best matches the specified uri and culture, else it returns null.</para>
-        /// <para>If culture is null, uses the default culture for the installation instead.</para>
-        /// fixme not exactly - if culture is !null, we MUST have a value for THAT culture, else we use default as hint
+        /// <para>If culture is null, uses the default culture for the installation instead. Otherwise,
+        /// will try with the specified culture, else return null.</para>
         /// </remarks>
         internal DomainAndUri DomainForNode(int nodeId, Uri current, string culture = null)
         {
@@ -49,13 +49,9 @@ namespace Umbraco.Web.Routing
                 return null;
 
             // else filter
-            var domainAndUri = SelectDomain(domains, current, culture, _domainCache.DefaultCulture,
+            // it could be that none apply (due to culture)
+            return SelectDomain(domains, current, culture, _domainCache.DefaultCulture,
                 (cdomainAndUris, ccurrent, cculture, cdefaultCulture) => _siteDomainHelper.MapDomain(cdomainAndUris, ccurrent, cculture, cdefaultCulture));
-
-            if (domainAndUri == null)
-                throw new Exception("DomainForUri returned null.");
-
-            return domainAndUri;
         }
 
         /// <summary>
@@ -111,7 +107,7 @@ namespace Umbraco.Web.Routing
         /// <param name="filter">An optional function to filter the list of domains, if more than one applies.</param>
         /// <returns>The domain and its normalized uri, that best matches the specified uri and cultures.</returns>
         /// <remarks>
-        /// fixme - must document and explain this all
+        /// TODO: must document and explain this all
         /// <para>If <paramref name="uri"/> is null, pick the first domain that matches <paramref name="culture"/>,
         /// else the first that matches <paramref name="defaultCulture"/>, else the first one (ordered by id), else null.</para>
         /// <para>If <paramref name="uri"/> is not null, look for domains that would be a base uri of the current uri,</para>
@@ -135,8 +131,8 @@ namespace Umbraco.Web.Routing
                 return null;
 
             // sanitize cultures
-            culture = culture.NullEmpty();
-            defaultCulture = defaultCulture.NullEmpty();
+            culture = culture.NullOrWhiteSpaceAsNull();
+            defaultCulture = defaultCulture.NullOrWhiteSpaceAsNull();
 
             if (uri == null)
             {
@@ -202,13 +198,12 @@ namespace Umbraco.Web.Routing
 
         private static IReadOnlyCollection<DomainAndUri> SelectByCulture(IReadOnlyCollection<DomainAndUri> domainsAndUris, string culture, string defaultCulture)
         {
+            // we try our best to match cultures, but may end with a bogus domain
+
             if (culture != null) // try the supplied culture
             {
                 var cultureDomains = domainsAndUris.Where(x => x.Culture.Name.InvariantEquals(culture)).ToList();
                 if (cultureDomains.Count > 0) return cultureDomains;
-
-                // if a culture is supplied, we *want* a url for that culture, else fail
-                throw new InvalidOperationException($"Could not find a domain for culture \"{culture}\".");
             }
 
             if (defaultCulture != null) // try the defaultCulture culture
@@ -224,13 +219,12 @@ namespace Umbraco.Web.Routing
         {
             DomainAndUri domainAndUri;
 
+            // we try our best to match cultures, but may end with a bogus domain
+
             if (culture != null) // try the supplied culture
             {
                 domainAndUri = domainsAndUris.FirstOrDefault(x => x.Culture.Name.InvariantEquals(culture));
                 if (domainAndUri != null) return domainAndUri;
-
-                // if a culture is supplied, we *want* a url for that culture, else fail
-                throw new InvalidOperationException($"Could not find a domain for culture \"{culture}\".");
             }
 
             if (defaultCulture != null) // try the defaultCulture culture
@@ -250,7 +244,7 @@ namespace Umbraco.Web.Routing
         /// <returns>The domains and their normalized uris, that match the specified uri.</returns>
         internal static IEnumerable<DomainAndUri> SelectDomains(IEnumerable<Domain> domains, Uri uri)
         {
-            // fixme where are we matching ?!!?
+            // TODO: where are we matching ?!!?
             return domains
                 .Where(d => d.IsWildcard == false)
                 .Select(d => new DomainAndUri(d, uri))

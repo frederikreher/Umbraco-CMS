@@ -3,6 +3,8 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Web.Http.Filters;
+using Umbraco.Core;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Models;
 using Umbraco.Web.Models;
@@ -26,7 +28,7 @@ namespace Umbraco.Web.Editors
                     var result = check.CheckUpgrade(UmbracoVersion.Current.Major,
                                                     UmbracoVersion.Current.Minor,
                                                     UmbracoVersion.Current.Build,
-                                                    UmbracoVersion.CurrentComment);
+                                                    UmbracoVersion.Comment);
 
                     return new UpgradeCheckResponse(result.UpgradeType.ToString(), result.Comment, result.UpgradeUrl);
                 }
@@ -58,9 +60,9 @@ namespace Umbraco.Web.Editors
                 var cookie = new CookieHeaderValue("UMB_UPDCHK", "1")
                     {
                         Path = "/",
-                        Expires = DateTimeOffset.Now.AddDays(UmbracoConfig.For.GlobalSettings().VersionCheckPeriod),
+                        Expires = DateTimeOffset.Now.AddDays(Current.Configs.Global().VersionCheckPeriod),
                         HttpOnly = true,
-                        Secure = UmbracoConfig.For.GlobalSettings().UseHttps
+                        Secure = Current.Configs.Global().UseHttps
                     };
                 context.Response.Headers.AddCookies(new[] { cookie });
             }

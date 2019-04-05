@@ -6,8 +6,12 @@
  * @description
  * The controller for the media editor
  */
-function mediaEditController($scope, $routeParams, appState, mediaResource, entityResource, navigationService, notificationsService, angularHelper, serverValidationManager, contentEditingHelper, fileManager, treeService, formHelper, umbModelMapper, editorState, umbRequestHelper, $http) {
+function mediaEditController($scope, $routeParams, $q, appState, mediaResource, 
+    entityResource, navigationService, notificationsService, localizationService, 
+    serverValidationManager, contentEditingHelper, fileManager, formHelper, 
+    editorState, umbRequestHelper, $http, eventsService) {
     
+    var evts = [];
     var nodeId = null;
     var create = false;
     var infiniteMode = $scope.model && $scope.model.infiniteMode;
@@ -39,10 +43,98 @@ function mediaEditController($scope, $routeParams, appState, mediaResource, enti
     $scope.page.menu.currentNode = null; //the editors affiliated node
     $scope.page.listViewPath = null;
     $scope.page.saveButtonState = "init";
-    $scope.page.submitButtonLabel = "Save";
+    $scope.page.submitButtonLabelKey = "buttons_save";
+    $scope.app = null;
 
+    if (create) {
+
+        $scope.page.loading = true;
+
+        mediaResource.getScaffold(nodeId, $routeParams.doctype)
+            .then(function (data) {
+                $scope.content = data;
+
+                init();
+
+                $scope.page.loading = false;
+
+            });
+    }
+    else {
+        $scope.page.loading = true;
+        loadMedia()
+            .then(function(){
+                $scope.page.loading = false;
+            });
+    }
+
+    function init() {
+        
+        var content = $scope.content;
+        
+        // we need to check wether an app is present in the current data, if not we will present the default app.
+        var isAppPresent = false;
+        
+        // on first init, we dont have any apps. but if we are re-initializing, we do, but ...
+        if ($scope.app) {
+            
+            // lets check if it still exists as part of our apps array. (if not we have made a change to our docType, even just a re-save of the docType it will turn into new Apps.)
+            _.forEach(content.apps, function(app) {
+                if (app === $scope.app) {
+                    isAppPresent = true;
+                }
+            });
+            
+            // if we did reload our DocType, but still have the same app we will try to find it by the alias.
+            if (isAppPresent === false) {
+                _.forEach(content.apps, function(app) {
+                    if (app.alias === $scope.app.alias) {
+                        isAppPresent = true;
+                        app.active = true;
+                        $scope.appChanged(app);
+                    }
+                });
+            }
+            
+        }
+        
+        // if we still dont have a app, lets show the first one:
+        if (isAppPresent === false) {
+            content.apps[0].active = true;
+            $scope.appChanged(content.apps[0]);
+        }
+        
+
+        editorState.set($scope.content);
+        
+        bindEvents();
+
+    }
+    
+    function bindEvents() {
+        //bindEvents can be called more than once and we don't want to have multiple bound events
+        for (var e in evts) {
+            eventsService.unsubscribe(evts[e]);
+        }
+        
+        evts.push(eventsService.on("editors.mediaType.saved", function(name, args) {
+            // if this media item uses the updated media type we need to reload the media item
+            if(args && args.mediaType && args.mediaType.key === $scope.content.contentType.key) {
+                $scope.page.loading = true;
+                loadMedia().then(function() {
+                    $scope.page.loading = false;
+                });
+            }
+        }));
+    }
+    $scope.page.submitButtonLabelKey = "buttons_save";
+    
     /** Syncs the content item to it's tree node - this occurs on first load and after saving */
     function syncTreeNode(content, path, initialLoad) {
+
+        if (infiniteMode) {
+            return;
+        }
 
         if (!$scope.content.isChildOfListView) {
             navigationService.syncTree({ tree: "media", path: path.split(","), forceReload: initialLoad !== true }).then(function (syncArgs) {
@@ -64,30 +156,74 @@ function mediaEditController($scope, $routeParams, appState, mediaResource, enti
         }
     }
 
-    if (create) {
+    /** Just shows a simple notification that there are client side validation issues to be fixed */
+    function showValidationNotification() {
+        //TODO: We need to make the validation UI much better, there's a lot of inconsistencies in v8 including colors, issues with the property groups and validation errors between variants
 
-        $scope.page.loading = true;
-
-        mediaResource.getScaffold(nodeId, $routeParams.doctype)
-            .then(function (data) {
-                $scope.content = data;
-
-                editorState.set($scope.content);
-
-                // We don't get the info tab from the server from version 7.8 so we need to manually add it
-                //contentEditingHelper.addInfoTab($scope.content.tabs);
-
-                init($scope.content);
-
-                $scope.page.loading = false;
-
-            });
+        //need to show a notification else it's not clear there was an error.
+        localizationService.localizeMany([
+                "speechBubbles_validationFailedHeader",
+                "speechBubbles_validationFailedMessage"
+            ]
+        ).then(function (data) {
+            notificationsService.error(data[0], data[1]);
+        });
     }
-    else {
 
-        $scope.page.loading = true;
+    $scope.save = function () {
 
-        mediaResource.getById(nodeId)
+        if (formHelper.submitForm({ scope: $scope })) {
+            
+            $scope.page.saveButtonState = "busy";
+
+            mediaResource.save($scope.content, create, fileManager.getFiles())
+                .then(function(data) {
+
+                    formHelper.resetForm({ scope: $scope });
+
+                    contentEditingHelper.handleSuccessfulSave({
+                        scope: $scope,
+                        savedContent: data,
+                        redirectOnSuccess: !infiniteMode,
+                        rebindCallback: contentEditingHelper.reBindChangedProperties($scope.content, data)
+                    });
+
+                    editorState.set($scope.content);
+                    
+                    syncTreeNode($scope.content, data.path);
+
+                    init();
+
+                    $scope.page.saveButtonState = "success";
+
+                    // close the editor if it's infinite mode
+                    if(infiniteMode && $scope.model.submit) {
+                        $scope.model.mediaNode = $scope.content;
+                        $scope.model.submit($scope.model);
+                    }
+
+                }, function(err) {
+
+                    contentEditingHelper.handleSaveError({
+                        err: err,
+                        redirectOnFailure: !infiniteMode,
+                        rebindCallback: contentEditingHelper.reBindChangedProperties($scope.content, err.data)
+                    });
+                    
+                    editorState.set($scope.content);
+                    $scope.page.saveButtonState = "error";
+
+                });
+        }
+        else {
+            showValidationNotification();   
+        }
+        
+    };
+
+    function loadMedia() {
+
+        return mediaResource.getById(nodeId)
             .then(function (data) {
 
                 $scope.content = data;
@@ -104,7 +240,7 @@ function mediaEditController($scope, $routeParams, appState, mediaResource, enti
                 // route but there might be server validation errors in the collection which we need to display
                 // after the redirect, so we will bind all subscriptions which will show the server validation errors
                 // if there are any and then clear them so the collection no longer persists them.
-                serverValidationManager.executeAndClearAllSubscriptions();
+                serverValidationManager.notifyAndClearAllSubscriptions();
 
                 if(!infiniteMode) {
                     syncTreeNode($scope.content, data.path, true); 
@@ -118,135 +254,15 @@ function mediaEditController($scope, $routeParams, appState, mediaResource, enti
                         });
                 }
 
-                // We don't get the info tab from the server from version 7.8 so we need to manually add it
-                //contentEditingHelper.addInfoTab($scope.content.tabs);
-
-                init($scope.content);
+                init();
 
                 $scope.page.loading = false;
 
+                $q.resolve($scope.content);
+
             });
-    }
-
-    function init(content) {
-
-        // prototype content and info apps
-        var contentApp = {
-            "name": "Content",
-            "alias": "content",
-            "icon": "icon-document",
-            "view": "views/media/apps/content/content.html"
-        };
-
-        var infoApp = {
-            "name": "Info",
-            "alias": "info",
-            "icon": "icon-info",
-            "view": "views/media/apps/info/info.html"
-        };
-
-        var listview = {
-            "name": "Child items",
-            "alias": "childItems",
-            "icon": "icon-list",
-            "view": "views/media/apps/listview/listview.html"
-        };
-
-        $scope.content.apps = [];
-
-        if($scope.content.contentTypeAlias === "Folder") {
-          // add list view app
-          $scope.content.apps.push(listview);
-            
-          // remove the list view tab
-          angular.forEach($scope.content.tabs, function(tab, index){
-            if(tab.alias === "Contents") {
-              tab.hide = true;
-            }
-          });
-
-        } else {
-            $scope.content.apps.push(contentApp);
-        }
-        
-        $scope.content.apps.push(infoApp);
-        
-        // set first app to active
-        $scope.content.apps[0].active = true;
-
-        // setup infinite mode
-        if(infiniteMode) {
-            $scope.page.submitButtonLabel = "Save and Close";
-        }
 
     }
-    
-    $scope.save = function () {
-
-        if (!$scope.busy && formHelper.submitForm({ scope: $scope })) {
-
-            $scope.busy = true;
-            $scope.page.saveButtonState = "busy";
-
-            mediaResource.save($scope.content, create, fileManager.getFiles())
-                .then(function(data) {
-
-                    formHelper.resetForm({ scope: $scope, notifications: data.notifications });
-
-                    contentEditingHelper.handleSuccessfulSave({
-                        scope: $scope,
-                        savedContent: data,
-                        redirectOnSuccess: !infiniteMode,
-                        rebindCallback: contentEditingHelper.reBindChangedProperties($scope.content, data)
-                    });
-
-                    editorState.set($scope.content);
-                    $scope.busy = false;
-
-                    // when don't want to sync the tree when the editor is open in infinite mode
-                    if(!infiniteMode) {
-                        syncTreeNode($scope.content, data.path);
-                    }
-
-                    init($scope.content);
-
-                    $scope.page.saveButtonState = "success";
-
-                    // close the editor if it's infinite mode
-                    if(infiniteMode && $scope.model.submit) {
-                        $scope.model.mediaNode = $scope.content;
-                        $scope.model.submit($scope.model);
-                    }
-
-                }, function(err) {
-
-                    contentEditingHelper.handleSaveError({
-                        err: err,
-                        redirectOnError: !infiniteMode,
-                        rebindCallback: contentEditingHelper.reBindChangedProperties($scope.content, err.data)
-                    });
-                    
-                    //show any notifications
-                    if (angular.isArray(err.data.notifications)) {
-                        for (var i = 0; i < err.data.notifications.length; i++) {
-                            notificationsService.showNotification(err.data.notifications[i]);
-                        }
-                    }
-
-                    editorState.set($scope.content);
-                    $scope.busy = false;
-                    $scope.page.saveButtonState = "error";
-
-                });
-        }else{
-            $scope.busy = false;
-        }
-        
-    };
-
-    $scope.backToListView = function() {
-        $location.path($scope.page.listViewPath);
-    };
 
     $scope.close = function() {
         if($scope.model.close) {
@@ -254,7 +270,22 @@ function mediaEditController($scope, $routeParams, appState, mediaResource, enti
         }
     };
 
+    $scope.appChanged = function (app) {
+        $scope.app = app;
+        
+        // setup infinite mode
+        if(infiniteMode) {
+            $scope.page.submitButtonLabelKey = "buttons_saveAndClose";
+        }
+    }
+
+    //ensure to unregister from all events!
+    $scope.$on('$destroy', function () {
+        for (var e in evts) {
+            eventsService.unsubscribe(evts[e]);
+        }
+    });
+
 }
 
-angular.module("umbraco")
-    .controller("Umbraco.Editors.Media.EditController", mediaEditController);
+angular.module("umbraco").controller("Umbraco.Editors.Media.EditController", mediaEditController);

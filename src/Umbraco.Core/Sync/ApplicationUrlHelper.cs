@@ -26,7 +26,7 @@ namespace Umbraco.Core.Sync
         /// in config files but is determined programmatically.</para>
         /// <para>Must be assigned before resolution is frozen.</para>
         /// </remarks>
-        // FIXME need another way to do it, eg an interface, injected!
+        // TODO: need another way to do it, eg an interface, injected!
         public static Func<HttpRequestBase, string> ApplicationUrlProvider { get; set; }
 
         internal static string GetApplicationUrl(ILogger logger, IGlobalSettings globalSettings, IUmbracoSettingsSection settings, IServerRegistrar serverRegistrar, HttpRequestBase request = null)
@@ -39,14 +39,14 @@ namespace Umbraco.Core.Sync
             if (string.IsNullOrWhiteSpace(umbracoApplicationUrl) == false)
             {
                 umbracoApplicationUrl = umbracoApplicationUrl.TrimEnd('/');
-                logger.Info(TypeOfApplicationUrlHelper, "ApplicationUrl: " + umbracoApplicationUrl + " (provider)");
+                logger.Info(TypeOfApplicationUrlHelper, "ApplicationUrl: {UmbracoAppUrl} (provider)", umbracoApplicationUrl);
                 return umbracoApplicationUrl;
             }
 
             if (request == null) return null;
 
             umbracoApplicationUrl = GetApplicationUrlFromCurrentRequest(request, globalSettings);
-            logger.Info(TypeOfApplicationUrlHelper, "ApplicationUrl: " + umbracoApplicationUrl + " (UmbracoModule request)");
+            logger.Info(TypeOfApplicationUrlHelper, "ApplicationUrl: {UmbracoAppUrl} (UmbracoModule request)", umbracoApplicationUrl);
             return umbracoApplicationUrl;
         }
 
@@ -62,23 +62,7 @@ namespace Umbraco.Core.Sync
             if (url.IsNullOrWhiteSpace() == false)
             {
                 var umbracoApplicationUrl = url.TrimEnd('/');
-                logger.Info(TypeOfApplicationUrlHelper, "ApplicationUrl: " + umbracoApplicationUrl + " (using web.routing/@umbracoApplicationUrl)");
-                return umbracoApplicationUrl;
-            }
-
-            // try umbracoSettings:settings/scheduledTasks/@baseUrl
-            // which is assumed to:
-            // - end with SystemDirectories.Umbraco
-            // - NOT contain any scheme (because, legacy)
-            // - end or not with a slash, it will be taken care of
-            // eg "mysite.com/umbraco"
-            url = settings.ScheduledTasks.BaseUrl;
-            if (url.IsNullOrWhiteSpace() == false)
-            {
-                var ssl = globalSettings.UseHttps ? "s" : "";
-                url = "http" + ssl + "://" + url;
-                var umbracoApplicationUrl = url.TrimEnd('/');
-                logger.Info(TypeOfApplicationUrlHelper, "ApplicationUrl: " + umbracoApplicationUrl + " (using scheduledTasks/@baseUrl)");
+                logger.Info(TypeOfApplicationUrlHelper, "ApplicationUrl: {UmbracoAppUrl} (using web.routing/@umbracoApplicationUrl)", umbracoApplicationUrl);
                 return umbracoApplicationUrl;
             }
 
@@ -92,7 +76,7 @@ namespace Umbraco.Core.Sync
             if (url.IsNullOrWhiteSpace() == false)
             {
                 var umbracoApplicationUrl = url.TrimEnd('/');
-                logger.Info(TypeOfApplicationUrlHelper, "ApplicationUrl: " + umbracoApplicationUrl + " (IServerRegistrar)");
+                logger.Info(TypeOfApplicationUrlHelper, "ApplicationUrl: {UmbracoAppUrl} (IServerRegistrar)", umbracoApplicationUrl);
                 return umbracoApplicationUrl;
             }
 
@@ -107,7 +91,7 @@ namespace Umbraco.Core.Sync
             // otherwise,
             //  if non-standard ports used,
             //  user may need to set umbracoApplicationUrl manually per
-            //  http://our.umbraco.org/documentation/Using-Umbraco/Config-files/umbracoSettings/#ScheduledTasks
+            //  https://our.umbraco.com/documentation/Using-Umbraco/Config-files/umbracoSettings/#ScheduledTasks
             var port = (request.IsSecureConnection == false && globalSettings.UseHttps == false)
                         || (request.IsSecureConnection && globalSettings.UseHttps)
                 ? ":" + request.ServerVariables["SERVER_PORT"]

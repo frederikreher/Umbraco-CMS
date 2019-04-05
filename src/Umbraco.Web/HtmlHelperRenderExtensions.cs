@@ -1,22 +1,21 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Web;
+using System.Web.Helpers;
 using System.Web.Mvc;
 using System.Web.Mvc.Html;
 using System.Web.Routing;
 using Umbraco.Core;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Exceptions;
 using Umbraco.Core.IO;
-using Umbraco.Core.Models.PublishedContent;
-using Umbraco.Web.Composing;
 using Umbraco.Web.Models;
 using Umbraco.Web.Mvc;
 using Umbraco.Web.Security;
-using Constants = Umbraco.Core.Constants;
+using Current = Umbraco.Web.Composing.Current;
 
 namespace Umbraco.Web
 {
@@ -64,12 +63,12 @@ namespace Umbraco.Web
         /// </remarks>
         public static MvcHtmlString PreviewBadge(this HtmlHelper helper)
         {
-            if (UmbracoContext.Current.InPreviewMode)
+            if (Current.UmbracoContext.InPreviewMode)
             {
                 var htmlBadge =
-                    String.Format(UmbracoConfig.For.UmbracoSettings().Content.PreviewBadge,
+                    String.Format(Current.Configs.Settings().Content.PreviewBadge,
                                   IOHelper.ResolveUrl(SystemDirectories.Umbraco),
-                                  UmbracoContext.Current.HttpContext.Server.UrlEncode(UmbracoContext.Current.HttpContext.Request.Path));
+                                  Current.UmbracoContext.HttpContext.Server.UrlEncode(Current.UmbracoContext.HttpContext.Request.Path));
                 return new MvcHtmlString(htmlBadge);
             }
             return new MvcHtmlString("");
@@ -89,24 +88,24 @@ namespace Umbraco.Web
             var cacheKey = new StringBuilder(partialViewName);
             if (cacheByPage)
             {
-                if (UmbracoContext.Current == null)
+                if (Current.UmbracoContext == null)
                 {
                     throw new InvalidOperationException("Cannot cache by page if the UmbracoContext has not been initialized, this parameter can only be used in the context of an Umbraco request");
                 }
-                cacheKey.AppendFormat("{0}-", UmbracoContext.Current.PageId);
+                cacheKey.AppendFormat("{0}-", Current.UmbracoContext.PublishedRequest?.PublishedContent?.Id ?? 0);
             }
             if (cacheByMember)
             {
-                var helper = new MembershipHelper(Current.UmbracoContext);
+                var helper = Current.Factory.GetInstance<MembershipHelper>();
                 var currentMember = helper.GetCurrentMember();
-                cacheKey.AppendFormat("m{0}-", currentMember == null ? 0 : currentMember.Id);
+                cacheKey.AppendFormat("m{0}-", currentMember?.Id ?? 0);
             }
             if (contextualKeyBuilder != null)
             {
                 var contextualKey = contextualKeyBuilder(model, viewData);
                 cacheKey.AppendFormat("c{0}-", contextualKey);
             }
-            return Current.ApplicationCache.CachedPartialView(htmlHelper, partialViewName, model, cachedSeconds, cacheKey.ToString(), viewData);
+            return Current.AppCaches.CachedPartialView(htmlHelper, partialViewName, model, cachedSeconds, cacheKey.ToString(), viewData);
         }
 
         public static MvcHtmlString EditorFor<T>(this HtmlHelper htmlHelper, string templateName = "", string htmlFieldName = "", object additionalViewData = null)
@@ -141,7 +140,7 @@ namespace Umbraco.Web
                 return htmlHelper.ValidationSummary(excludePropertyErrors, message, htmlAttributes);
             }
 
-            //if there's a prefix applied, we need to create a new html helper with a filtered ModelState collection so that it only looks for
+            //if there's a prefix applied, we need to create a new HTML helper with a filtered ModelState collection so that it only looks for
             //specific model state with the prefix.
             var filteredHtmlHelper = new HtmlHelper(htmlHelper.ViewContext, htmlHelper.ViewDataContainer.FilterContainer(prefix));
             return filteredHtmlHelper.ValidationSummary(excludePropertyErrors, message, htmlAttributes);
@@ -222,19 +221,31 @@ namespace Umbraco.Web
             {
                 _viewContext = viewContext;
                 _method = method;
-                _encryptedString = UmbracoHelper.CreateEncryptedRouteString(controllerName, controllerAction, area, additionalRouteVals);
+			    _controllerName = controllerName;
+                _encryptedString = UrlHelperRenderExtensions.CreateEncryptedRouteString(controllerName, controllerAction, area, additionalRouteVals);
             }
 
             private readonly ViewContext _viewContext;
             private readonly FormMethod _method;
             private bool _disposed;
             private readonly string _encryptedString;
+		    private readonly string _controllerName;
 
             protected override void Dispose(bool disposing)
             {
                 if (this._disposed)
                     return;
                 this._disposed = true;
+
+                //Detect if the call is targeting UmbRegisterController/UmbProfileController/UmbLoginStatusController/UmbLoginController and if it is we automatically output a AntiForgeryToken()
+                // We have a controllerName and area so we can match
+                if (_controllerName == "UmbRegister"
+                    || _controllerName == "UmbProfile"
+                    || _controllerName == "UmbLoginStatus"
+                    || _controllerName == "UmbLogin")
+			    {
+			        _viewContext.Writer.Write(AntiForgery.GetHtml().ToString());
+			    }
 
                 //write out the hidden surface form routes
                 _viewContext.Writer.Write("<input name='ufprt' type='hidden' value='" + _encryptedString + "' />");
@@ -679,7 +690,7 @@ namespace Umbraco.Web
             if (string.IsNullOrEmpty(action)) throw new ArgumentNullOrEmptyException(nameof(action));
             if (string.IsNullOrEmpty(controllerName)) throw new ArgumentNullOrEmptyException(nameof(controllerName));
 
-            var formAction = UmbracoContext.Current.OriginalRequestUrl.PathAndQuery;
+            var formAction = Current.UmbracoContext.OriginalRequestUrl.PathAndQuery;
             return html.RenderForm(formAction, method, htmlAttributes, controllerName, action, area, additionalRouteVals);
         }
 
@@ -725,7 +736,7 @@ namespace Umbraco.Web
                                           object additionalRouteVals = null)
         {
 
-            //ensure that the multipart/form-data is added to the html attributes
+            //ensure that the multipart/form-data is added to the HTML attributes
             if (htmlAttributes.ContainsKey("enctype") == false)
             {
                 htmlAttributes.Add("enctype", "multipart/form-data");
@@ -819,7 +830,186 @@ namespace Umbraco.Web
         }
 
         #endregion
-        
 
+        #region If
+
+        /// <summary>
+        /// If the test is true, the string valueIfTrue will be returned, otherwise the valueIfFalse will be returned.
+        /// </summary>
+        public static IHtmlString If(this HtmlHelper html, bool test, string valueIfTrue, string valueIfFalse)
+        {
+            return test ? new HtmlString(valueIfTrue) : new HtmlString(valueIfFalse);
+        }
+
+        /// <summary>
+        /// If the test is true, the string valueIfTrue will be returned, otherwise the valueIfFalse will be returned.
+        /// </summary>
+        public static IHtmlString If(this HtmlHelper html, bool test, string valueIfTrue)
+        {
+            return test ? new HtmlString(valueIfTrue) : new HtmlString(string.Empty);
+        }
+
+        #endregion
+
+        #region Strings
+
+        private static readonly HtmlStringUtilities StringUtilities = new HtmlStringUtilities();
+
+        /// <summary>
+        /// Replaces text line breaks with HTML line breaks
+        /// </summary>
+        /// <param name="helper"></param>
+        /// <param name="text">The text.</param>
+        /// <returns>The text with text line breaks replaced with HTML line breaks (<br/>)</returns>
+        public static IHtmlString ReplaceLineBreaksForHtml(this HtmlHelper helper, string text)
+        {
+            return StringUtilities.ReplaceLineBreaksForHtml(text);
+        }
+
+        /// <summary>
+        /// Generates a hash based on the text string passed in.  This method will detect the
+        /// security requirements (is FIPS enabled) and return an appropriate hash.
+        /// </summary>
+        /// <param name="helper"></param>
+        /// <param name="text">The text to create a hash from</param>
+        /// <returns>Hash of the text string</returns>
+        public static string CreateHash(this HtmlHelper helper, string text)
+        {
+            return text.GenerateHash();
+        }
+
+        /// <summary>
+        /// Strips all HTML tags from a given string, all contents of the tags will remain.
+        /// </summary>
+        public static IHtmlString StripHtml(this HtmlHelper helper, IHtmlString html, params string[] tags)
+        {
+            return helper.StripHtml(html.ToHtmlString(), tags);
+        }
+
+        /// <summary>
+        /// Strips all HTML tags from a given string, all contents of the tags will remain.
+        /// </summary>
+        public static IHtmlString StripHtml(this HtmlHelper helper, string html, params string[] tags)
+        {
+            return StringUtilities.StripHtmlTags(html, tags);
+        }
+
+        /// <summary>
+        /// Will take the first non-null value in the collection and return the value of it.
+        /// </summary>
+        public static string Coalesce(this HtmlHelper helper, params object[] args)
+        {
+            return StringUtilities.Coalesce(args);
+        }
+
+        /// <summary>
+        /// Joins any number of int/string/objects into one string
+        /// </summary>
+        public static string Concatenate(this HtmlHelper helper, params object[] args)
+        {
+            return StringUtilities.Concatenate(args);
+        }
+
+        /// <summary>
+        /// Joins any number of int/string/objects into one string and separates them with the string separator parameter.
+        /// </summary>
+        public static string Join(this HtmlHelper helper, string separator, params object[] args)
+        {
+            return StringUtilities.Join(separator, args);
+        }
+
+        /// <summary>
+        /// Truncates a string to a given length, can add a ellipsis at the end (...). Method checks for open HTML tags, and makes sure to close them
+        /// </summary>
+        public static IHtmlString Truncate(this HtmlHelper helper, IHtmlString html, int length)
+        {
+            return helper.Truncate(html.ToHtmlString(), length, true, false);
+        }
+
+        /// <summary>
+        /// Truncates a string to a given length, can add a ellipsis at the end (...). Method checks for open HTML tags, and makes sure to close them
+        /// </summary>
+        public static IHtmlString Truncate(this HtmlHelper helper, IHtmlString html, int length, bool addElipsis)
+        {
+            return helper.Truncate(html.ToHtmlString(), length, addElipsis, false);
+        }
+
+        /// <summary>
+        /// Truncates a string to a given length, can add a ellipsis at the end (...). Method checks for open HTML tags, and makes sure to close them
+        /// </summary>
+        public static IHtmlString Truncate(this HtmlHelper helper, IHtmlString html, int length, bool addElipsis, bool treatTagsAsContent)
+        {
+            return helper.Truncate(html.ToHtmlString(), length, addElipsis, treatTagsAsContent);
+        }
+
+        /// <summary>
+        /// Truncates a string to a given length, can add a ellipsis at the end (...). Method checks for open HTML tags, and makes sure to close them
+        /// </summary>
+        public static IHtmlString Truncate(this HtmlHelper helper, string html, int length)
+        {
+            return helper.Truncate(html, length, true, false);
+        }
+
+        /// <summary>
+        /// Truncates a string to a given length, can add a ellipsis at the end (...). Method checks for open HTML tags, and makes sure to close them
+        /// </summary>
+        public static IHtmlString Truncate(this HtmlHelper helper, string html, int length, bool addElipsis)
+        {
+            return helper.Truncate(html, length, addElipsis, false);
+        }
+
+        /// <summary>
+        /// Truncates a string to a given length, can add a ellipsis at the end (...). Method checks for open HTML tags, and makes sure to close them
+        /// </summary>
+        public static IHtmlString Truncate(this HtmlHelper helper, string html, int length, bool addElipsis, bool treatTagsAsContent)
+        {
+            return StringUtilities.Truncate(html, length, addElipsis, treatTagsAsContent);
+        }
+
+        #region Truncate by Words
+
+        /// <summary>
+        /// Truncates a string to a given amount of words, can add a ellipsis at the end (...). Method checks for open HTML tags, and makes sure to close them
+        /// </summary>
+        public static IHtmlString TruncateByWords(this HtmlHelper helper, string html, int words)
+        {
+            int length = StringUtilities.WordsToLength(html, words);
+
+            return helper.Truncate(html, length, true, false);
+        }
+
+        /// <summary>
+        /// Truncates a string to a given amount of words, can add a ellipsis at the end (...). Method checks for open HTML tags, and makes sure to close them
+        /// </summary>
+        public static IHtmlString TruncateByWords(this HtmlHelper helper, string html, int words, bool addElipsis)
+        {
+            int length = StringUtilities.WordsToLength(html, words);
+
+            return helper.Truncate(html, length, addElipsis, false);
+        }
+
+        /// <summary>
+        /// Truncates a string to a given amount of words, can add a ellipsis at the end (...). Method checks for open HTML tags, and makes sure to close them
+        /// </summary>
+        public static IHtmlString TruncateByWords(this HtmlHelper helper, IHtmlString html, int words)
+        {
+            int length = StringUtilities.WordsToLength(html.ToHtmlString(), words);
+
+            return helper.Truncate(html, length, true, false);
+        }
+
+        /// <summary>
+        /// Truncates a string to a given amount of words, can add a ellipsis at the end (...). Method checks for open HTML tags, and makes sure to close them
+        /// </summary>
+        public static IHtmlString TruncateByWords(this HtmlHelper helper, IHtmlString html, int words, bool addElipsis)
+        {
+            int length = StringUtilities.WordsToLength(html.ToHtmlString(), words);
+
+            return helper.Truncate(html, length, addElipsis, false);
+        }
+
+        #endregion
+
+        #endregion
     }
 }

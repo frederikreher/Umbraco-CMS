@@ -12,7 +12,10 @@ angular.module("umbraco").controller("Umbraco.PropertyEditors.DropdownFlexibleCo
 
         //map back to the model
         $scope.model.config = config;
-        
+
+        //ensure this is a bool, old data could store zeros/ones or string versions
+        $scope.model.config.multiple = Object.toBoolean($scope.model.config.multiple);
+
         function convertArrayToDictionaryArray(model){
             //now we need to format the items in the dictionary because we always want to have an array
             var newItems = [];
@@ -74,8 +77,16 @@ angular.module("umbraco").controller("Umbraco.PropertyEditors.DropdownFlexibleCo
         // if we run in single mode we'll store the value in a local variable
         // so we can pass an array as the model as our PropertyValueEditor expects that
         $scope.model.singleDropdownValue = "";
-        if ($scope.model.config.multiple === "0") {
+        if (!Object.toBoolean($scope.model.config.multiple) && $scope.model.value) {
             $scope.model.singleDropdownValue = Array.isArray($scope.model.value) ? $scope.model.value[0] : $scope.model.value;
         }
 
+        // if we run in multiple mode, make sure the model is an array (in case the property was previously saved in single mode)
+        // also explicitly set the model to null if it's an empty array, so mandatory validation works on the client
+        if ($scope.model.config.multiple === "1" && $scope.model.value) {
+            $scope.model.value = !Array.isArray($scope.model.value) ? [$scope.model.value] : $scope.model.value;
+            if ($scope.model.value.length === 0) {
+                $scope.model.value = null;
+            }
+        }
     });

@@ -1,15 +1,19 @@
-﻿using System.Collections.Generic;
+﻿using AutoMapper;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Web.Http;
-using AutoMapper;
+using Umbraco.Core;
+using Umbraco.Core.Cache;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.IO;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
+using Umbraco.Core.Persistence;
 using Umbraco.Core.Services;
 using Umbraco.Web.Models.ContentEditing;
 using Umbraco.Web.Mvc;
-using Umbraco.Web.WebApi;
 using Umbraco.Web.WebApi.Filters;
 using Constants = Umbraco.Core.Constants;
 
@@ -19,6 +23,11 @@ namespace Umbraco.Web.Editors
     [UmbracoTreeAuthorize(Constants.Trees.Templates)]
     public class TemplateController : BackOfficeNotificationsController
     {
+        public TemplateController(IGlobalSettings globalSettings, IUmbracoContextAccessor umbracoContextAccessor, ISqlContext sqlContext, ServiceContext services, AppCaches appCaches, IProfilingLogger logger, IRuntimeState runtimeState, UmbracoHelper umbracoHelper)
+            : base(globalSettings, umbracoContextAccessor, sqlContext, services, appCaches, logger, runtimeState, umbracoHelper)
+        {
+        }
+
         /// <summary>
         /// Gets data type by alias
         /// </summary>
@@ -54,7 +63,7 @@ namespace Umbraco.Web.Editors
         }
 
         /// <summary>
-        /// Deletes a template wth a given ID
+        /// Deletes a template with a given ID
         /// </summary>
         /// <param name="id"></param>
         /// <returns></returns>
@@ -144,7 +153,7 @@ namespace Umbraco.Web.Editors
                                     continue;
                                 }
 
-                                //Find position in current comma seperate string path (so we get the correct children path)
+                                //Find position in current comma separate string path (so we get the correct children path)
                                 var positionInPath = childTemplate.Path.IndexOf(templateIdInPath) + templateIdInPath.Length;
 
                                 //Get the substring of the child & any children (descendants it may have too)
@@ -186,8 +195,7 @@ namespace Umbraco.Web.Editors
                         throw new HttpResponseException(HttpStatusCode.NotFound);
                 }
 
-                var template = Services.FileService.CreateTemplateWithIdentity(display.Name, display.Content, master);
-                //template = Services.FileService.GetTemplate(template.Id);
+                var template = Services.FileService.CreateTemplateWithIdentity(display.Name, display.Alias, display.Content, master);
                 Mapper.Map(template, display);
             }
 

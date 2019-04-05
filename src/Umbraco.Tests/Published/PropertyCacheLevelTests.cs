@@ -118,8 +118,8 @@ namespace Umbraco.Tests.Published
                 publishedContentTypeFactory.CreatePropertyType("prop1", 1),
             });
 
-            var elementsCache = new DictionaryCacheProvider();
-            var snapshotCache = new DictionaryCacheProvider();
+            var elementsCache = new FastDictionaryAppCache();
+            var snapshotCache = new FastDictionaryAppCache();
 
             var publishedSnapshot = new Mock<IPublishedSnapshot>();
             publishedSnapshot.Setup(x => x.SnapshotCache).Returns(snapshotCache);
@@ -209,6 +209,9 @@ namespace Umbraco.Tests.Published
 
             public int SourceConverts { get; private set; }
             public int InterConverts { get; private set; }
+
+            public bool? IsValue(object value, PropertyValueLevel level)
+                => value != null && (!(value is string) || string.IsNullOrWhiteSpace((string) value) == false);
 
             public bool IsConverter(PublishedPropertyType propertyType)
                 => propertyType.EditorAlias.InvariantEquals("Umbraco.Void");

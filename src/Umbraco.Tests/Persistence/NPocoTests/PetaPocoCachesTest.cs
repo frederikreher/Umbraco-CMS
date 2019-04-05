@@ -15,7 +15,7 @@ using Umbraco.Tests.Testing;
 
 namespace Umbraco.Tests.Persistence.NPocoTests
 {
-    // fixme.npoco - what shall we do with those tests?
+    // FIXME: npoco - what shall we do with those tests?
     //
     [TestFixture, Ignore("fixme - ignored test")]
     [UmbracoTest(Database = UmbracoTestOptions.Database.NewSchemaPerTest)]
@@ -125,19 +125,13 @@ namespace Umbraco.Tests.Persistence.NPocoTests
 
             contentService.GetByLevel(2);
 
-            contentService.GetChildren(id1);
-
-            contentService.GetDescendants(id2);
-
             contentService.GetVersions(id3);
 
             contentService.GetRootContent();
 
-            contentService.GetContentForExpiration();
+            contentService.GetContentForExpiration(DateTime.Now);
 
-            contentService.GetContentForRelease();
-
-            contentService.GetContentInRecycleBin();
+            contentService.GetContentForRelease(DateTime.Now);
 
             ((ContentService)contentService).GetPublishedDescendants(new Content("Test", -1, new ContentType(-1))
             {
@@ -187,13 +181,13 @@ namespace Umbraco.Tests.Persistence.NPocoTests
             contentTypeService.Save(contentType);
             var content1 = MockedContent.CreateSimpleContent(contentType, "Tagged content 1", -1);
             content1.AssignTags("tags", new[] { "hello", "world", "some", "tags" });
-            content1.TryPublishValues();
+            content1.PublishCulture(CultureImpact.Invariant);
             contentService.SaveAndPublish(content1);
             id2 = content1.Id;
 
             var content2 = MockedContent.CreateSimpleContent(contentType, "Tagged content 2", -1);
             content2.AssignTags("tags", new[] { "hello", "world", "some", "tags" });
-            content2.TryPublishValues();
+            content2.PublishCulture(CultureImpact.Invariant);
             contentService.SaveAndPublish(content2);
             id3 = content2.Id;
 

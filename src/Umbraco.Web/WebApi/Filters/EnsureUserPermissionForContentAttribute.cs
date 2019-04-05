@@ -5,7 +5,12 @@ using System.Web.Http.Filters;
 using Umbraco.Core.Exceptions;
 using Umbraco.Web.Composing;
 using Umbraco.Web.Editors;
-using Umbraco.Web._Legacy.Actions;
+
+using Umbraco.Core;
+using Umbraco.Core.Models;
+using Umbraco.Web.Actions;
+using Umbraco.Core.Security;
+using System.Net;
 
 namespace Umbraco.Web.WebApi.Filters
 {
@@ -33,11 +38,17 @@ namespace Umbraco.Web.WebApi.Filters
             _nodeId = nodeId;
         }
 
+        public EnsureUserPermissionForContentAttribute(int nodeId, char permissionToCheck)
+            : this(nodeId)
+        {
+            _permissionToCheck = permissionToCheck;
+        }
+
         public EnsureUserPermissionForContentAttribute(string paramName)
         {
             if (string.IsNullOrEmpty(paramName)) throw new ArgumentNullOrEmptyException(nameof(paramName));
             _paramName = paramName;
-            _permissionToCheck = ActionBrowse.Instance.Letter;
+            _permissionToCheck = ActionBrowse.ActionLetter;
         }
 
         public EnsureUserPermissionForContentAttribute(string paramName, char permissionToCheck)
@@ -50,7 +61,7 @@ namespace Umbraco.Web.WebApi.Filters
 
         public override void OnActionExecuting(HttpActionContext actionContext)
         {
-            if (UmbracoContext.Current.Security.CurrentUser == null)
+            if (Current.UmbracoContext.Security.CurrentUser == null)
             {
                 //not logged in
                 throw new HttpResponseException(System.Net.HttpStatusCode.Unauthorized);
@@ -68,7 +79,25 @@ namespace Umbraco.Web.WebApi.Filters
 
                 if (parts.Length == 1)
                 {
-                    nodeId = (int)actionContext.ActionArguments[parts[0]];
+                    var argument = actionContext.ActionArguments[parts[0]].ToString();
+                    // if the argument is an int, it will parse and can be assigned to nodeId
+                    // if might be a udi, so check that next
+                    // otherwise treat it as a guid - unlikely we ever get here
+                    if (int.TryParse(argument, out int parsedId))
+                    {
+                        nodeId = parsedId;
+                    }
+                    else if (Udi.TryParse(argument, true, out Udi udi))
+                    {
+                        // TODO: inject? we can't because this is an attribute but we could provide ctors and empty ctors that pass in the required services
+                        nodeId = Current.Services.EntityService.GetId(udi).Result;
+                    }
+                    else
+                    {
+                        Guid.TryParse(argument, out Guid key);
+                        // TODO: inject? we can't because this is an attribute but we could provide ctors and empty ctors that pass in the required services
+                        nodeId = Current.Services.EntityService.GetId(key, UmbracoObjectTypes.Document).Result;
+                    }
                 }
                 else
                 {
@@ -87,24 +116,27 @@ namespace Umbraco.Web.WebApi.Filters
                 nodeId = _nodeId.Value;
             }
 
-            if (ContentController.CheckPermissions(
-                actionContext.Request.Properties,
-                UmbracoContext.Current.Security.CurrentUser,
+            var permissionResult = ContentPermissionsHelper.CheckPermissions(nodeId,
+                Current.UmbracoContext.Security.CurrentUser,
                 Current.Services.UserService,
                 Current.Services.ContentService,
                 Current.Services.EntityService,
-                nodeId, _permissionToCheck.HasValue ? new[]{_permissionToCheck.Value}: null))
-            {
-                base.OnActionExecuting(actionContext);
-            }
-            else
-            {
+                out var contentItem,
+                _permissionToCheck.HasValue ? new[] { _permissionToCheck.Value } : null);
+
+            if (permissionResult == ContentPermissionsHelper.ContentAccess.NotFound)
+                throw new HttpResponseException(HttpStatusCode.NotFound);
+
+            if (permissionResult == ContentPermissionsHelper.ContentAccess.Denied)
                 throw new HttpResponseException(actionContext.Request.CreateUserNoAccessResponse());
+
+            if (contentItem != null)
+            {
+                //store the content item in request cache so it can be resolved in the controller without re-looking it up
+                actionContext.Request.Properties[typeof(IContent).ToString()] = contentItem;
             }
 
+            base.OnActionExecuting(actionContext);
         }
-
-
-
     }
 }

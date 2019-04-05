@@ -15,7 +15,7 @@ using static Umbraco.Core.Persistence.NPocoSqlExtensions.Statics;
 
 namespace Umbraco.Web.PublishedCache.NuCache.DataSource
 {
-    // fixme - use SqlTemplate for these queries else it's going to be horribly slow!
+    // TODO: use SqlTemplate for these queries else it's going to be horribly slow!
 
     // provides efficient database access for NuCache
     internal class DatabaseDataSource : IDataSource
@@ -66,7 +66,7 @@ namespace Umbraco.Web.PublishedCache.NuCache.DataSource
         public ContentNodeKit GetContentSource(IScope scope, int id)
         {
             var sql = ContentSourcesSelect(scope)
-                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Document && x.NodeId == id)
+                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Document && x.NodeId == id && !x.Trashed)
                 .OrderBy<NodeDto>(x => x.Level, x => x.SortOrder);
 
             var dto = scope.Database.Fetch<ContentSourceDto>(sql).FirstOrDefault();
@@ -76,7 +76,7 @@ namespace Umbraco.Web.PublishedCache.NuCache.DataSource
         public IEnumerable<ContentNodeKit> GetAllContentSources(IScope scope)
         {
             var sql = ContentSourcesSelect(scope)
-                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Document)
+                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Document && !x.Trashed)
                 .OrderBy<NodeDto>(x => x.Level, x => x.SortOrder);
 
             return scope.Database.Query<ContentSourceDto>(sql).Select(CreateContentNodeKit);
@@ -89,7 +89,7 @@ namespace Umbraco.Web.PublishedCache.NuCache.DataSource
 
                     .InnerJoin<NodeDto>("x").On<NodeDto, NodeDto>((left, right) => left.NodeId == right.NodeId || SqlText<bool>(left.Path, right.Path, (lp, rp) => $"({lp} LIKE {syntax.GetConcat(rp, "',%'")})"), aliasRight: "x"))
 
-                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Document)
+                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Document && !x.Trashed)
                 .Where<NodeDto>(x => x.NodeId == id, "x")
                 .OrderBy<NodeDto>(x => x.Level, x => x.SortOrder);
 
@@ -99,7 +99,7 @@ namespace Umbraco.Web.PublishedCache.NuCache.DataSource
         public IEnumerable<ContentNodeKit> GetTypeContentSources(IScope scope, IEnumerable<int> ids)
         {
             var sql = ContentSourcesSelect(scope)
-                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Document)
+                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Document && !x.Trashed)
                 .WhereIn<ContentDto>(x => x.ContentTypeId, ids)
                 .OrderBy<NodeDto>(x => x.Level, x => x.SortOrder);
 
@@ -137,17 +137,17 @@ namespace Umbraco.Web.PublishedCache.NuCache.DataSource
         public ContentNodeKit GetMediaSource(IScope scope, int id)
         {
             var sql = MediaSourcesSelect(scope)
-                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Media && x.NodeId == id)
+                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Media && x.NodeId == id && !x.Trashed)
                 .OrderBy<NodeDto>(x => x.Level, x => x.SortOrder);
 
             var dto = scope.Database.Fetch<ContentSourceDto>(sql).FirstOrDefault();
-            return dto == null ? new ContentNodeKit() : CreateContentNodeKit(dto);
+            return dto == null ? new ContentNodeKit() : CreateMediaNodeKit(dto);
         }
 
         public IEnumerable<ContentNodeKit> GetAllMediaSources(IScope scope)
         {
             var sql = MediaSourcesSelect(scope)
-                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Media)
+                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Media && !x.Trashed)
                 .OrderBy<NodeDto>(x => x.Level, x => x.SortOrder);
 
             return scope.Database.Query<ContentSourceDto>(sql).Select(CreateMediaNodeKit);
@@ -160,7 +160,7 @@ namespace Umbraco.Web.PublishedCache.NuCache.DataSource
 
                     .InnerJoin<NodeDto>("x").On<NodeDto, NodeDto>((left, right) => left.NodeId == right.NodeId || SqlText<bool>(left.Path, right.Path, (lp, rp) => $"({lp} LIKE {syntax.GetConcat(rp, "',%'")})"), aliasRight: "x"))
 
-                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Media)
+                .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Media && !x.Trashed)
                 .Where<NodeDto>(x => x.NodeId == id, "x")
                 .OrderBy<NodeDto>(x => x.Level, x => x.SortOrder);
 
@@ -170,7 +170,7 @@ namespace Umbraco.Web.PublishedCache.NuCache.DataSource
         public IEnumerable<ContentNodeKit> GetTypeMediaSources(IScope scope, IEnumerable<int> ids)
         {
             var sql = MediaSourcesSelect(scope)
-                    .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Media)
+                    .Where<NodeDto>(x => x.NodeObjectType == Constants.ObjectTypes.Media && !x.Trashed)
                     .WhereIn<ContentDto>(x => x.ContentTypeId, ids)
                     .OrderBy<NodeDto>(x => x.Level, x => x.SortOrder);
 
@@ -182,27 +182,30 @@ namespace Umbraco.Web.PublishedCache.NuCache.DataSource
             ContentData d = null;
             ContentData p = null;
 
-            if (dto.EditData == null)
+            if (dto.Edited)
             {
-                if (Debugger.IsAttached)
-                    throw new Exception("Missing cmsContentNu edited content for node " + dto.Id + ", consider rebuilding.");
-                Current.Logger.Warn<DatabaseDataSource>("Missing cmsContentNu edited content for node " + dto.Id + ", consider rebuilding.");
-            }
-            else
-            {
-                var nested = DeserializeNestedData(dto.EditData);
-
-                d = new ContentData
+                if (dto.EditData == null)
                 {
-                    Name = dto.EditName,
-                    Published = false,
-                    TemplateId = dto.EditTemplateId,
-                    VersionId = dto.VersionId,
-                    VersionDate = dto.EditVersionDate,
-                    WriterId = dto.EditWriterId,
-                    Properties = nested.PropertyData,
-                    CultureInfos = nested.CultureData
-                };
+                    if (Debugger.IsAttached)
+                        throw new Exception("Missing cmsContentNu edited content for node " + dto.Id + ", consider rebuilding.");
+                    Current.Logger.Warn<DatabaseDataSource>("Missing cmsContentNu edited content for node {NodeId}, consider rebuilding.", dto.Id);
+                }
+                else
+                {
+                    var nested = DeserializeNestedData(dto.EditData);
+
+                    d = new ContentData
+                    {
+                        Name = dto.EditName,
+                        Published = false,
+                        TemplateId = dto.EditTemplateId,
+                        VersionId = dto.VersionId,
+                        VersionDate = dto.EditVersionDate,
+                        WriterId = dto.EditWriterId,
+                        Properties = nested.PropertyData,
+                        CultureInfos = nested.CultureData
+                    };
+                }
             }
 
             if (dto.Published)
@@ -211,7 +214,7 @@ namespace Umbraco.Web.PublishedCache.NuCache.DataSource
                 {
                     if (Debugger.IsAttached)
                         throw new Exception("Missing cmsContentNu published content for node " + dto.Id + ", consider rebuilding.");
-                    Current.Logger.Warn<DatabaseDataSource>("Missing cmsContentNu published content for node " + dto.Id + ", consider rebuilding.");
+                    Current.Logger.Warn<DatabaseDataSource>("Missing cmsContentNu published content for node {NodeId}, consider rebuilding.", dto.Id);
                 }
                 else
                 {
@@ -220,6 +223,7 @@ namespace Umbraco.Web.PublishedCache.NuCache.DataSource
                     p = new ContentData
                     {
                         Name = dto.PubName,
+                        UrlSegment = nested.UrlSegment,
                         Published = true,
                         TemplateId = dto.PubTemplateId,
                         VersionId = dto.VersionId,

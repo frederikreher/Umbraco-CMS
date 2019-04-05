@@ -1,33 +1,26 @@
-﻿using System;
-using System.Web;
+﻿using System.Web;
 
 namespace Umbraco.Core.IO
 {
     //all paths has a starting but no trailing /
     public class SystemDirectories
     {
-        //TODO: Why on earth is this even configurable? You cannot change the /Bin folder in ASP.Net
-        public static string Bin => IOHelper.ReturnPath("umbracoBinDirectory", "~/bin");
+        public static string Bin => "~/bin";
 
-        public static string Base => IOHelper.ReturnPath("umbracoBaseDirectory", "~/base");
+        public static string Config => "~/config";
 
-        public static string Config => IOHelper.ReturnPath("umbracoConfigDirectory", "~/config");
+        public static string Data => "~/App_Data";
 
-        public static string Css => IOHelper.ReturnPath("umbracoCssDirectory", "~/css");
+        public static string TempData => Data + "/TEMP";
 
-        public static string Data => IOHelper.ReturnPath("umbracoStorageDirectory", "~/App_Data");
+        public static string TempFileUploads => TempData + "/FileUploads";
 
-        public static string Install => IOHelper.ReturnPath("umbracoInstallPath", "~/install");
+        public static string Install => "~/install";
 
-        public static string Masterpages => IOHelper.ReturnPath("umbracoMasterPagesPath", "~/masterpages");
-
-        //NOTE: this is not configurable and shouldn't need to be
         public static string AppCode => "~/App_Code";
 
-        //NOTE: this is not configurable and shouldn't need to be
         public static string AppPlugins => "~/App_Plugins";
 
-        //NOTE: this is not configurable and shouldn't need to be
         public static string MvcViews => "~/Views";
 
         public static string PartialViews => MvcViews + "/Partials/";
@@ -38,20 +31,13 @@ namespace Umbraco.Core.IO
 
         public static string Scripts => IOHelper.ReturnPath("umbracoScriptsPath", "~/scripts");
 
+        public static string Css => IOHelper.ReturnPath("umbracoCssPath", "~/css");
+
         public static string Umbraco => IOHelper.ReturnPath("umbracoPath", "~/umbraco");
 
-        public static string UmbracoClient => IOHelper.ReturnPath("umbracoClientPath", "~/umbraco_client");
+        public static string Packages => Data + "/packages";
 
-        public static string UserControls => IOHelper.ReturnPath("umbracoUsercontrolsPath", "~/usercontrols");
-
-        public static string WebServices => IOHelper.ReturnPath("umbracoWebservicesPath", Umbraco.EnsureEndsWith("/") + "webservices");
-
-        //by default the packages folder should exist in the data folder
-        public static string Packages => IOHelper.ReturnPath("umbracoPackagesPath", Data + IOHelper.DirSepChar + "packages");
-
-        public static string Preview => IOHelper.ReturnPath("umbracoPreviewPath", Data + IOHelper.DirSepChar + "preview");
-
-        public static string JavaScriptLibrary => IOHelper.ReturnPath("umbracoJavaScriptLibraryPath", Umbraco + IOHelper.DirSepChar + "lib");
+        public static string Preview => Data + "/preview";
 
         private static string _root;
 

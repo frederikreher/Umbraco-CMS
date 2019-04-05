@@ -8,11 +8,10 @@ using Umbraco.Core;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.Entities;
 using Umbraco.Core.Services;
-using Umbraco.Web.Composing;
+using Umbraco.Web.Actions;
 using Umbraco.Web.Models.Trees;
 using Umbraco.Web.Mvc;
 using Umbraco.Web.WebApi.Filters;
-using Umbraco.Web._Legacy.Actions;
 using Umbraco.Web.Models.ContentEditing;
 using Umbraco.Web.Search;
 using Constants = Umbraco.Core.Constants;
@@ -26,7 +25,7 @@ namespace Umbraco.Web.Trees
         Constants.Applications.Media,
         Constants.Applications.Users,
         Constants.Applications.Settings,
-        Constants.Applications.Developer,
+        Constants.Applications.Packages,
         Constants.Applications.Members)]
     [Tree(Constants.Applications.Content, Constants.Trees.Content)]
     [PluginController("UmbracoTrees")]
@@ -34,7 +33,14 @@ namespace Umbraco.Web.Trees
     [SearchableTree("searchResultFormatter", "configureContentResult")]
     public class ContentTreeController : ContentTreeControllerBase, ISearchableTree
     {
-        private readonly UmbracoTreeSearcher _treeSearcher = new UmbracoTreeSearcher();
+        private readonly UmbracoTreeSearcher _treeSearcher;
+        private readonly ActionCollection _actions;
+
+        public ContentTreeController(UmbracoTreeSearcher treeSearcher, ActionCollection actions)
+        {
+            _treeSearcher = treeSearcher;
+            _actions = actions;
+        }
 
         protected override int RecycleBinId => Constants.System.RecycleBinContent;
 
@@ -47,12 +53,12 @@ namespace Umbraco.Web.Trees
         /// <inheritdoc />
         protected override TreeNode GetSingleTreeNode(IEntitySlim entity, string parentId, FormDataCollection queryStrings)
         {
-            var langId = queryStrings["culture"].TryConvertTo<string>();
-            
+            var culture = queryStrings?["culture"];
+
             var allowedUserOptions = GetAllowedUserMenuItemsForNode(entity);
-            if (CanUserAccessNode(entity, allowedUserOptions, langId.Success ? langId.Result : null))
+            if (CanUserAccessNode(entity, allowedUserOptions, culture))
             {
-                //Special check to see if it ia a container, if so then we'll hide children.
+                //Special check to see if it is a container, if so then we'll hide children.
                 var isContainer = entity.IsContainer;   // && (queryStrings.Get("isDialog") != "true");
 
                 var node = CreateTreeNode(
@@ -60,26 +66,37 @@ namespace Umbraco.Web.Trees
                     Constants.ObjectTypes.Document,
                     parentId,
                     queryStrings,
-                    entity.HasChildren && !isContainer);
+                    entity.HasChildren);
 
-                // entity is either a container, or a document
+                // set container style if it is one
                 if (isContainer)
                 {
                     node.AdditionalData.Add("isContainer", true);
                     node.SetContainerStyle();
                 }
-                else
-                {
-                    var documentEntity = (IDocumentEntitySlim) entity;
 
-                    //fixme we need these statuses per variant but to do that we need to fix the issues listed in IDocumentEntitySlim
+                var documentEntity = (IDocumentEntitySlim)entity;
+
+                if (!documentEntity.Variations.VariesByCulture())
+                {
                     if (!documentEntity.Published)
                         node.SetNotPublishedStyle();
-                    //if (documentEntity.Edited)
-                    //    node.SetHasUnpublishedVersionStyle();
-
-                    node.AdditionalData.Add("contentType", documentEntity.ContentTypeAlias);
+                    else if (documentEntity.Edited)
+                        node.SetHasPendingVersionStyle();
                 }
+                else
+                {
+                    if (!culture.IsNullOrWhiteSpace())
+                    {
+                        if (!documentEntity.Published || !documentEntity.PublishedCultures.Contains(culture))
+                            node.SetNotPublishedStyle();
+                        else if (documentEntity.EditedCultures.Contains(culture))
+                            node.SetHasPendingVersionStyle();
+                    }
+                }
+
+                node.AdditionalData.Add("variesByCulture", documentEntity.Variations.VariesByCulture());
+                node.AdditionalData.Add("contentType", documentEntity.ContentTypeAlias);
 
                 if (Services.PublicAccessService.IsProtected(entity.Path))
                     node.SetProtectedStyle();
@@ -92,42 +109,39 @@ namespace Umbraco.Web.Trees
 
         protected override MenuItemCollection PerformGetMenuForNode(string id, FormDataCollection queryStrings)
         {
-            if (id == Constants.System.Root.ToInvariantString())
+            if (id == Constants.System.RootString)
             {
                 var menu = new MenuItemCollection();
 
                 // if the user's start node is not the root then the only menu item to display is refresh
                 if (UserStartNodes.Contains(Constants.System.Root) == false)
                 {
-                    menu.Items.Add<RefreshNode, ActionRefresh>(
-                        Services.TextService.Localize(string.Concat("actions/", ActionRefresh.Instance.Alias)),
-                        true);
+                    menu.Items.Add(new RefreshNode(Services.TextService, true));
                     return menu;
                 }
 
                 //set the default to create
-                menu.DefaultMenuAlias = ActionNew.Instance.Alias;
+                menu.DefaultMenuAlias = ActionNew.ActionAlias;
 
                 // we need to get the default permissions as you can't set permissions on the very root node
                 var permission = Services.UserService.GetPermissions(Security.CurrentUser, Constants.System.Root).First();
-                var nodeActions = global::Umbraco.Web._Legacy.Actions.Action.FromEntityPermission(permission)
+                var nodeActions = _actions.FromEntityPermission(permission)
                     .Select(x => new MenuItem(x));
 
                 //these two are the standard items
-                menu.Items.Add<ActionNew>(Services.TextService.Localize("actions", ActionNew.Instance.Alias));
-                menu.Items.Add<ActionSort>(Services.TextService.Localize("actions", ActionSort.Instance.Alias), true).ConvertLegacyMenuItem(null, "content", "content");
+                menu.Items.Add<ActionNew>(Services.TextService, opensDialog: true);
+                menu.Items.Add<ActionSort>(Services.TextService, true);
 
                 //filter the standard items
                 FilterUserAllowedMenuItems(menu, nodeActions);
 
                 if (menu.Items.Any())
                 {
-                    menu.Items.Last().SeperatorBefore = true;
+                    menu.Items.Last().SeparatorBefore = true;
                 }
 
                 // add default actions for *all* users
-                menu.Items.Add<ActionRePublish>(Services.TextService.Localize("actions", ActionRePublish.Instance.Alias)).ConvertLegacyMenuItem(null, "content", "content");
-                menu.Items.Add<RefreshNode, ActionRefresh>(Services.TextService.Localize("actions", ActionRefresh.Instance.Alias), true);
+                menu.Items.Add(new RefreshNode(Services.TextService, true));
 
                 return menu;
             }
@@ -146,40 +160,34 @@ namespace Umbraco.Web.Trees
             }
 
             //if the user has no path access for this node, all they can do is refresh
-            if (Security.CurrentUser.HasPathAccess(item, Services.EntityService, RecycleBinId) == false)
+            if (!Security.CurrentUser.HasContentPathAccess(item, Services.EntityService))
             {
                 var menu = new MenuItemCollection();
-                menu.Items.Add<RefreshNode, ActionRefresh>(
-                    Services.TextService.Localize(string.Concat("actions/", ActionRefresh.Instance.Alias)),
-                    true);
+                menu.Items.Add(new RefreshNode(Services.TextService, true));
                 return menu;
             }
 
-            var nodeMenu = GetAllNodeMenuItems(item);
-            var allowedMenuItems = GetAllowedUserMenuItemsForNode(item);
-
-            FilterUserAllowedMenuItems(nodeMenu, allowedMenuItems);
-
-            //if the media item is in the recycle bin, don't have a default menu, just show the regular menu
+            var nodeMenu = GetAllNodeMenuItems(item);            
+            
+            //if the content node is in the recycle bin, don't have a default menu, just show the regular menu
             if (item.Path.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Contains(RecycleBinId.ToInvariantString()))
             {
                 nodeMenu.DefaultMenuAlias = null;
-                nodeMenu.Items.Insert(2, new MenuItem(ActionRestore.Instance, Services.TextService.Localize("actions", ActionRestore.Instance.Alias)));
+                nodeMenu = GetNodeMenuItemsForDeletedContent(item);
             }
             else
             {
                 //set the default to create
-                nodeMenu.DefaultMenuAlias = ActionNew.Instance.Alias;
+                nodeMenu.DefaultMenuAlias = ActionNew.ActionAlias;
             }
 
+            var allowedMenuItems = GetAllowedUserMenuItemsForNode(item);
+            FilterUserAllowedMenuItems(nodeMenu, allowedMenuItems);
 
             return nodeMenu;
         }
 
-        protected override UmbracoObjectTypes UmbracoObjectType
-        {
-            get { return UmbracoObjectTypes.Document; }
-        }
+        protected override UmbracoObjectTypes UmbracoObjectType => UmbracoObjectTypes.Document;
 
         /// <summary>
         /// Returns true or false if the current user has access to the node based on the user's allowed start node (path) access
@@ -193,6 +201,9 @@ namespace Umbraco.Web.Trees
             return HasPathAccess(entity, queryStrings);
         }
 
+        internal override IEnumerable<IEntitySlim> GetChildrenFromEntityService(int entityId)
+            => Services.EntityService.GetChildren(entityId, UmbracoObjectType).ToList();
+
         protected override IEnumerable<IEntitySlim> GetChildEntities(string id, FormDataCollection queryStrings)
         {
             var result = base.GetChildEntities(id, queryStrings);
@@ -203,9 +214,11 @@ namespace Umbraco.Web.Trees
 
             // set names according to variations
             foreach (var entity in result)
+            {
                 EnsureName(entity, cultureVal);
+            }
 
-            return result; 
+            return result;
         }
 
         /// <summary>
@@ -216,33 +229,48 @@ namespace Umbraco.Web.Trees
         protected MenuItemCollection GetAllNodeMenuItems(IUmbracoEntity item)
         {
             var menu = new MenuItemCollection();
-            AddActionNode<ActionNew>(item, menu);
-            AddActionNode<ActionDelete>(item, menu);
+            AddActionNode<ActionNew>(item, menu, opensDialog: true);
+            AddActionNode<ActionDelete>(item, menu, opensDialog: true);
+            AddActionNode<ActionCreateBlueprintFromContent>(item, menu, opensDialog: true);
+            AddActionNode<ActionMove>(item, menu, true, opensDialog: true);
+            AddActionNode<ActionCopy>(item, menu, opensDialog: true);
+            AddActionNode<ActionSort>(item, menu, true);
+            AddActionNode<ActionAssignDomain>(item, menu, opensDialog: true);
+            AddActionNode<ActionRights>(item, menu, opensDialog: true);
+            AddActionNode<ActionProtect>(item, menu, true, opensDialog: true);
 
-            AddActionNode<ActionCreateBlueprintFromContent>(item, menu);
-
-            //need to ensure some of these are converted to the legacy system - until we upgrade them all to be angularized.
-            AddActionNode<ActionMove>(item, menu, true);
-            AddActionNode<ActionCopy>(item, menu);
-            AddActionNode<ActionChangeDocType>(item, menu, convert: true);
-
-            AddActionNode<ActionSort>(item, menu, true, true);
-
-            AddActionNode<ActionRollback>(item, menu, convert: true);
-            AddActionNode<ActionAudit>(item, menu, convert: true);
-            AddActionNode<ActionToPublish>(item, menu, convert: true);
-            AddActionNode<ActionAssignDomain>(item, menu, convert: true);
-            AddActionNode<ActionRights>(item, menu, convert: true);
-            AddActionNode<ActionProtect>(item, menu, true, true);
-
-            AddActionNode<ActionNotify>(item, menu, true, true);
-            AddActionNode<ActionSendToTranslate>(item, menu, convert: true);
-
-            AddActionNode<RefreshNode, ActionRefresh>(item, menu, true);
+            if (EmailSender.CanSendRequiredEmail)
+            {
+	            menu.Items.Add(new MenuItem("notify", Services.TextService)
+	            {
+	                Icon = "megaphone",
+	                SeparatorBefore = true,
+	                OpensDialog = true
+	            });
+            }
+			
+            menu.Items.Add(new RefreshNode(Services.TextService, true));
 
             return menu;
         }
 
+        /// <summary>
+        /// Returns a collection of all menu items that can be on a deleted (in recycle bin) content node
+        /// </summary>
+        /// <param name="item"></param>
+        /// <returns></returns>
+        protected MenuItemCollection GetNodeMenuItemsForDeletedContent(IUmbracoEntity item)
+        {
+            var menu = new MenuItemCollection();
+            menu.Items.Add<ActionRestore>(Services.TextService, opensDialog: true);
+            menu.Items.Add<ActionMove>(Services.TextService, opensDialog: true);
+            menu.Items.Add<ActionDelete>(Services.TextService, opensDialog: true);
+
+            menu.Items.Add(new RefreshNode(Services.TextService, true));
+
+            return menu;
+        }
+        
         /// <summary>
         /// set name according to variations
         /// </summary>
@@ -253,46 +281,50 @@ namespace Umbraco.Web.Trees
             if (culture == null)
             {
                 if (string.IsNullOrWhiteSpace(entity.Name))
+                {
                     entity.Name = "[[" + entity.Id + "]]";
+                }
+
                 return;
             }
 
             if (!(entity is IDocumentEntitySlim docEntity))
+            {
                 throw new InvalidOperationException($"Cannot render a tree node for a culture when the entity isn't {typeof(IDocumentEntitySlim)}, instead it is {entity.GetType()}");
+            }
 
             // we are getting the tree for a given culture,
             // for those items that DO support cultures, we need to get the proper name, IF it exists
-            // otherwise, invariant is fine
+            // otherwise, invariant is fine (with brackets)
 
-            if (docEntity.Variations.Has(Core.Models.ContentVariation.CultureNeutral) &&
-                docEntity.CultureNames.TryGetValue(culture, out var name) &&
-                !string.IsNullOrWhiteSpace(name))
+            if (docEntity.Variations.VariesByCulture())
             {
-                entity.Name = name;
+                if (docEntity.CultureNames.TryGetValue(culture, out var name) &&
+                    !string.IsNullOrWhiteSpace(name))
+                {
+                    entity.Name = name;
+                }
+                else
+                {
+                    entity.Name = "(" + entity.Name + ")";
+                }
             }
 
             if (string.IsNullOrWhiteSpace(entity.Name))
+            {
                 entity.Name = "[[" + entity.Id + "]]";
+            }
         }
 
-        private void AddActionNode<TAction>(IUmbracoEntity item, MenuItemCollection menu, bool hasSeparator = false, bool convert = false)
+        private void AddActionNode<TAction>(IUmbracoEntity item, MenuItemCollection menu, bool hasSeparator = false, bool opensDialog = false)
             where TAction : IAction
         {
-            var menuItem = menu.Items.Add<TAction>(Services.TextService.Localize("actions", Current.Actions.GetAction<TAction>().Alias), hasSeparator);
-            if (convert) menuItem.ConvertLegacyMenuItem(item, "content", "content");
+            var menuItem = menu.Items.Add<TAction>(Services.TextService.Localize("actions", _actions.GetAction<TAction>().Alias), hasSeparator, opensDialog);
         }
 
-        private void AddActionNode<TItem, TAction>(IUmbracoEntity item, MenuItemCollection menu, bool hasSeparator = false, bool convert = false)
-            where TItem : MenuItem, new()
-            where TAction : IAction
+        public IEnumerable<SearchResultEntity> Search(string query, int pageSize, long pageIndex, out long totalFound, string searchFrom = null)
         {
-            var menuItem = menu.Items.Add<TItem, TAction>(Services.TextService.Localize("actions", Current.Actions.GetAction<TAction>().Alias), hasSeparator);
-            if (convert) menuItem.ConvertLegacyMenuItem(item, "content", "content");
-        }
-
-        public IEnumerable<SearchResultItem> Search(string query, int pageSize, long pageIndex, out long totalFound, string searchFrom = null)
-        {
-            return _treeSearcher.ExamineSearch(Umbraco, query, UmbracoEntityTypes.Document, pageSize, pageIndex, out totalFound, searchFrom);
+            return _treeSearcher.ExamineSearch(query, UmbracoEntityTypes.Document, pageSize, pageIndex, out totalFound, searchFrom);
         }
     }
 }

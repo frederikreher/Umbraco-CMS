@@ -28,7 +28,7 @@ ul.sections>li>a {
 }
 
 ul.sections>li>a .section__name {
-	opacity: 0.6;
+	opacity: 0.8;
 	transition: opacity .1s linear;
 }
 
@@ -36,8 +36,9 @@ ul.sections>li>a::after {
 	content: "";
 	height: 4px;
 	width: 100%;
-	background-color: @turquoise;
-	position: absolute;
+	background-color: @pinkLight;
+    position: absolute;
+    left: 0;
 	bottom: -4px;
 	border-radius: 3px 3px 0 0;
 	opacity: 0;
@@ -45,6 +46,9 @@ ul.sections>li>a::after {
 	transition: all .2s linear;
 }
 
+ul.sections>li.current>a {
+    color:@pinkLight;
+}
 ul.sections>li.current>a::after {
 	opacity: 1;
 	bottom: 0;
@@ -54,6 +58,7 @@ ul.sections>li.current>a .section__name,
 ul.sections>li>a:hover .section__name,
 ul.sections>li>a:focus .section__name {
 	opacity: 1;
+    -webkit-font-smoothing: subpixel-antialiased;
 }
 
 
@@ -93,7 +98,7 @@ ul.sections-tray>li>a::after {
 	content: "";
 	width: 4px;
 	height: 100%;
-	background-color: @turquoise;
+	background-color: @ui-active;
 	position: absolute;
 	border-radius: 0 3px 3px 0;
 	opacity: 0;

@@ -1,28 +1,35 @@
 ﻿using System;
+using System.Linq;
 using System.Net.Http.Formatting;
 using Umbraco.Core;
-using Umbraco.Core.Models;
 using Umbraco.Core.Models.Entities;
 using Umbraco.Web.Models.Trees;
 using Umbraco.Web.Mvc;
 using Umbraco.Web.WebApi.Filters;
-using Umbraco.Core.Services;
-using Umbraco.Web._Legacy.Actions;
+using Umbraco.Web.Actions;
 using Constants = Umbraco.Core.Constants;
 
 namespace Umbraco.Web.Trees
 {
     [UmbracoTreeAuthorize(Constants.Trees.Macros)]
-    [Tree(Constants.Applications.Developer, Constants.Trees.Macros, "Macros", sortOrder: 2)]
+    [Tree(Constants.Applications.Settings, Constants.Trees.Macros, TreeTitle = "Macros", SortOrder = 4, TreeGroup = Constants.Trees.Groups.Settings)]
     [PluginController("UmbracoTrees")]
     [CoreTree]
     public class MacrosTreeController : TreeController
     {
+        protected override TreeNode CreateRootNode(FormDataCollection queryStrings)
+        {
+            var root = base.CreateRootNode(queryStrings);
+            //check if there are any macros
+            root.HasChildren = Services.MacroService.GetAll().Any();
+            return root;
+        }
+
         protected override TreeNodeCollection GetTreeNodes(string id, FormDataCollection queryStrings)
         {
             var nodes = new TreeNodeCollection();
 
-            if (id == Constants.System.Root.ToInvariantString())
+            if (id == Constants.System.RootString)
             {
                 foreach (var macro in Services.MacroService.GetAll())
                 {
@@ -32,10 +39,7 @@ namespace Umbraco.Web.Trees
                         queryStrings,
                         macro.Name,
                         "icon-settings-alt",
-                        false,
-                        //TODO: Rebuild the macro editor in angular, then we dont need to have this at all (which is just a path to the legacy editor)
-                        "/" + queryStrings.GetValue<string>("application") + "/framed/" +
-                        Uri.EscapeDataString("/umbraco/developer/macros/editMacro.aspx?macroID=" + macro.Id)));
+                        false));
                 }
             }
 
@@ -46,35 +50,22 @@ namespace Umbraco.Web.Trees
         {
             var menu = new MenuItemCollection();
 
-            if (id == Constants.System.Root.ToInvariantString())
+            if (id == Constants.System.RootString)
             {
                 //Create the normal create action
-                menu.Items.Add<ActionNew>(Services.TextService.Localize("actions", ActionNew.Instance.Alias))
-                    //Since we haven't implemented anything for macros in angular, this needs to be converted to
-                    //use the legacy format
-                    .ConvertLegacyMenuItem(null, "initmacros", queryStrings.GetValue<string>("application"));
+                menu.Items.Add<ActionNew>(Services.TextService);
 
                 //refresh action
-                menu.Items.Add<RefreshNode, ActionRefresh>(Services.TextService.Localize("actions", ActionRefresh.Instance.Alias), true);
+                menu.Items.Add(new RefreshNode(Services.TextService, true));
 
                 return menu;
             }
-
 
             var macro = Services.MacroService.GetById(int.Parse(id));
             if (macro == null) return new MenuItemCollection();
 
             //add delete option for all macros
-            menu.Items.Add<ActionDelete>(Services.TextService.Localize("actions", ActionDelete.Instance.Alias))
-                //Since we haven't implemented anything for macros in angular, this needs to be converted to
-                //use the legacy format
-                .ConvertLegacyMenuItem(new EntitySlim
-                {
-                    Id = macro.Id,
-                    Level = 1,
-                    ParentId = -1,
-                    Name = macro.Name
-                }, "macros", queryStrings.GetValue<string>("application"));
+            menu.Items.Add<ActionDelete>(Services.TextService, opensDialog: true);
 
             return menu;
         }

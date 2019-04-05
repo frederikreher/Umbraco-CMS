@@ -67,12 +67,12 @@ namespace Umbraco.Core.PropertyEditors.ValueConverters
             // GetPreValuesCollectionByDataTypeId is cached at repository level;
             // still, the collection is deep-cloned so this is kinda expensive,
             // better to cache here + trigger refresh in DataTypeCacheRefresher
-            // fixme wtf this should NOT be expensive!
+            // TODO: this is cheap now, remove the caching
 
             return Storages.GetOrAdd(dataTypeId, id =>
             {
                 var dataType = _dataTypeService.GetDataType(id);
-                var configuration = dataType.ConfigurationAs<SliderPropertyEditorConfiguration>();
+                var configuration = dataType.ConfigurationAs<SliderConfiguration>();
                 return configuration.EnableRange;
             });
         }

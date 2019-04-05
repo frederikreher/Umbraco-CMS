@@ -6,6 +6,7 @@ using Moq;
 using NPoco;
 using NUnit.Framework;
 using Umbraco.Core;
+using Umbraco.Core.Cache;
 using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
@@ -28,10 +29,10 @@ namespace Umbraco.Tests.Persistence.Repositories
         private MemberRepository CreateRepository(IScopeProvider provider, out MemberTypeRepository memberTypeRepository, out MemberGroupRepository memberGroupRepository)
         {
             var accessor = (IScopeAccessor) provider;
-            memberTypeRepository = new MemberTypeRepository(accessor, DisabledCache, Logger);
-            memberGroupRepository = new MemberGroupRepository(accessor, DisabledCache, Logger);
-            var tagRepo = new TagRepository(accessor, DisabledCache, Logger);
-            var repository = new MemberRepository(accessor, DisabledCache, Logger, memberTypeRepository, memberGroupRepository, tagRepo, Mock.Of<ILanguageRepository>());
+            memberTypeRepository = new MemberTypeRepository(accessor, AppCaches.Disabled, Logger);
+            memberGroupRepository = new MemberGroupRepository(accessor, AppCaches.Disabled, Logger);
+            var tagRepo = new TagRepository(accessor, AppCaches.Disabled, Logger);
+            var repository = new MemberRepository(accessor, AppCaches.Disabled, Logger, memberTypeRepository, memberGroupRepository, tagRepo, Mock.Of<ILanguageRepository>());
             return repository;
         }
 
@@ -163,21 +164,19 @@ namespace Umbraco.Tests.Persistence.Repositories
 
                 var memberType = MockedContentTypes.CreateSimpleMemberType();
                 memberTypeRepository.Save(memberType);
-                
 
                 var member = MockedMember.CreateSimpleMember(memberType, "Johnny Hefty", "johnny@example.com", "123", "hefty");
                 repository.Save(member);
-                
 
                 var sut = repository.Get(member.Id);
 
-                Assert.That(sut.ContentType.PropertyGroups.Count(), Is.EqualTo(2));
-                Assert.That(sut.ContentType.PropertyTypes.Count(), Is.EqualTo(3 + Constants.Conventions.Member.GetStandardPropertyTypeStubs().Count));
+                Assert.That(memberType.CompositionPropertyGroups.Count(), Is.EqualTo(2));
+                Assert.That(memberType.CompositionPropertyTypes.Count(), Is.EqualTo(3 + Constants.Conventions.Member.GetStandardPropertyTypeStubs().Count));
                 Assert.That(sut.Properties.Count(), Is.EqualTo(3 + Constants.Conventions.Member.GetStandardPropertyTypeStubs().Count));
-                var grp = sut.PropertyGroups.FirstOrDefault(x => x.Name == Constants.Conventions.Member.StandardPropertiesGroupName);
+                var grp = memberType.CompositionPropertyGroups.FirstOrDefault(x => x.Name == Constants.Conventions.Member.StandardPropertiesGroupName);
                 Assert.IsNotNull(grp);
                 var aliases = Constants.Conventions.Member.GetStandardPropertyTypeStubs().Select(x => x.Key).ToArray();
-                foreach (var p in sut.PropertyTypes.Where(x => aliases.Contains(x.Alias)))
+                foreach (var p in memberType.CompositionPropertyTypes.Where(x => aliases.Contains(x.Alias)))
                 {
                     Assert.AreEqual(grp.Id, p.PropertyGroupId.Value);
                 }

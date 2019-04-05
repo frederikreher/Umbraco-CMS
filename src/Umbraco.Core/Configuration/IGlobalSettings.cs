@@ -18,15 +18,6 @@
         string ReservedPaths { get; }
 
         /// <summary>
-        /// Gets the name of the content XML file.
-        /// </summary>
-        /// <value>The content XML.</value>
-        /// <remarks>
-        /// Defaults to ~/App_Data/umbraco.config
-        /// </remarks>
-        string ContentXmlFile { get; }
-
-        /// <summary>
         /// Gets the path to umbraco's root directory (/umbraco by default).
         /// </summary>
         string Path { get; }
@@ -40,12 +31,6 @@
         /// Gets the time out in minutes.
         /// </summary>
         int TimeOutInMinutes { get; }
-
-        /// <summary>
-        /// Gets a value indicating whether umbraco uses directory urls.
-        /// </summary>
-        /// <value><c>true</c> if umbraco uses directory urls; otherwise, <c>false</c>.</value>
-        bool UseDirectoryUrls { get; }
 
         /// <summary>
         /// Gets the default UI language.
@@ -74,11 +59,13 @@
         int VersionCheckPeriod { get; }
 
         /// <summary>
-        /// This is the location type to store temporary files such as cache files or other localized files for a given machine
+        /// Gets the configuration for the location of temporary files.
         /// </summary>
-        /// <remarks>
-        /// Used for some cache files and for specific environments such as Azure
-        /// </remarks>
         LocalTempStorage LocalTempStorageLocation { get; }
+
+        /// <summary>
+        /// Gets the location of temporary files.
+        /// </summary>
+        string LocalTempPath { get; }
     }
 }

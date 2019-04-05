@@ -16,8 +16,11 @@ using Umbraco.Web.WebApi.Filters;
 using Constants = Umbraco.Core.Constants;
 using System.Net.Http;
 using System.Text;
+using Umbraco.Core.Cache;
 using Umbraco.Web.Composing;
 using Umbraco.Core.Configuration;
+using Umbraco.Core.Logging;
+using Umbraco.Core.Persistence;
 
 namespace Umbraco.Web.Editors
 {
@@ -36,7 +39,8 @@ namespace Umbraco.Web.Editors
     {
         private readonly PropertyEditorCollection _propertyEditors;
 
-        public DataTypeController(PropertyEditorCollection propertyEditors)
+        public DataTypeController(PropertyEditorCollection propertyEditors, IGlobalSettings globalSettings, IUmbracoContextAccessor umbracoContextAccessor, ISqlContext sqlContext, ServiceContext services, AppCaches appCaches, IProfilingLogger logger, IRuntimeState runtimeState, UmbracoHelper umbracoHelper)
+            : base(globalSettings, umbracoContextAccessor, sqlContext, services, appCaches, logger, runtimeState, umbracoHelper)
         {
             _propertyEditors = propertyEditors;
         }
@@ -68,7 +72,7 @@ namespace Umbraco.Web.Editors
         }
 
         /// <summary>
-        /// Deletes a data type wth a given ID
+        /// Deletes a data type with a given ID
         /// </summary>
         /// <param name="id"></param>
         /// <returns></returns>
@@ -90,7 +94,7 @@ namespace Umbraco.Web.Editors
         public DataTypeDisplay GetEmpty(int parentId)
         {
             // cannot create an "empty" data type, so use something by default.
-            var editor = _propertyEditors[Constants.PropertyEditors.Aliases.NoEdit];
+            var editor = _propertyEditors[Constants.PropertyEditors.Aliases.Label];
             var dt = new DataType(editor, parentId);
             return Mapper.Map<IDataType, DataTypeDisplay>(dt);
         }
@@ -120,7 +124,7 @@ namespace Umbraco.Web.Editors
         {
             var dt = Services.DataTypeService.GetDataType(Constants.Conventions.DataTypes.ListViewPrefix + contentTypeAlias);
 
-            //if it doesnt exist yet, we will create it.
+            //if it doesn't exist yet, we will create it.
             if (dt == null)
             {
                 var editor = _propertyEditors[Constants.PropertyEditors.Aliases.ListView];
@@ -139,7 +143,7 @@ namespace Umbraco.Web.Editors
         /// <returns></returns>
         public IEnumerable<DataTypeConfigurationFieldDisplay> GetPreValues(string editorAlias, int dataTypeId = -1)
         {
-            var propEd = Current.PropertyEditors[editorAlias];
+            var propEd = _propertyEditors[editorAlias];
             if (propEd == null)
             {
                 throw new InvalidOperationException("Could not find property editor with alias " + editorAlias);
@@ -172,7 +176,7 @@ namespace Umbraco.Web.Editors
         }
 
         /// <summary>
-        /// Deletes a data type container wth a given ID
+        /// Deletes a data type container with a given ID
         /// </summary>
         /// <param name="id"></param>
         /// <returns></returns>
@@ -204,7 +208,7 @@ namespace Umbraco.Web.Editors
         {
             //If we've made it here, then everything has been wired up and validated by the attribute
 
-            //TODO: Check if the property editor has changed, if it has ensure we don't pass the
+            // TODO: Check if the property editor has changed, if it has ensure we don't pass the
             // existing values to the new property editor!
 
             // get the current configuration,
@@ -250,7 +254,7 @@ namespace Umbraco.Web.Editors
             if (result.Success)
             {
                 var response = Request.CreateResponse(HttpStatusCode.OK);
-                response.Content = new StringContent(toMove.Path, Encoding.UTF8, "application/json");
+                response.Content = new StringContent(toMove.Path, Encoding.UTF8, "text/plain");
                 return response;
             }
 
@@ -290,7 +294,7 @@ namespace Umbraco.Web.Editors
         /// </remarks>
         [UmbracoApplicationAuthorize(
             Constants.Applications.Content, Constants.Applications.Media, Constants.Applications.Members,
-            Constants.Applications.Settings, Constants.Applications.Developer)]
+            Constants.Applications.Settings, Constants.Applications.Packages)]
         public IEnumerable<DataTypeBasic> GetAll()
         {
             return Services.DataTypeService
@@ -307,7 +311,7 @@ namespace Umbraco.Web.Editors
         /// </remarks>
         [UmbracoTreeAuthorize(
             Constants.Applications.Content, Constants.Applications.Media, Constants.Applications.Members,
-            Constants.Applications.Settings, Constants.Applications.Developer)]
+            Constants.Applications.Settings, Constants.Applications.Packages)]
         public IDictionary<string, IEnumerable<DataTypeBasic>> GetGroupedDataTypes()
         {
             var dataTypes = Services.DataTypeService
@@ -340,11 +344,11 @@ namespace Umbraco.Web.Editors
         /// </remarks>
         [UmbracoTreeAuthorize(
             Constants.Applications.Content, Constants.Applications.Media, Constants.Applications.Members,
-            Constants.Applications.Settings, Constants.Applications.Developer)]
+            Constants.Applications.Settings, Constants.Applications.Packages)]
         public IDictionary<string, IEnumerable<DataTypeBasic>> GetGroupedPropertyEditors()
         {
             var datatypes = new List<DataTypeBasic>();
-            var showDeprecatedPropertyEditors = UmbracoConfig.For.UmbracoSettings().Content.ShowDeprecatedPropertyEditors;
+            var showDeprecatedPropertyEditors = Current.Configs.Settings().Content.ShowDeprecatedPropertyEditors;
 
             var propertyEditors = Current.PropertyEditors
                 .Where(x=>x.IsDeprecated == false || showDeprecatedPropertyEditors);
@@ -373,7 +377,7 @@ namespace Umbraco.Web.Editors
         /// </remarks>
         [UmbracoTreeAuthorize(
             Constants.Applications.Content, Constants.Applications.Media, Constants.Applications.Members,
-            Constants.Applications.Settings, Constants.Applications.Developer)]
+            Constants.Applications.Settings, Constants.Applications.Packages)]
         public IEnumerable<PropertyEditorBasic> GetAllPropertyEditors()
         {
             return Current.PropertyEditors

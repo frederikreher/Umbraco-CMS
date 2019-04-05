@@ -1,9 +1,8 @@
-﻿using System;
-using System.ComponentModel.DataAnnotations;
-using System.Web;
+﻿using System.ComponentModel.DataAnnotations;
 using Umbraco.Core;
-using Umbraco.Web.Composing;
+using Umbraco.Core.Composing;
 using Umbraco.Web.Security;
+using Current = Umbraco.Web.Composing.Current;
 
 namespace Umbraco.Web.Models
 {
@@ -25,7 +24,7 @@ namespace Umbraco.Web.Models
         {
             if (doLookup && Current.UmbracoContext != null)
             {
-                var helper = new MembershipHelper(Current.UmbracoContext);
+                var helper = Current.Factory.GetInstance<MembershipHelper>();
                 var model = helper.GetCurrentLoginStatus();
                 if (model != null)
                 {
@@ -37,13 +36,6 @@ namespace Umbraco.Web.Models
             }
         }
 
-        /// <summary>
-        /// This will construct a new LoginStatusModel and perform a lookup for hte curently logged in member
-        /// </summary>
-        [Obsolete("Do not use this ctor as it will perform business logic lookups. Use the MembershipHelper.GetCurrentLoginStatus or the static LoginStatusModel.CreateModel() to create an empty model.")]
-        public LoginStatusModel()
-            : this(true)
-        { }
 
         /// <summary>
         /// The name of the member

@@ -2,9 +2,9 @@
 
 // We make sure that diagnostics code will not be compiled nor called into Release configuration.
 // In Debug configuration, diagnostics code can be enabled by defining DEBUGNAVIGATOR below,
-// but by default nothing is writted, unless some lines are un-commented in Debug(...) below.
+// but by default nothing is written, unless some lines are un-commented in Debug(...) below.
 //
-// Beware! Diagnostics are extremely verbose and can overflow log4net pretty easily.
+// Beware! Diagnostics are extremely verbose and can overflow logging pretty easily.
 
 #if DEBUG
 // define to enable diagnostics code
@@ -254,8 +254,6 @@ namespace Umbraco.Core.Xml.XPath
 
             //format = "[" + _uid.ToString("00000") + "] " + Tabs.Substring(0, _tabs) + format;
             //var msg = string.Format(format, args);
-            //LogHelper.Debug<NavigableNavigator>(msg); // beware! this can quicky overflow log4net
-            //Console.WriteLine(msg);
         }
 #endif
 

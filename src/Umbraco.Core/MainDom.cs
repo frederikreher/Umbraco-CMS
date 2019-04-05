@@ -8,15 +8,13 @@ using Umbraco.Core.Logging;
 namespace Umbraco.Core
 {
     /// <summary>
-    /// Represents the main AppDomain running for a given application.
+    /// Provides the full implementation of <see cref="IMainDom"/>.
     /// </summary>
     /// <remarks>
-    /// <para>There can be only one "main" AppDomain running for a given application at a time.</para>
     /// <para>When an AppDomain starts, it tries to acquire the main domain status.</para>
     /// <para>When an AppDomain stops (eg the application is restarting) it should release the main domain status.</para>
-    /// <para>It is possible to register against the MainDom and be notified when it is released.</para>
     /// </remarks>
-    internal class MainDom : IRegisteredObject
+    internal class MainDom : IMainDom, IRegisteredObject
     {
         #region Vars
 
@@ -84,9 +82,7 @@ namespace Umbraco.Core
         /// <param name="weight">An optional weight (lower goes first).</param>
         /// <returns>A value indicating whether it was possible to register.</returns>
         public bool Register(Action release, int weight = 100)
-        {
-            return Register(null, release, weight);
-        }
+            => Register(null, release, weight);
 
         /// <summary>
         /// Registers a resource that requires the current AppDomain to be the main domain to function.
@@ -117,7 +113,7 @@ namespace Umbraco.Core
 
             lock (_locko)
             {
-                _logger.Debug<MainDom>("Signaled" + (_signaled ? " (again)" : "") + " (" + source + ").");
+                _logger.Debug<MainDom>("Signaled {Signaled} ({SignalSource})", _signaled ? "(again)" : string.Empty, source);
                 if (_signaled) return;
                 if (_isMainDom == false) return; // probably not needed
                 _signaled = true;
@@ -125,7 +121,7 @@ namespace Umbraco.Core
 
             try
             {
-                _logger.Info<MainDom>("Stopping.");
+                _logger.Info<MainDom>("Stopping ({SignalSource})", source);
                 foreach (var callback in _callbacks.OrderBy(x => x.Key).Select(x => x.Value))
                 {
                     try
@@ -134,19 +130,19 @@ namespace Umbraco.Core
                     }
                     catch (Exception e)
                     {
-                        _logger.Error<MainDom>("Error while running callback, remaining callbacks will not run.", e);
+                        _logger.Error<MainDom>(e, "Error while running callback, remaining callbacks will not run.");
                         throw;
                     }
 
                 }
-                _logger.Debug<MainDom>("Stopped.");
+                _logger.Debug<MainDom>("Stopped ({SignalSource})", source);
             }
             finally
             {
                 // in any case...
                 _isMainDom = false;
                 _asyncLocker.Dispose();
-                _logger.Info<MainDom>("Released.");
+                _logger.Info<MainDom>("Released ({SignalSource})", source);
             }
         }
 
@@ -169,7 +165,7 @@ namespace Umbraco.Core
                 // which may timeout, and this is accepted - see comments below
 
                 // signal, then wait for the lock, then make sure the event is
-                // resetted (maybe there was noone listening..)
+                // reset (maybe there was noone listening..)
                 _signal.Set();
 
                 // if more than 1 instance reach that point, one will get the lock
@@ -179,7 +175,7 @@ namespace Umbraco.Core
                 _isMainDom = true;
 
                 // we need to reset the event, because otherwise we would end up
-                // signaling ourselves and commiting suicide immediately.
+                // signaling ourselves and committing suicide immediately.
                 // only 1 instance can reach that point, but other instances may
                 // have started and be trying to get the lock - they will timeout,
                 // which is accepted
@@ -195,7 +191,9 @@ namespace Umbraco.Core
             }
         }
 
-        // gets a value indicating whether we are the main domain
+        /// <summary>
+        /// Gets a value indicating whether the current domain is the main domain.
+        /// </summary>
         public bool IsMainDom => _isMainDom;
 
         // IRegisteredObject

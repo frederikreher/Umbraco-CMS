@@ -18,7 +18,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
     /// </summary>
     internal class DictionaryRepository : NPocoRepositoryBase<int, IDictionaryItem>, IDictionaryRepository
     {
-        public DictionaryRepository(IScopeAccessor scopeAccessor, CacheHelper cache, ILogger logger)
+        public DictionaryRepository(IScopeAccessor scopeAccessor, AppCaches cache, ILogger logger)
             : base(scopeAccessor, cache, logger)
         { }
 
@@ -130,17 +130,15 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
             foreach (var translation in dictionaryItem.Translations)
                 translation.Value = translation.Value.ToValidXmlString();
-
-            var factory = new DictionaryItemFactory();
-            var dto = factory.BuildDto(dictionaryItem);
+            
+            var dto = DictionaryItemFactory.BuildDto(dictionaryItem);
 
             var id = Convert.ToInt32(Database.Insert(dto));
             dictionaryItem.Id = id;
 
-            var translationFactory = new DictionaryTranslationFactory(dictionaryItem.Key);
             foreach (var translation in dictionaryItem.Translations)
             {
-                var textDto = translationFactory.BuildDto(translation);
+                var textDto = DictionaryTranslationFactory.BuildDto(translation, dictionaryItem.Key);
                 translation.Id = Convert.ToInt32(Database.Insert(textDto));
                 translation.Key = dictionaryItem.Key;
             }
@@ -154,16 +152,14 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
             foreach (var translation in entity.Translations)
                 translation.Value = translation.Value.ToValidXmlString();
-
-            var factory = new DictionaryItemFactory();
-            var dto = factory.BuildDto(entity);
+            
+            var dto = DictionaryItemFactory.BuildDto(entity);
 
             Database.Update(dto);
 
-            var translationFactory = new DictionaryTranslationFactory(entity.Key);
             foreach (var translation in entity.Translations)
             {
-                var textDto = translationFactory.BuildDto(translation);
+                var textDto = DictionaryTranslationFactory.BuildDto(translation, entity.Key);
                 if (translation.HasIdentity)
                 {
                     Database.Update(textDto);
@@ -178,8 +174,8 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             entity.ResetDirtyProperties();
 
             //Clear the cache entries that exist by uniqueid/item key
-            IsolatedCache.ClearCacheItem(RepositoryCacheKeys.GetKey<IDictionaryItem>(entity.ItemKey));
-            IsolatedCache.ClearCacheItem(RepositoryCacheKeys.GetKey<IDictionaryItem>(entity.Key));
+            IsolatedCache.Clear(RepositoryCacheKeys.GetKey<IDictionaryItem>(entity.ItemKey));
+            IsolatedCache.Clear(RepositoryCacheKeys.GetKey<IDictionaryItem>(entity.Key));
         }
 
         protected override void PersistDeletedItem(IDictionaryItem entity)
@@ -190,8 +186,8 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             Database.Delete<DictionaryDto>("WHERE id = @Id", new { Id = entity.Key });
 
             //Clear the cache entries that exist by uniqueid/item key
-            IsolatedCache.ClearCacheItem(RepositoryCacheKeys.GetKey<IDictionaryItem>(entity.ItemKey));
-            IsolatedCache.ClearCacheItem(RepositoryCacheKeys.GetKey<IDictionaryItem>(entity.Key));
+            IsolatedCache.Clear(RepositoryCacheKeys.GetKey<IDictionaryItem>(entity.ItemKey));
+            IsolatedCache.Clear(RepositoryCacheKeys.GetKey<IDictionaryItem>(entity.Key));
 
             entity.DeleteDate = DateTime.Now;
         }
@@ -207,8 +203,8 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                 Database.Delete<DictionaryDto>("WHERE id = @Id", new { Id = dto.UniqueId });
 
                 //Clear the cache entries that exist by uniqueid/item key
-                IsolatedCache.ClearCacheItem(RepositoryCacheKeys.GetKey<IDictionaryItem>(dto.Key));
-                IsolatedCache.ClearCacheItem(RepositoryCacheKeys.GetKey<IDictionaryItem>(dto.UniqueId));
+                IsolatedCache.Clear(RepositoryCacheKeys.GetKey<IDictionaryItem>(dto.Key));
+                IsolatedCache.Clear(RepositoryCacheKeys.GetKey<IDictionaryItem>(dto.UniqueId));
             }
         }
 
@@ -216,13 +212,11 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
         protected IDictionaryItem ConvertFromDto(DictionaryDto dto)
         {
-            var factory = new DictionaryItemFactory();
-            var entity = factory.BuildEntity(dto);
+            var entity = DictionaryItemFactory.BuildEntity(dto);
 
-            var f = new DictionaryTranslationFactory(dto.UniqueId);
             entity.Translations = dto.LanguageTextDtos.EmptyNull()
                 .Where(x => x.LanguageId > 0)
-                .Select(x => f.BuildEntity(x))
+                .Select(x => DictionaryTranslationFactory.BuildEntity(x, dto.UniqueId))
                 .ToList();
 
             return entity;
@@ -230,13 +224,13 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
         public IDictionaryItem Get(Guid uniqueId)
         {
-            var uniqueIdRepo = new DictionaryByUniqueIdRepository(this, ScopeAccessor, GlobalCache, Logger);
+            var uniqueIdRepo = new DictionaryByUniqueIdRepository(this, ScopeAccessor, AppCaches, Logger);
             return uniqueIdRepo.Get(uniqueId);
         }
 
         public IDictionaryItem Get(string key)
         {
-            var keyRepo = new DictionaryByKeyRepository(this, ScopeAccessor, GlobalCache, Logger);
+            var keyRepo = new DictionaryByKeyRepository(this, ScopeAccessor, AppCaches, Logger);
             return keyRepo.Get(key);
         }
 
@@ -296,7 +290,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         {
             private readonly DictionaryRepository _dictionaryRepository;
 
-            public DictionaryByUniqueIdRepository(DictionaryRepository dictionaryRepository, IScopeAccessor scopeAccessor, CacheHelper cache, ILogger logger)
+            public DictionaryByUniqueIdRepository(DictionaryRepository dictionaryRepository, IScopeAccessor scopeAccessor, AppCaches cache, ILogger logger)
                 : base(scopeAccessor, cache, logger)
             {
                 _dictionaryRepository = dictionaryRepository;
@@ -349,7 +343,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         {
             private readonly DictionaryRepository _dictionaryRepository;
 
-            public DictionaryByKeyRepository(DictionaryRepository dictionaryRepository, IScopeAccessor scopeAccessor, CacheHelper cache, ILogger logger)
+            public DictionaryByKeyRepository(DictionaryRepository dictionaryRepository, IScopeAccessor scopeAccessor, AppCaches cache, ILogger logger)
                 : base(scopeAccessor, cache, logger)
             {
                 _dictionaryRepository = dictionaryRepository;

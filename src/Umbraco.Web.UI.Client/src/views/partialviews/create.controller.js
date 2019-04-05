@@ -1,10 +1,10 @@
 (function () {
     "use strict";
 
-    function PartialViewsCreateController($scope, codefileResource, $location, navigationService, formHelper, localizationService, appState) {
+    function PartialViewsCreateController($scope, codefileResource, $location, navigationService, formHelper, appState) {
 
         var vm = this;
-        var node = $scope.dialogOptions.currentNode;
+        var node = $scope.currentNode;
 
         vm.snippets = [];
         vm.showSnippets = false;
@@ -16,6 +16,7 @@
         vm.showCreateFolder = showCreateFolder;
         vm.createFolder = createFolder;
         vm.showCreateFromSnippet = showCreateFromSnippet;
+        vm.close = close;
 
         function onInit() {
             codefileResource.getSnippets('partialViews')
@@ -55,23 +56,24 @@
                         activate: true
                     });
 
-                    formHelper.resetForm({
-                        scope: $scope
-                    });
+                    formHelper.resetForm({ scope: $scope });
 
                     var section = appState.getSectionState("currentSection");
 
                 }, function(err) {
 
                     vm.createFolderError = err;
-
-                    formHelper.showNotifications(err.data);                    
                 });
             }
         }
         
         function showCreateFromSnippet() {
             vm.showSnippets = true;
+        }
+
+        function close() {
+            const showMenu = true;
+            navigationService.hideDialog(showMenu);
         }
         
         onInit();

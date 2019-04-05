@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Data;
 using Umbraco.Core.Cache;
-using Umbraco.Core.Configuration;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Events;
 using Umbraco.Core.IO;
 using Umbraco.Core.Logging;
@@ -15,25 +15,19 @@ namespace Umbraco.Core.Scoping
     /// <remarks>Not thread-safe obviously.</remarks>
     internal class Scope : IScope
     {
-        // fixme
-        // considering that a great amount of things here are only useful for the top-level
-        // scope would it make sense to have a ChildScope class that would have a smaller
-        // memory footprint?
-
         private readonly ScopeProvider _scopeProvider;
         private readonly ILogger _logger;
 
         private readonly IsolationLevel _isolationLevel;
         private readonly RepositoryCacheMode _repositoryCacheMode;
         private readonly bool? _scopeFileSystem;
-        private readonly ScopeContext _scopeContext;
         private readonly bool _autoComplete;
         private bool _callContext;
 
         private bool _disposed;
         private bool? _completed;
 
-        private IsolatedRuntimeCache _isolatedRuntimeCache;
+        private IsolatedCaches _isolatedCaches;
         private IUmbracoDatabase _database;
         private EventMessages _messages;
         private ICompletable _fscope;
@@ -54,7 +48,7 @@ namespace Umbraco.Core.Scoping
             _scopeProvider = scopeProvider;
             _logger = logger;
 
-            _scopeContext = scopeContext;
+            Context = scopeContext;
 
             _isolationLevel = isolationLevel;
             _repositoryCacheMode = repositoryCacheMode;
@@ -77,11 +71,11 @@ namespace Umbraco.Core.Scoping
                 if (autoComplete) throw new ArgumentException("Cannot auto-complete a detachable scope.", nameof(autoComplete));
 
                 // detachable creates its own scope context
-                _scopeContext = new ScopeContext();
+                Context = new ScopeContext();
 
                 // see note below
                 if (scopeFileSystems == true)
-                    _fscope = fileSystems.Shadow(Guid.NewGuid());
+                    _fscope = fileSystems.Shadow();
 
                 return;
             }
@@ -91,7 +85,7 @@ namespace Umbraco.Core.Scoping
                 ParentScope = parent;
 
                 // cannot specify a different mode!
-                // fixme - means that it's OK to go from L2 to None for reading purposes, but writing would be BAD!
+                // TODO: means that it's OK to go from L2 to None for reading purposes, but writing would be BAD!
                 // this is for XmlStore that wants to bypass caches when rebuilding XML (same for NuCache)
                 if (repositoryCacheMode != RepositoryCacheMode.Unspecified && parent.RepositoryCacheMode > repositoryCacheMode)
                     throw new ArgumentException($"Value '{repositoryCacheMode}' cannot be lower than parent value '{parent.RepositoryCacheMode}'.", nameof(repositoryCacheMode));
@@ -111,7 +105,7 @@ namespace Umbraco.Core.Scoping
                 // every scoped FS to trigger the creation of shadow FS "on demand", and that would be
                 // pretty pointless since if scopeFileSystems is true, we *know* we want to shadow
                 if (scopeFileSystems == true)
-                    _fscope = fileSystems.Shadow(Guid.NewGuid());
+                    _fscope = fileSystems.Shadow();
             }
         }
 
@@ -176,14 +170,14 @@ namespace Umbraco.Core.Scoping
         }
 
         /// <inheritdoc />
-        public IsolatedRuntimeCache IsolatedRuntimeCache
+        public IsolatedCaches IsolatedCaches
         {
             get
             {
-                if (ParentScope != null) return ParentScope.IsolatedRuntimeCache;
+                if (ParentScope != null) return ParentScope.IsolatedCaches;
 
-                return _isolatedRuntimeCache ?? (_isolatedRuntimeCache
-                           = new IsolatedRuntimeCache(type => new DeepCloneRuntimeCacheProvider(new ObjectCacheRuntimeCacheProvider())));
+                return _isolatedCaches ?? (_isolatedCaches
+                           = new IsolatedCaches(type => new DeepCloneAppCache(new ObjectCacheAppCache())));
             }
         }
 
@@ -203,7 +197,7 @@ namespace Umbraco.Core.Scoping
         public ScopeContext OrigContext { get; set; }
 
         // the context (for attaching & detaching only)
-        public ScopeContext Context => _scopeContext;
+        public ScopeContext Context { get; }
 
         public IsolationLevel IsolationLevel
         {
@@ -270,7 +264,7 @@ namespace Umbraco.Core.Scoping
                 if (ParentScope != null) return ParentScope.Messages;
                 return _messages ?? (_messages = new EventMessages());
 
-                // fixme - event messages?
+                // TODO: event messages?
                 // this may be a problem: the messages collection will be cleared at the end of the scope
                 // how shall we process it in controllers etc? if we don't want the global factory from v7?
                 // it'd need to be captured by the controller
@@ -318,7 +312,8 @@ namespace Umbraco.Core.Scoping
             if (completed.HasValue == false || completed.Value == false)
             {
                 if (LogUncompletedScopes)
-                    _logger.Debug<Scope>("Uncompleted Child Scope at\r\n" + Environment.StackTrace);
+                    _logger.Debug<Scope>("Uncompleted Child Scope at\r\n {StackTrace}", Environment.StackTrace);
+
                 _completed = false;
             }
         }
@@ -328,7 +323,7 @@ namespace Umbraco.Core.Scoping
             if (_disposed)
                 throw new ObjectDisposedException(GetType().FullName);
 
-            // fixme - safer?
+            // TODO: safer?
             //if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
             //    throw new ObjectDisposedException(GetType().FullName);
         }
@@ -441,7 +436,7 @@ namespace Umbraco.Core.Scoping
             }, () =>
             {
                 // if *we* created it, then get rid of it
-                if (_scopeProvider.AmbientContext == _scopeContext)
+                if (_scopeProvider.AmbientContext == Context)
                 {
                     try
                     {
@@ -490,7 +485,7 @@ namespace Umbraco.Core.Scoping
         // caching config
         // true if Umbraco.CoreDebug.LogUncompletedScope appSetting is set to "true"
         private static bool LogUncompletedScopes => (_logUncompletedScopes
-            ?? (_logUncompletedScopes = UmbracoConfig.For.CoreDebug().LogUncompletedScopes)).Value;
+            ?? (_logUncompletedScopes = Current.Configs.CoreDebug().LogUncompletedScopes)).Value;
 
         /// <inheritdoc />
         public void ReadLock(params int[] lockIds)

@@ -9,36 +9,40 @@ namespace Umbraco.Core.PropertyEditors
     public abstract class PropertyValueConverterBase : IPropertyValueConverter
     {
         public virtual bool IsConverter(PublishedPropertyType propertyType)
+            => false;
+
+        public virtual bool? IsValue(object value, PropertyValueLevel level)
         {
-            return false;
+            switch (level)
+            {
+                case PropertyValueLevel.Source:
+                    return value != null && (!(value is string) || string.IsNullOrWhiteSpace((string) value) == false);
+                default:
+                    throw new NotSupportedException($"Invalid level: {level}.");
+            }
+        }
+
+        public virtual bool HasValue(IPublishedProperty property, string culture, string segment)
+        {
+            // the default implementation uses the old magic null & string comparisons,
+            // other implementations may be more clever, and/or test the final converted object values
+            var value = property.GetSourceValue(culture, segment);
+            return value != null && (!(value is string) || string.IsNullOrWhiteSpace((string) value) == false);
         }
 
         public virtual Type GetPropertyValueType(PublishedPropertyType propertyType)
-        {
-            return typeof (object);
-        }
+            => typeof (object);
 
         public virtual PropertyCacheLevel GetPropertyCacheLevel(PublishedPropertyType propertyType)
-        {
-            return PropertyCacheLevel.Snapshot;
-        }
+            => PropertyCacheLevel.Snapshot;
 
-        // TODO: Rename to ConvertSourceToCachableIntermediate
         public virtual object ConvertSourceToIntermediate(IPublishedElement owner, PublishedPropertyType propertyType, object source, bool preview)
-        {
-            return source;
-        }
+            => source;
 
-        // TODO: Rename to ConvertSourceToCachableIntermediate
         public virtual object ConvertIntermediateToObject(IPublishedElement owner, PublishedPropertyType propertyType, PropertyCacheLevel referenceCacheLevel, object inter, bool preview)
-        {
-            return inter;
-        }
+            => inter;
 
-        // TODO: Rename to ConvertSourceToCachableIntermediate
         public virtual object ConvertIntermediateToXPath(IPublishedElement owner, PublishedPropertyType propertyType, PropertyCacheLevel referenceCacheLevel, object inter, bool preview)
-        {
-            return inter?.ToString() ?? string.Empty;
-        }
+            => inter?.ToString() ?? string.Empty;
     }
 }

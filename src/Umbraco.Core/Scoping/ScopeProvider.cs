@@ -117,7 +117,7 @@ namespace Umbraco.Core.Scoping
                 }
 
                 // hard to inject into a static method :(
-                Current.Logger.Warn<ScopeProvider>("Missed " + typeof(T).Name + " Object " + objectKey.ToString("N").Substring(0, 8));
+                Current.Logger.Warn<ScopeProvider>("Missed {TypeName} Object {ObjectKey}", typeof(T).Name, objectKey.ToString("N").Substring(0, 8));
 #if DEBUG_SCOPES
                 //Current.Logger.Debug<ScopeProvider>("At:\r\n" + Head(Environment.StackTrace, 24));
 #endif
@@ -425,7 +425,7 @@ namespace Umbraco.Core.Scoping
         //        LogHelper.Debug<ScopeProvider>("CallContext: " + Environment.StackTrace);
         //}
 
-        // all scope instances that are currently beeing tracked
+        // all scope instances that are currently being tracked
         private static readonly object StaticScopeInfosLock = new object();
         private static readonly Dictionary<IScope, ScopeInfo> StaticScopeInfos = new Dictionary<IScope, ScopeInfo>();
 

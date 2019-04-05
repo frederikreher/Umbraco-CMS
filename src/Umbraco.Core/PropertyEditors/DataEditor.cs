@@ -89,7 +89,7 @@ namespace Umbraco.Core.PropertyEditors
         /// <para>Technically, it could be cached by datatype but let's keep things
         /// simple enough for now.</para>
         /// </remarks>
-        // fixme point of that one? shouldn't we always configure?
+        // TODO: point of that one? shouldn't we always configure?
         public IDataValueEditor GetValueEditor() => ExplicitValueEditor ?? CreateValueEditor();
 
         /// <inheritdoc />
@@ -113,7 +113,7 @@ namespace Umbraco.Core.PropertyEditors
                 return ExplicitValueEditor;
 
             var editor = CreateValueEditor();
-            ((DataValueEditor) editor).Configuration = configuration; // fixme casting is bad
+            ((DataValueEditor) editor).Configuration = configuration; // TODO: casting is bad
             return editor;
         }
 
@@ -152,6 +152,9 @@ namespace Umbraco.Core.PropertyEditors
             get => _defaultConfiguration ?? ((Type & EditorType.PropertyValue) > 0 ? GetConfigurationEditor().DefaultConfiguration : (_defaultConfiguration = new Dictionary<string, object>()));
             set => _defaultConfiguration = value;
         }
+
+        /// <inheritdoc />
+        public virtual IPropertyIndexValueFactory PropertyIndexValueFactory => new DefaultPropertyIndexValueFactory();
 
         /// <summary>
         /// Creates a value editor instance.

@@ -36,9 +36,12 @@ namespace Umbraco.Tests.PublishedContent
         public void Resync()
         { }
 
-        public ICacheProvider SnapshotCache => null;
+        public IAppCache SnapshotCache => null;
 
-        public ICacheProvider ElementsCache => null;
+        public IAppCache ElementsCache => null;
+
+        public void Dispose()
+        { }
     }
 
     class SolidPublishedContentCache : PublishedCacheBase, IPublishedContentCache, IPublishedMediaCache
@@ -162,7 +165,6 @@ namespace Umbraco.Tests.PublishedContent
             WriterId = CreatorId = 0;
             CreateDate = UpdateDate = DateTime.Now;
             Version = Guid.Empty;
-            IsDraft = false;
 
             ContentType = contentType;
         }
@@ -173,7 +175,7 @@ namespace Umbraco.Tests.PublishedContent
 
         public int Id { get; set; }
         public Guid Key { get; set; }
-        public int TemplateId { get; set; }
+        public int? TemplateId { get; set; }
         public int SortOrder { get; set; }
         public string Name { get; set; }
         public PublishedCultureInfo GetCulture(string culture = null) => throw new NotSupportedException();
@@ -192,7 +194,8 @@ namespace Umbraco.Tests.PublishedContent
         public string GetUrl(string culture = null) => throw new NotSupportedException();
 
         public PublishedItemType ItemType { get { return PublishedItemType.Content; } }
-        public bool IsDraft { get; set; }
+        public bool IsDraft(string culture = null) => false;
+        public bool IsPublished(string culture = null) => true;
 
         #endregion
 
@@ -248,7 +251,7 @@ namespace Umbraco.Tests.PublishedContent
         #endregion
     }
 
-    class SolidPublishedProperty : IPublishedProperty
+    internal class SolidPublishedProperty : IPublishedProperty
     {
         public PublishedPropertyType PropertyType { get; set; }
         public string Alias { get; set; }
@@ -257,10 +260,86 @@ namespace Umbraco.Tests.PublishedContent
         public bool SolidHasValue { get; set; }
         public object SolidXPathValue { get; set; }
 
-        public object GetSourceValue(string culture = null, string segment = null) => SolidSourceValue;
-        public object GetValue(string culture = null, string segment = null) => SolidValue;
-        public object GetXPathValue(string culture = null, string segment = null) => SolidXPathValue;
-        public bool HasValue(string culture = null, string segment = null) => SolidHasValue;
+        public virtual object GetSourceValue(string culture = null, string segment = null) => SolidSourceValue;
+        public virtual object GetValue(string culture = null, string segment = null) => SolidValue;
+        public virtual object GetXPathValue(string culture = null, string segment = null) => SolidXPathValue;
+        public virtual bool HasValue(string culture = null, string segment = null) => SolidHasValue;
+    }
+
+    internal class SolidPublishedPropertyWithLanguageVariants : SolidPublishedProperty
+    {
+        private readonly IDictionary<string, object> _solidSourceValues = new Dictionary<string, object>();
+        private readonly IDictionary<string, object> _solidValues = new Dictionary<string, object>();
+        private readonly IDictionary<string, object> _solidXPathValues = new Dictionary<string, object>();
+
+        public override object GetSourceValue(string culture = null, string segment = null)
+        {
+            if (string.IsNullOrEmpty(culture))
+            {
+                return base.GetSourceValue(culture, segment);
+            }
+
+            return _solidSourceValues.ContainsKey(culture) ? _solidSourceValues[culture] : null;
+        }
+
+        public override object GetValue(string culture = null, string segment = null)
+        {
+            if (string.IsNullOrEmpty(culture))
+            {
+                return base.GetValue(culture, segment);
+            }
+
+            return _solidValues.ContainsKey(culture) ? _solidValues[culture] : null;
+        }
+
+        public override object GetXPathValue(string culture = null, string segment = null)
+        {
+            if (string.IsNullOrEmpty(culture))
+            {
+                return base.GetXPathValue(culture, segment);
+            }
+
+            return _solidXPathValues.ContainsKey(culture) ? _solidXPathValues[culture] : null;
+        }
+
+        public override bool HasValue(string culture = null, string segment = null)
+        {
+            if (string.IsNullOrEmpty(culture))
+            {
+                return base.HasValue(culture, segment);
+            }
+
+            return _solidSourceValues.ContainsKey(culture);
+        }
+
+        public void SetSourceValue(string culture, object value, bool defaultValue = false)
+        {
+            _solidSourceValues.Add(culture, value);
+            if (defaultValue)
+            {
+                SolidSourceValue = value;
+                SolidHasValue = true;
+            }
+        }
+
+        public void SetValue(string culture, object value, bool defaultValue = false)
+        {
+            _solidValues.Add(culture, value);
+            if (defaultValue)
+            {
+                SolidValue = value;
+                SolidHasValue = true;
+            }
+        }
+
+        public void SetXPathValue(string culture, object value, bool defaultValue = false)
+        {
+            _solidXPathValues.Add(culture, value);
+            if (defaultValue)
+            {
+                SolidXPathValue = value;
+            }
+        }
     }
 
     [PublishedModel("ContentType2")]
@@ -330,11 +409,11 @@ namespace Umbraco.Tests.PublishedContent
         }
 
         public AutoPublishedContentType(int id, string alias, IEnumerable<PublishedPropertyType> propertyTypes)
-            : base(id, alias, PublishedItemType.Content, Enumerable.Empty<string>(), propertyTypes, ContentVariation.InvariantNeutral)
+            : base(id, alias, PublishedItemType.Content, Enumerable.Empty<string>(), propertyTypes, ContentVariation.Nothing)
         { }
 
         public AutoPublishedContentType(int id, string alias, IEnumerable<string> compositionAliases, IEnumerable<PublishedPropertyType> propertyTypes)
-            : base(id, alias, PublishedItemType.Content, compositionAliases, propertyTypes, ContentVariation.InvariantNeutral)
+            : base(id, alias, PublishedItemType.Content, compositionAliases, propertyTypes, ContentVariation.Nothing)
         { }
 
         public override PublishedPropertyType GetPropertyType(string alias)

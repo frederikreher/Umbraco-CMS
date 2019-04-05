@@ -9,20 +9,20 @@ using Moq;
 using NUnit.Framework;
 using Umbraco.Core;
 using Umbraco.Core.Cache;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.Logging;
-using Umbraco.Core.Profiling;
 using Umbraco.Core.Services;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.TestHelpers.Stubs;
 using Umbraco.Tests.Testing.Objects.Accessors;
 using Umbraco.Web;
-using Umbraco.Web.Composing;
 using Umbraco.Web.Models;
 using Umbraco.Web.Mvc;
 using Umbraco.Web.PublishedCache;
 using Umbraco.Web.Routing;
 using Umbraco.Web.Security;
+using Current = Umbraco.Web.Composing.Current;
 
 namespace Umbraco.Tests.Web.Mvc
 {
@@ -33,6 +33,7 @@ namespace Umbraco.Tests.Web.Mvc
         public void SetUp()
         {
             Current.UmbracoContextAccessor = new TestUmbracoContextAccessor();
+            Core.Composing.Current.Factory = Mock.Of<IFactory>();
         }
 
         [TearDown]
@@ -62,20 +63,22 @@ namespace Umbraco.Tests.Web.Mvc
             var globalSettings = TestObjects.GetGlobalSettings();
             var attr = new RenderIndexActionSelectorAttribute();
             var req = new RequestContext();
-            //var appCtx = new ApplicationContext(
-            //    CacheHelper.CreateDisabledCacheHelper(),
-            //    new ProfilingLogger(Mock.Of<ILogger>(), Mock.Of<IProfiler>()));
-            var umbCtx = UmbracoContext.EnsureContext(
+
+            var umbracoContextFactory = new UmbracoContextFactory(
                 Current.UmbracoContextAccessor,
-                Mock.Of<HttpContextBase>(),
                 Mock.Of<IPublishedSnapshotService>(),
-                new Mock<WebSecurity>(null, null, globalSettings).Object,
-                TestObjects.GetUmbracoSettings(),
-                Enumerable.Empty<IUrlProvider>(),
-                globalSettings,
                 new TestVariationContextAccessor(),
-                true);
-            var ctrl = new MatchesDefaultIndexController { UmbracoContext = umbCtx };
+                new TestDefaultCultureAccessor(),
+                TestObjects.GetUmbracoSettings(),
+                globalSettings,
+                new UrlProviderCollection(Enumerable.Empty<IUrlProvider>()),
+                Mock.Of<IUserService>());
+
+            var umbracoContextReference = umbracoContextFactory.EnsureUmbracoContext(Mock.Of<HttpContextBase>());
+            var umbCtx = umbracoContextReference.UmbracoContext;
+
+            var umbracoContextAccessor = new TestUmbracoContextAccessor(umbCtx);
+            var ctrl = new MatchesDefaultIndexController { UmbracoContextAccessor = umbracoContextAccessor };
             var controllerCtx = new ControllerContext(req, ctrl);
             var result = attr.IsValidForRequest(controllerCtx,
                 GetRenderMvcControllerIndexMethodFromCurrentType(ctrl.GetType()));
@@ -89,17 +92,22 @@ namespace Umbraco.Tests.Web.Mvc
             var globalSettings = TestObjects.GetGlobalSettings();
             var attr = new RenderIndexActionSelectorAttribute();
             var req = new RequestContext();
-            var umbCtx = UmbracoContext.EnsureContext(
+
+            var umbracoContextFactory = new UmbracoContextFactory(
                 Current.UmbracoContextAccessor,
-                Mock.Of<HttpContextBase>(),
                 Mock.Of<IPublishedSnapshotService>(),
-                new Mock<WebSecurity>(null, null, globalSettings).Object,
-                TestObjects.GetUmbracoSettings(),
-                Enumerable.Empty<IUrlProvider>(),
-                globalSettings,
                 new TestVariationContextAccessor(),
-                true);
-            var ctrl = new MatchesOverriddenIndexController { UmbracoContext = umbCtx };
+                new TestDefaultCultureAccessor(),
+                TestObjects.GetUmbracoSettings(),
+                globalSettings,
+                new UrlProviderCollection(Enumerable.Empty<IUrlProvider>()),
+                Mock.Of<IUserService>());
+
+            var umbracoContextReference = umbracoContextFactory.EnsureUmbracoContext(Mock.Of<HttpContextBase>());
+            var umbCtx = umbracoContextReference.UmbracoContext;
+
+            var umbracoContextAccessor = new TestUmbracoContextAccessor(umbCtx);
+            var ctrl = new MatchesOverriddenIndexController { UmbracoContextAccessor = umbracoContextAccessor };
             var controllerCtx = new ControllerContext(req, ctrl);
             var result = attr.IsValidForRequest(controllerCtx,
                 GetRenderMvcControllerIndexMethodFromCurrentType(ctrl.GetType()));
@@ -113,17 +121,22 @@ namespace Umbraco.Tests.Web.Mvc
             var globalSettings = TestObjects.GetGlobalSettings();
             var attr = new RenderIndexActionSelectorAttribute();
             var req = new RequestContext();
-            var umbCtx = UmbracoContext.EnsureContext(
+
+            var umbracoContextFactory = new UmbracoContextFactory(
                 Current.UmbracoContextAccessor,
-                Mock.Of<HttpContextBase>(),
                 Mock.Of<IPublishedSnapshotService>(),
-                new Mock<WebSecurity>(null, null, globalSettings).Object,
-                TestObjects.GetUmbracoSettings(),
-                Enumerable.Empty<IUrlProvider>(),
-                globalSettings,
                 new TestVariationContextAccessor(),
-                true);
-            var ctrl = new MatchesCustomIndexController { UmbracoContext = umbCtx };
+                new TestDefaultCultureAccessor(),
+                TestObjects.GetUmbracoSettings(),
+                globalSettings,
+                new UrlProviderCollection(Enumerable.Empty<IUrlProvider>()),
+                Mock.Of<IUserService>());
+
+            var umbracoContextReference = umbracoContextFactory.EnsureUmbracoContext(Mock.Of<HttpContextBase>());
+            var umbCtx = umbracoContextReference.UmbracoContext;
+
+            var umbracoContextAccessor = new TestUmbracoContextAccessor(umbCtx);
+            var ctrl = new MatchesCustomIndexController { UmbracoContextAccessor = umbracoContextAccessor };
             var controllerCtx = new ControllerContext(req, ctrl);
             var result = attr.IsValidForRequest(controllerCtx,
                 GetRenderMvcControllerIndexMethodFromCurrentType(ctrl.GetType()));
@@ -137,17 +150,22 @@ namespace Umbraco.Tests.Web.Mvc
             var globalSettings = TestObjects.GetGlobalSettings();
             var attr = new RenderIndexActionSelectorAttribute();
             var req = new RequestContext();
-            var umbCtx = UmbracoContext.EnsureContext(
+
+            var umbracoContextFactory = new UmbracoContextFactory(
                 Current.UmbracoContextAccessor,
-                Mock.Of<HttpContextBase>(),
                 Mock.Of<IPublishedSnapshotService>(),
-                new Mock<WebSecurity>(null, null, globalSettings).Object,
-                TestObjects.GetUmbracoSettings(),
-                Enumerable.Empty<IUrlProvider>(),
-                globalSettings,
                 new TestVariationContextAccessor(),
-                true);
-            var ctrl = new MatchesAsyncIndexController { UmbracoContext = umbCtx };
+                new TestDefaultCultureAccessor(),
+                TestObjects.GetUmbracoSettings(),
+                globalSettings,
+                new UrlProviderCollection(Enumerable.Empty<IUrlProvider>()),
+                Mock.Of<IUserService>());
+
+            var umbracoContextReference = umbracoContextFactory.EnsureUmbracoContext(Mock.Of<HttpContextBase>());
+            var umbCtx = umbracoContextReference.UmbracoContext;
+
+            var umbracoContextAccessor = new TestUmbracoContextAccessor(umbCtx);
+            var ctrl = new MatchesAsyncIndexController { UmbracoContextAccessor = umbracoContextAccessor };
             var controllerCtx = new ControllerContext(req, ctrl);
             var result = attr.IsValidForRequest(controllerCtx,
                 GetRenderMvcControllerIndexMethodFromCurrentType(ctrl.GetType()));
@@ -156,7 +174,8 @@ namespace Umbraco.Tests.Web.Mvc
         }
 
         public class MatchesDefaultIndexController : RenderMvcController
-        { }
+        {
+        }
 
         public class MatchesOverriddenIndexController : RenderMvcController
         {

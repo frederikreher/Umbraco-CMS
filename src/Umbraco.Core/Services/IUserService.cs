@@ -91,16 +91,6 @@ namespace Umbraco.Core.Services
             string filter = null);
 
         /// <summary>
-        /// This is simply a helper method which essentially just wraps the MembershipProvider's ChangePassword method
-        /// </summary>
-        /// <remarks>
-        /// This method exists so that Umbraco developers can use one entry point to create/update users if they choose to.
-        /// </remarks>
-        /// <param name="user">The user to save the password for</param>
-        /// <param name="password">The password to save</param>
-        void SavePassword(IUser user, string password);
-
-        /// <summary>
         /// Deletes or disables a User
         /// </summary>
         /// <param name="user"><see cref="IUser"/> to delete</param>
@@ -147,7 +137,7 @@ namespace Umbraco.Core.Services
         /// </summary>
         /// <remarks>If no permissions are found for a particular entity then the user's default permissions will be applied</remarks>
         /// <param name="user">User to retrieve permissions for</param>
-        /// <param name="nodeIds">Specifiying nothing will return all user permissions for all nodes that have explicit permissions defined</param>
+        /// <param name="nodeIds">Specifying nothing will return all user permissions for all nodes that have explicit permissions defined</param>
         /// <returns>An enumerable list of <see cref="EntityPermission"/></returns>
         /// <remarks>
         /// This will return the default permissions for the user's groups for node ids that don't have explicitly defined permissions
@@ -161,7 +151,7 @@ namespace Umbraco.Core.Services
         /// <param name="fallbackToDefaultPermissions">
         ///     Flag indicating if we want to include the default group permissions for each result if there are not explicit permissions set
         /// </param>
-        /// <param name="nodeIds">Specifiying nothing will return all permissions for all nodes</param>
+        /// <param name="nodeIds">Specifying nothing will return all permissions for all nodes</param>
         /// <returns>An enumerable list of <see cref="EntityPermission"/></returns>
         EntityPermissionCollection GetPermissions(IUserGroup[] groups, bool fallbackToDefaultPermissions, params int[] nodeIds);
 

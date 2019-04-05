@@ -6,6 +6,7 @@
         var vm = this;
 
         vm.page = {};
+        vm.showBackButton = true;
         vm.language = {};
         vm.availableCultures = null;
         vm.breadcrumbs = [];
@@ -28,7 +29,10 @@
                 "languages_mandatoryLanguageHelp",
                 "languages_defaultLanguage",
                 "languages_defaultLanguageHelp",
-                "languages_addLanguage"
+                "languages_addLanguage",
+                "languages_noFallbackLanguageOption",
+                "languages_fallbackLanguageDescription",
+                "languages_fallbackLanguage"
             ];
 
             localizationService.localizeMany(labelKeys).then(function (values) {
@@ -38,17 +42,40 @@
                 vm.labels.defaultLanguage = values[3];
                 vm.labels.defaultLanguageHelp = values[4];
                 vm.labels.addLanguage = values[5];
+                vm.labels.noFallbackLanguageOption = values[6];
 
-                if($routeParams.create) {
+                $scope.properties = {
+                    fallbackLanguage: {
+                        alias: "fallbackLanguage",
+                        description: values[7],
+                        label: values[8]
+                    }
+                };
+
+                if ($routeParams.create) {
                     vm.page.name = vm.labels.addLanguage;
-                    languageResource.getCultures().then(function(cultures) {
+                    languageResource.getCultures().then(function (culturesDictionary) {
+                        var cultures = [];
+                        angular.forEach(culturesDictionary, function (value, key) {
+                            cultures.push({
+                                name: key,
+                                displayName: value
+                            });
+                        });
                         vm.availableCultures = cultures;
                     });
                 }
-
             });
 
-            if(!$routeParams.create) {
+            vm.loading = true;
+            languageResource.getAll().then(function (languages) {
+                vm.availableLanguages = languages.filter(function (l) {
+                    return $routeParams.id != l.id;
+                });
+                vm.loading = false;
+            });
+
+            if (!$routeParams.create) {
 
                 vm.loading = true;
 
@@ -78,19 +105,17 @@
 
                 languageResource.save(vm.language).then(function (lang) {
 
-                    formHelper.resetForm({
-                        scope: $scope
-                    });
+                    formHelper.resetForm({ scope: $scope });
 
                     vm.language = lang;
                     vm.page.saveButtonState = "success";
-                    notificationsService.success(localizationService.localize("speechBubbles_languageSaved"));
+                    localizationService.localize("speechBubbles_languageSaved").then(function(value){
+                        notificationsService.success(value);
+                    });
 
-                    // emit event when language is created
-                    if($routeParams.create) {
-                        var args = { language: lang };
-                        eventsService.emit("editors.languages.languageCreated", args);
-                    }
+                    // emit event when language is created or updated/saved
+                    var args = { language: lang, isNew: $routeParams.create ? true : false };
+                    eventsService.emit("editors.languages.languageSaved", args);
 
                     back();
 
@@ -99,16 +124,10 @@
 
                     formHelper.handleError(err);
 
-                    //show any notifications
-                    if (angular.isArray(err.data.notifications)) {
-                        for (var i = 0; i < err.data.notifications.length; i++) {
-                            notificationsService.showNotification(err.data.notifications[i]);
-                        }
-                    }
                 });
             }
 
-            
+
         }
 
         function back() {
@@ -120,13 +139,11 @@
         }
 
         function toggleMandatory() {
-            if(!vm.language.isDefault) {
-                vm.language.isMandatory = !vm.language.isMandatory;
-            }
+            vm.language.isMandatory = !vm.language.isMandatory;
         }
 
         function toggleDefault() {
-            
+
             // it shouldn't be possible to uncheck the default language
             if(vm.initIsDefault) {
                 return;
@@ -134,7 +151,6 @@
 
             vm.language.isDefault = !vm.language.isDefault;
             if(vm.language.isDefault) {
-                vm.language.isMandatory = true;
                 vm.showDefaultLanguageInfo = true;
             } else {
                 vm.showDefaultLanguageInfo = false;

@@ -19,9 +19,14 @@
 
         //Keyboard shortcuts for help dialog
         vm.page.keyboardShortcutsOverview = [];
-        vm.page.keyboardShortcutsOverview.push(templateHelper.getGeneralShortcuts());
-        vm.page.keyboardShortcutsOverview.push(templateHelper.getEditorShortcuts());
-        
+
+        templateHelper.getGeneralShortcuts().then(function(shortcuts){
+            vm.page.keyboardShortcutsOverview.push(shortcuts);
+        });
+
+        templateHelper.getEditorShortcuts().then(function(shortcuts){
+            vm.page.keyboardShortcutsOverview.push(shortcuts);
+        });
 
         vm.script = {};
 
@@ -140,7 +145,7 @@
                     //As conflicts with our own tree search shortcut
                     _editor.commands.bindKey("ctrl-space", null);
 
-                    //TODO: Move all these keybinding config out into some helper/service
+                    // TODO: Move all these keybinding config out into some helper/service
                     _editor.commands.addCommands([
                         //Disable (alt+shift+K)
                         //Conflicts with our own show shortcuts dialog - this overrides it
@@ -154,7 +159,7 @@
                                 });
                             },
                             readOnly: true
-                        },
+                        }
                     ]);
                     
                     // initial cursor placement

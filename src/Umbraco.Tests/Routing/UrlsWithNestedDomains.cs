@@ -1,12 +1,14 @@
 ﻿using System;
 using Moq;
 using NUnit.Framework;
+using Umbraco.Core;
+using Umbraco.Core.Composing;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.Models;
 using Umbraco.Tests.TestHelpers;
-using Umbraco.Web.PublishedCache.XmlPublishedCache;
 using Umbraco.Web.Routing;
 using Umbraco.Core.Services;
-using Umbraco.Core.Composing;
+using Umbraco.Tests.LegacyXmlPublishedCache;
 
 namespace Umbraco.Tests.Routing
 {
@@ -21,21 +23,17 @@ namespace Umbraco.Tests.Routing
         protected override void Compose()
         {
             base.Compose();
-            Container.RegisterSingleton(_ => Mock.Of<IDomainService>());
-            Container.Register<ISiteDomainHelper, SiteDomainHelper>();
+            Composition.RegisterUnique(_ => Mock.Of<IDomainService>());
+            Composition.Register<ISiteDomainHelper, SiteDomainHelper>();
         }
 
         [Test]
         public void DoNotPolluteCache()
         {
-            var globalSettings = Mock.Get(TestObjects.GetGlobalSettings()); //this will modify the IGlobalSettings instance stored in the container
-            globalSettings.Setup(x => x.UseDirectoryUrls).Returns(true);
+            var globalSettings = Mock.Get(Factory.GetInstance<IGlobalSettings>()); //this will modify the IGlobalSettings instance stored in the container
             globalSettings.Setup(x => x.HideTopLevelNodeFromPath).Returns(false);
-            SettingsForTests.ConfigureSettings(globalSettings.Object);
 
             var settings = SettingsForTests.GenerateMockUmbracoSettings();
-            var request = Mock.Get(settings.RequestHandler);
-            request.Setup(x => x.UseDomainPrefixes).Returns(true);
 
             SetDomains1();
 

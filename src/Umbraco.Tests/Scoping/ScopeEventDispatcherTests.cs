@@ -1,10 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
-using LightInject;
 using Moq;
 using NUnit.Framework;
-using Umbraco.Core.Collections;
+using Umbraco.Core;
 using Umbraco.Core.Events;
 using Umbraco.Core.Models;
 using Umbraco.Core.IO;
@@ -15,6 +13,7 @@ using Umbraco.Tests.TestHelpers.Entities;
 using Umbraco.Core.Composing;
 using Umbraco.Core.Persistence.Mappers;
 using Umbraco.Core.Services;
+using Umbraco.Tests.Components;
 
 namespace Umbraco.Tests.Scoping
 {
@@ -31,12 +30,20 @@ namespace Umbraco.Tests.Scoping
             DoThing2 = null;
             DoThing3 = null;
 
-            Current.Container = new ServiceContainer();
+            var register = RegisterFactory.Create();
 
-            _testObjects = new TestObjects(Current.Container);
-            Current.Container.RegisterSingleton(f => Current.Container);
-            Current.Container.RegisterSingleton(factory => new FileSystems(factory.TryGetInstance<ILogger>()));
-            Current.Container.RegisterCollectionBuilder<MapperCollectionBuilder>();
+            var composition = new Composition(register, new TypeLoader(), Mock.Of<IProfilingLogger>(), ComponentTests.MockRuntimeState(RuntimeLevel.Run));
+
+            _testObjects = new TestObjects(register);
+
+            composition.RegisterUnique(factory => new FileSystems(factory, factory.TryGetInstance<ILogger>()));
+            composition.WithCollectionBuilder<MapperCollectionBuilder>();
+
+            composition.Configs.Add(SettingsForTests.GetDefaultGlobalSettings);
+            composition.Configs.Add(SettingsForTests.GetDefaultUmbracoSettings);
+
+            Current.Reset();
+            Current.Factory = composition.CreateFactory();
 
             SettingsForTests.Reset(); // ensure we have configuration
         }
@@ -169,7 +176,7 @@ namespace Umbraco.Tests.Scoping
         [Test]
         public void SupersededEvents2()
         {
-            Test_UnPublished += OnDoThingFail;
+            Test_Unpublished += OnDoThingFail;
             Test_Deleted += OnDoThingFail;
 
             var contentService = Mock.Of<IContentService>();
@@ -178,7 +185,7 @@ namespace Umbraco.Tests.Scoping
             var scopeProvider = _testObjects.GetScopeProvider(Mock.Of<ILogger>());
             using (var scope = scopeProvider.CreateScope(eventDispatcher: new PassiveEventDispatcher()))
             {
-                scope.Events.Dispatch(Test_UnPublished, contentService, new PublishEventArgs<IContent>(new [] { content }), "UnPublished");
+                scope.Events.Dispatch(Test_Unpublished, contentService, new PublishEventArgs<IContent>(new [] { content }), "Unpublished");
                 scope.Events.Dispatch(Test_Deleted, contentService, new DeleteEventArgs<IContent>(new [] { content }), "Deleted");
 
                 // see U4-10764
@@ -395,7 +402,7 @@ namespace Umbraco.Tests.Scoping
 
         public static event TypedEventHandler<ScopeEventDispatcherTests, SaveEventArgs<decimal>> DoThing3;
 
-        public static event TypedEventHandler<IContentService, PublishEventArgs<IContent>> Test_UnPublished;
+        public static event TypedEventHandler<IContentService, PublishEventArgs<IContent>> Test_Unpublished;
         public static event TypedEventHandler<IContentService, DeleteEventArgs<IContent>> Test_Deleted;
 
         public class TestEventArgs : CancellableObjectEventArgs

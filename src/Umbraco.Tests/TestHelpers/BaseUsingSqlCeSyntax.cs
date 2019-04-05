@@ -1,4 +1,4 @@
-﻿using LightInject;
+﻿using System;
 using Moq;
 using NPoco;
 using NUnit.Framework;
@@ -7,9 +7,11 @@ using Umbraco.Core.Cache;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Persistence.Mappers;
 using Umbraco.Core.Persistence.SqlSyntax;
-using Umbraco.Core.Profiling;
 using Umbraco.Core.Composing;
+using Umbraco.Core.Configuration;
+using Umbraco.Core.IO;
 using Umbraco.Core.Persistence;
+using Umbraco.Tests.Components;
 
 namespace Umbraco.Tests.TestHelpers
 {
@@ -32,28 +34,33 @@ namespace Umbraco.Tests.TestHelpers
         {
             Current.Reset();
 
-            var sqlSyntax = new SqlCeSyntaxProvider();
-
-            var container = new ServiceContainer();
-            container.ConfigureUmbracoCore();
-
-            container.RegisterSingleton<ILogger>(factory => Mock.Of<ILogger>());
-            container.RegisterSingleton<IProfiler>(factory => Mock.Of<IProfiler>());
+            var container = RegisterFactory.Create();
 
             var logger = new ProfilingLogger(Mock.Of<ILogger>(), Mock.Of<IProfiler>());
-            var pluginManager = new TypeLoader(NullCacheProvider.Instance,
-                SettingsForTests.GenerateMockGlobalSettings(),
+            var typeLoader = new TypeLoader(NoAppCache.Instance,
+                IOHelper.MapPath("~/App_Data/TEMP"),
                 logger,
                 false);
-            container.RegisterInstance(pluginManager);
 
-            container.RegisterCollectionBuilder<MapperCollectionBuilder>()
-                .Add(() => Current.TypeLoader.GetAssignedMapperTypes());
-            Mappers = container.GetInstance<IMapperCollection>();
+            var composition = new Composition(container, typeLoader, Mock.Of<IProfilingLogger>(), ComponentTests.MockRuntimeState(RuntimeLevel.Run));
+
+            composition.RegisterUnique<ILogger>(_ => Mock.Of<ILogger>());
+            composition.RegisterUnique<IProfiler>(_ => Mock.Of<IProfiler>());
+
+            composition.RegisterUnique(typeLoader);
+
+            composition.WithCollectionBuilder<MapperCollectionBuilder>()
+                .AddCoreMappers();
+
+            composition.RegisterUnique<ISqlContext>(_ => SqlContext);
+
+            var factory = Current.Factory = composition.CreateFactory();
 
             var pocoMappers = new NPoco.MapperCollection { new PocoMapper() };
             var pocoDataFactory = new FluentPocoDataFactory((type, iPocoDataFactory) => new PocoDataBuilder(type, pocoMappers).Init());
-            SqlContext = new SqlContext(sqlSyntax, DatabaseType.SQLCe, pocoDataFactory, Mappers);
+            var sqlSyntax = new SqlCeSyntaxProvider();
+            SqlContext = new SqlContext(sqlSyntax, DatabaseType.SQLCe, pocoDataFactory, new Lazy<IMapperCollection>(() => factory.GetInstance<IMapperCollection>()));
+            Mappers = factory.GetInstance<IMapperCollection>();
 
             SetUp();
         }

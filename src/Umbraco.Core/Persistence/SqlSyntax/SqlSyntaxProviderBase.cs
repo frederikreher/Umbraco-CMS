@@ -4,6 +4,7 @@ using System.Data;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using NPoco;
 using Umbraco.Core.Persistence.DatabaseAnnotations;
 using Umbraco.Core.Persistence.DatabaseModelDefinitions;
@@ -40,7 +41,16 @@ namespace Umbraco.Core.Persistence.SqlSyntax
             DecimalColumnDefinition = string.Format(DecimalColumnDefinitionFormat, DefaultDecimalPrecision, DefaultDecimalScale);
 
             InitColumnTypeMap();
+
+            // ReSharper disable VirtualMemberCallInConstructor
+            // ok to call virtual GetQuotedXxxName here - they don't depend on any state
+            var col = Regex.Escape(GetQuotedColumnName("column")).Replace("column", @"\w+");
+            var fld = Regex.Escape(GetQuotedTableName("table") + ".").Replace("table", @"\w+") + col;
+            // ReSharper restore VirtualMemberCallInConstructor
+            AliasRegex = new Regex("(" + fld + @")\s+AS\s+(" + col + ")", RegexOptions.Multiline | RegexOptions.Singleline | RegexOptions.IgnoreCase | RegexOptions.Compiled);
         }
+
+        public Regex AliasRegex { get; }
 
         public string GetWildcardPlaceholder()
         {
@@ -137,41 +147,6 @@ namespace Umbraco.Core.Persistence.SqlSyntax
             return $"upper({column}) LIKE upper(@{paramIndex})";
         }
 
-        [Obsolete("Use the overload with the parameter index instead")]
-        public virtual string GetStringColumnEqualComparison(string column, string value, TextColumnType columnType)
-        {
-            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
-            return $"upper({column}) = '{value.ToUpper()}'";
-        }
-
-        [Obsolete("Use the overload with the parameter index instead")]
-        public virtual string GetStringColumnStartsWithComparison(string column, string value, TextColumnType columnType)
-        {
-            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
-            return $"upper({column}) LIKE '{value.ToUpper()}%'";
-        }
-
-        [Obsolete("Use the overload with the parameter index instead")]
-        public virtual string GetStringColumnEndsWithComparison(string column, string value, TextColumnType columnType)
-        {
-            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
-            return $"upper({column}) LIKE '%{value.ToUpper()}'";
-        }
-
-        [Obsolete("Use the overload with the parameter index instead")]
-        public virtual string GetStringColumnContainsComparison(string column, string value, TextColumnType columnType)
-        {
-            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
-            return $"upper({column}) LIKE '%{value.ToUpper()}%'";
-        }
-
-        [Obsolete("Use the overload with the parameter index instead")]
-        public virtual string GetStringColumnWildcardComparison(string column, string value, TextColumnType columnType)
-        {
-            //use the 'upper' method to always ensure strings are matched without case sensitivity no matter what the db setting.
-            return $"upper({column}) LIKE '{value.ToUpper()}'";
-        }
-
         public virtual string GetConcat(params string[] args)
         {
             return "concat(" + string.Join(",", args) + ")";
@@ -225,12 +200,7 @@ namespace Umbraco.Core.Persistence.SqlSyntax
 
             return "NVARCHAR";
         }
-
-        public virtual bool? SupportsCaseInsensitiveQueries(IDatabase db)
-        {
-            return true;
-        }
-
+        
         public virtual IEnumerable<string> GetTablesInSchema(IDatabase db)
         {
             return new List<string>();
@@ -507,7 +477,7 @@ namespace Umbraco.Core.Persistence.SqlSyntax
             var dbTypeDefinition = column.Size != default(int)
                 ? $"{definition}({column.Size})"
                 : definition;
-            //NOTE Percision is left out
+            //NOTE Precision is left out
             return dbTypeDefinition;
         }
 
@@ -530,7 +500,7 @@ namespace Umbraco.Core.Persistence.SqlSyntax
             if (column.DefaultValue == null)
                 return string.Empty;
 
-            //hack - probably not needed with latest changes
+            // HACK: probably not needed with latest changes
             if (column.DefaultValue.ToString().ToLower().Equals("getdate()".ToLower()))
                 column.DefaultValue = SystemMethods.CurrentDateTime;
 
@@ -560,7 +530,7 @@ namespace Umbraco.Core.Persistence.SqlSyntax
         public virtual string CreateTable => "CREATE TABLE {0} ({1})";
         public virtual string DropTable => "DROP TABLE {0}";
 
-        public virtual string AddColumn => "ALTER TABLE {0} ADD COLUMN {1}";
+        public virtual string AddColumn => "ALTER TABLE {0} ADD {1}";
         public virtual string DropColumn => "ALTER TABLE {0} DROP COLUMN {1}";
         public virtual string AlterColumn => "ALTER TABLE {0} ALTER COLUMN {1}";
         public virtual string RenameColumn => "ALTER TABLE {0} RENAME COLUMN {1} TO {2}";

@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using NPoco;
 using Umbraco.Core.Logging;
@@ -50,12 +49,13 @@ namespace Umbraco.Core.Migrations
             if (_executed)
                 throw new InvalidOperationException("This expression has already been executed.");
             _executed = true;
+            Context.BuildingExpression = false;
 
             var sql = GetSql();
 
             if (string.IsNullOrWhiteSpace(sql))
             {
-                Logger.Info(GetType(), $"SQL [{Context.Index}]: <empty>");
+                Logger.Info(GetType(), "SQL [{ContextIndex}]: <empty>", Context.Index);
             }
             else
             {
@@ -87,10 +87,35 @@ namespace Umbraco.Core.Migrations
                 expression.Execute();
         }
 
+        protected void Execute(Sql<ISqlContext> sql)
+        {
+            if (_executed)
+                throw new InvalidOperationException("This expression has already been executed.");
+            _executed = true;
+
+            if (sql == null)
+            {
+                Logger.Info(GetType(), $"SQL [{Context.Index}]: <empty>");
+            }
+            else
+            {
+                Logger.Info(GetType(), $"SQL [{Context.Index}]: {sql.ToText()}");
+                Database.Execute(sql);
+            }
+
+            Context.Index++;
+
+            if (_expressions == null)
+                return;
+
+            foreach (var expression in _expressions)
+                expression.Execute();
+        }
+
         private void ExecuteStatement(StringBuilder stmtBuilder)
         {
             var stmt = stmtBuilder.ToString();
-            Logger.Info(GetType(), $"SQL [{Context.Index}]: {stmt}");
+            Logger.Info(GetType(), "SQL [{ContextIndex}]: {Sql}", Context.Index, stmt);
             Database.Execute(stmt);
             stmtBuilder.Clear();
         }

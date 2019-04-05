@@ -4,17 +4,19 @@ using Umbraco.Core.Persistence.DatabaseAnnotations;
 
 namespace Umbraco.Core.Persistence.Dtos
 {
-    [TableName(Constants.DatabaseSchema.Tables.UserLogin)]
+    [TableName(TableName)]
     [PrimaryKey("sessionId", AutoIncrement = false)]
     [ExplicitColumns]
     internal class UserLoginDto
     {
+        public const string TableName = Constants.DatabaseSchema.Tables.UserLogin;
+
         [Column("sessionId")]
         [PrimaryKeyColumn(AutoIncrement = false)]
         public Guid SessionId { get; set; }
 
         [Column("userId")]
-        [ForeignKey(typeof(UserDto), Name = "FK_" + Constants.DatabaseSchema.Tables.UserLogin + "_umbracoUser_id")]
+        [ForeignKey(typeof(UserDto), Name = "FK_" + TableName + "_umbracoUser_id")]
         public int UserId { get; set; }
 
         /// <summary>
@@ -28,11 +30,14 @@ namespace Umbraco.Core.Persistence.Dtos
         /// Updated every time a user's session is validated
         /// </summary>
         /// <remarks>
-        /// This allows us to guess if a session is timed out if a user doesn't actively log out
-        /// and also allows us to trim the data in the table
+        /// <para>This allows us to guess if a session is timed out if a user doesn't actively
+        /// log out and also allows us to trim the data in the table.</para>
+        /// <para>The index is IMPORTANT as it prevents deadlocks during deletion of
+        /// old sessions (DELETE ... WHERE lastValidatedUtc &lt; date).</para>
         /// </remarks>
         [Column("lastValidatedUtc")]
         [NullSetting(NullSetting = NullSettings.NotNull)]
+        [Index(IndexTypes.NonClustered, Name = "IX_userLoginDto_lastValidatedUtc")]
         public DateTime LastValidatedUtc { get; set; }
 
         /// <summary>

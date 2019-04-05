@@ -46,7 +46,7 @@ namespace Umbraco.Core.PropertyEditors
         /// <summary>
         /// Gets a value editor.
         /// </summary>
-        IDataValueEditor GetValueEditor(); // fixme - should be configured?!
+        IDataValueEditor GetValueEditor(); // TODO: should be configured?!
 
         /// <summary>
         /// Gets a configured value editor.
@@ -65,5 +65,10 @@ namespace Umbraco.Core.PropertyEditors
         /// <para>Is expected to throw if the editor does not support being configured, e.g. for most parameter editors.</para>
         /// </remarks>
         IConfigurationEditor GetConfigurationEditor();
+
+        /// <summary>
+        /// Gets the index value factory for the editor.
+        /// </summary>
+        IPropertyIndexValueFactory PropertyIndexValueFactory { get; }
     }
 }

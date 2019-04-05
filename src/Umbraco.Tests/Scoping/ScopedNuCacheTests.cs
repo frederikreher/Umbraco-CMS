@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Web.Routing;
-using LightInject;
 using Moq;
 using NUnit.Framework;
 using Umbraco.Core;
@@ -11,13 +10,14 @@ using Umbraco.Core.Composing;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.Events;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.PublishedContent;
 using Umbraco.Core.Persistence.Repositories;
-using Umbraco.Core.Persistence.Repositories.Implement;
 using Umbraco.Core.PropertyEditors;
 using Umbraco.Core.Services;
 using Umbraco.Core.Services.Implement;
+using Umbraco.Core.Strings;
 using Umbraco.Core.Sync;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.Testing;
@@ -36,7 +36,7 @@ namespace Umbraco.Tests.Scoping
     [UmbracoTest(Database = UmbracoTestOptions.Database.NewSchemaPerTest, PublishedRepositoryEvents = true)]
     public class ScopedNuCacheTests : TestWithDatabaseBase
     {
-        private CacheRefresherComponent _cacheRefresher;
+        private DistributedCacheBinder _distributedCacheBinder;
 
         protected override void Compose()
         {
@@ -44,20 +44,20 @@ namespace Umbraco.Tests.Scoping
 
             // the cache refresher component needs to trigger to refresh caches
             // but then, it requires a lot of plumbing ;(
-            // fixme - and we cannot inject a DistributedCache yet
+            // FIXME: and we cannot inject a DistributedCache yet
             // so doing all this mess
-            Container.RegisterSingleton<IServerMessenger, ScopedXmlTests.LocalServerMessenger>();
-            Container.RegisterSingleton(f => Mock.Of<IServerRegistrar>());
-            Container.RegisterCollectionBuilder<CacheRefresherCollectionBuilder>()
-                .Add(f => f.TryGetInstance<TypeLoader>().GetCacheRefreshers());
+            Composition.RegisterUnique<IServerMessenger, ScopedXmlTests.LocalServerMessenger>();
+            Composition.RegisterUnique(f => Mock.Of<IServerRegistrar>());
+            Composition.WithCollectionBuilder<CacheRefresherCollectionBuilder>()
+                .Add(() => Composition.TypeLoader.GetCacheRefreshers());
         }
 
         public override void TearDown()
         {
             base.TearDown();
 
-            _cacheRefresher?.Unbind();
-            _cacheRefresher = null;
+            _distributedCacheBinder?.UnbindEvents();
+            _distributedCacheBinder = null;
 
             _onPublishedAssertAction = null;
             ContentService.Published -= OnPublishedAssert;
@@ -81,6 +81,7 @@ namespace Umbraco.Tests.Scoping
             var documentRepository = Mock.Of<IDocumentRepository>();
             var mediaRepository = Mock.Of<IMediaRepository>();
             var memberRepository = Mock.Of<IMemberRepository>();
+            var contentTypeServiceBaseFactory = Current.Services.ContentTypeBaseServices;
 
             return new PublishedSnapshotService(
                 options,
@@ -91,12 +92,16 @@ namespace Umbraco.Tests.Scoping
                 null,
                 publishedSnapshotAccessor,
                 Mock.Of<IVariationContextAccessor>(),
+                Mock.Of<IUmbracoContextAccessor>(),
                 Logger,
                 ScopeProvider,
                 documentRepository, mediaRepository, memberRepository,
                 DefaultCultureAccessor,
                 new DatabaseDataSource(),
-                Container.GetInstance<IGlobalSettings>(), new SiteDomainHelper());
+                Factory.GetInstance<IGlobalSettings>(), new SiteDomainHelper(),
+                Factory.GetInstance<IEntityXmlSerializer>(),
+                Mock.Of<IPublishedModelFactory>(),
+                new UrlSegmentProviderCollection(new[] { new DefaultUrlSegmentProvider() }));
         }
 
         protected UmbracoContext GetUmbracoContextNu(string url, int templateId = 1234, RouteData routeData = null, bool setSingleton = false, IUmbracoSettingsSection umbracoSettings = null, IEnumerable<IUrlProvider> urlProviders = null)
@@ -129,8 +134,8 @@ namespace Umbraco.Tests.Scoping
             var umbracoContext = GetUmbracoContextNu("http://example.com/", setSingleton: true);
 
             // wire cache refresher
-            _cacheRefresher = new CacheRefresherComponent(true);
-            _cacheRefresher.Initialize(new DistributedCache());
+            _distributedCacheBinder = new DistributedCacheBinder(new DistributedCache(), Mock.Of<IUmbracoContextFactory>(), Mock.Of<ILogger>());
+            _distributedCacheBinder.BindEvents(true);
 
             // create document type, document
             var contentType = new ContentType(-1) { Alias = "CustomDocument", Name = "Custom Document" };
@@ -152,7 +157,6 @@ namespace Umbraco.Tests.Scoping
 
             using (var scope = ScopeProvider.CreateScope())
             {
-                item.TryPublishValues();
                 Current.Services.ContentService.SaveAndPublish(item);
                 scope.Complete();
             }
@@ -167,7 +171,6 @@ namespace Umbraco.Tests.Scoping
             using (var scope = ScopeProvider.CreateScope())
             {
                 item.Name = "changed";
-                item.TryPublishValues();
                 Current.Services.ContentService.SaveAndPublish(item);
 
                 if (complete)

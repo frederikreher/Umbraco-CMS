@@ -2,7 +2,9 @@
 using System.Xml.Linq;
 using NUnit.Framework;
 using Umbraco.Core;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Models;
+using Umbraco.Core.Services;
 using Umbraco.Core.Strings;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.TestHelpers.Entities;
@@ -18,18 +20,18 @@ namespace Umbraco.Tests.Models
         public void Can_Generate_Xml_Representation_Of_Content()
         {
             // Arrange
-            var contentType = MockedContentTypes.CreateTextpageContentType();
+            var contentType = MockedContentTypes.CreateTextPageContentType();
             ServiceContext.FileService.SaveTemplate(contentType.DefaultTemplate); // else, FK violation on contentType!
             ServiceContext.ContentTypeService.Save(contentType);
 
             var content = MockedContent.CreateTextpageContent(contentType, "Root Home", -1);
-            ServiceContext.ContentService.Save(content, Constants.Security.SuperId);
+            ServiceContext.ContentService.Save(content, Constants.Security.SuperUserId);
 
-            var nodeName = content.ContentType.Alias.ToSafeAliasWithForcingCheck();
+            var nodeName = content.ContentType.Alias.ToSafeAlias();
             var urlName = content.GetUrlSegment(new[]{new DefaultUrlSegmentProvider() });
 
             // Act
-            XElement element = content.ToXml();
+            XElement element = content.ToXml(Factory.GetInstance<IEntityXmlSerializer>());
 
             // Assert
             Assert.That(element, Is.Not.Null);
@@ -49,7 +51,7 @@ namespace Umbraco.Tests.Models
             Assert.AreEqual(content.GetCreatorProfile(ServiceContext.UserService).Name, (string)element.Attribute("creatorName"));
             Assert.AreEqual(content.GetWriterProfile(ServiceContext.UserService).Name, (string)element.Attribute("writerName"));
             Assert.AreEqual(content.WriterId.ToString(), (string)element.Attribute("writerID"));
-            Assert.AreEqual(content.Template == null ? "0" : content.Template.Id.ToString(), (string)element.Attribute("template"));
+            Assert.AreEqual(content.TemplateId.ToString(), (string)element.Attribute("template"));
 
             Assert.AreEqual(content.Properties["title"].GetValue().ToString(), element.Elements("title").Single().Value);
             Assert.AreEqual(content.Properties["bodyText"].GetValue().ToString(), element.Elements("bodyText").Single().Value);

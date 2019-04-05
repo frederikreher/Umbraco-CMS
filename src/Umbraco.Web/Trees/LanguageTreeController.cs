@@ -7,7 +7,7 @@ using Constants = Umbraco.Core.Constants;
 namespace Umbraco.Web.Trees
 {
     [UmbracoTreeAuthorize(Constants.Trees.Languages)]
-    [Tree(Constants.Applications.Settings, Constants.Trees.Languages, null, sortOrder: 4)]
+    [Tree(Constants.Applications.Settings, Constants.Trees.Languages, SortOrder = 11, TreeGroup = Constants.Trees.Groups.Settings)]
     [PluginController("UmbracoTrees")]
     [CoreTree]
     public class LanguageTreeController : TreeController
@@ -33,7 +33,7 @@ namespace Umbraco.Web.Trees
             var root = base.CreateRootNode(queryStrings);
 
             //this will load in a custom UI instead of the dashboard for the root node
-            root.RoutePath = string.Format("{0}/{1}/{2}", Constants.Applications.Settings, Constants.Trees.Languages, "overview");
+            root.RoutePath = $"{Constants.Applications.Settings}/{Constants.Trees.Languages}/overview";
             root.Icon = "icon-globe";
             root.HasChildren = false;
             root.MenuUrl = null;

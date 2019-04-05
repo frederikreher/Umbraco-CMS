@@ -6,7 +6,13 @@ using System.Net.Http;
 using System.Web.Http;
 using System.Web.Security;
 using AutoMapper;
+using Umbraco.Core;
+using Umbraco.Core.Cache;
+using Umbraco.Core.Configuration;
+using Umbraco.Core.Dictionary;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
+using Umbraco.Core.Persistence;
 using Umbraco.Core.Security;
 using Umbraco.Core.Services;
 using Umbraco.Web.Models.ContentEditing;
@@ -21,11 +27,17 @@ namespace Umbraco.Web.Editors
     /// An API controller used for dealing with member types
     /// </summary>
     [PluginController("UmbracoApi")]
-    [UmbracoTreeAuthorize(Constants.Trees.MemberTypes)]
+    [UmbracoTreeAuthorize(new string[] { Constants.Trees.MemberTypes, Constants.Trees.Members})]
     public class MemberTypeController : ContentTypeControllerBase<IMemberType>
     {
+        public MemberTypeController(ICultureDictionaryFactory cultureDictionaryFactory, IGlobalSettings globalSettings, IUmbracoContextAccessor umbracoContextAccessor, ISqlContext sqlContext, ServiceContext services, AppCaches appCaches, IProfilingLogger logger, IRuntimeState runtimeState, UmbracoHelper umbracoHelper)
+            : base(cultureDictionaryFactory, globalSettings, umbracoContextAccessor, sqlContext, services, appCaches, logger, runtimeState, umbracoHelper)
+        {
+        }
+
         private readonly MembershipProvider _provider = Core.Security.MembershipProviderExtensions.GetMembersMembershipProvider();
 
+        [UmbracoTreeAuthorize(Constants.Trees.MemberTypes)]
         public MemberTypeDisplay GetById(int id)
         {
             var ct = Services.MemberTypeService.Get(id);
@@ -39,12 +51,13 @@ namespace Umbraco.Web.Editors
         }
 
         /// <summary>
-        /// Deletes a document type wth a given ID
+        /// Deletes a document type with a given ID
         /// </summary>
         /// <param name="id"></param>
         /// <returns></returns>
         [HttpDelete]
         [HttpPost]
+        [UmbracoTreeAuthorize(Constants.Trees.MemberTypes)]
         public HttpResponseMessage DeleteById(int id)
         {
             var foundType = Services.MemberTypeService.Get(id);
@@ -58,7 +71,7 @@ namespace Umbraco.Web.Editors
         }
 
         /// <summary>
-        /// Returns the avilable compositions for this content type
+        /// Returns the available compositions for this content type
         /// </summary>
         /// <param name="contentTypeId"></param>
         /// <param name="filterContentTypes">
@@ -71,6 +84,8 @@ namespace Umbraco.Web.Editors
         /// be looked up via the db, they need to be passed in.
         /// </param>
         /// <returns></returns>
+
+        [UmbracoTreeAuthorize(Constants.Trees.MemberTypes)]
         public HttpResponseMessage GetAvailableCompositeMemberTypes(int contentTypeId,
             [FromUri]string[] filterContentTypes,
             [FromUri]string[] filterPropertyTypes)
@@ -84,6 +99,7 @@ namespace Umbraco.Web.Editors
             return Request.CreateResponse(result);
         }
 
+        [UmbracoTreeAuthorize(Constants.Trees.MemberTypes)]
         public MemberTypeDisplay GetEmpty()
         {
             var ct = new MemberType(-1);
@@ -107,6 +123,7 @@ namespace Umbraco.Web.Editors
             return Enumerable.Empty<ContentTypeBasic>();
         }
 
+        [UmbracoTreeAuthorize(Constants.Trees.MemberTypes)]
         public MemberTypeDisplay PostSave(MemberTypeSave contentTypeSave)
         {
             //get the persisted member type
@@ -125,7 +142,7 @@ namespace Umbraco.Web.Editors
                         // Id 0 means the property was just added, no need to look it up
                         if (prop.Id == 0)
                             continue;
-                        
+
                         var foundOnContentType = ct.PropertyTypes.FirstOrDefault(x => x.Id == prop.Id);
                         if (foundOnContentType == null)
                             throw new HttpResponseException(Request.CreateErrorResponse(HttpStatusCode.NotFound, "No property type with id " + prop.Id + " found on the content type"));
@@ -145,7 +162,7 @@ namespace Umbraco.Web.Editors
                     }
                 }
             }
-           
+
 
             var savedCt = PerformPostSave<MemberTypeDisplay, MemberTypeSave, MemberPropertyTypeBasic>(
                 contentTypeSave:            contentTypeSave,
@@ -160,5 +177,7 @@ namespace Umbraco.Web.Editors
 
             return display;
         }
+
+
     }
 }

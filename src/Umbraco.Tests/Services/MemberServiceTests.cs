@@ -17,6 +17,7 @@ using Umbraco.Core.Persistence.Dtos;
 using Umbraco.Core.Persistence.Querying;
 using Umbraco.Core.Services;
 using Umbraco.Core.Services.Implement;
+using Umbraco.Tests.LegacyXmlPublishedCache;
 using Umbraco.Tests.TestHelpers.Entities;
 using Umbraco.Tests.Testing;
 using Umbraco.Web.Security.Providers;
@@ -24,6 +25,7 @@ using Umbraco.Web.Security.Providers;
 namespace Umbraco.Tests.Services
 {
     [TestFixture]
+    [Category("Slow")]
     [Apartment(ApartmentState.STA)]
     [UmbracoTest(Database = UmbracoTestOptions.Database.NewSchemaPerTest, PublishedRepositoryEvents = true, WithApplication = true)]
     public class MemberServiceTests : TestWithSomeContentBase
@@ -32,7 +34,7 @@ namespace Umbraco.Tests.Services
         {
             base.SetUp();
 
-            //hack! but we have no choice until we remove the SavePassword method from IMemberService
+            // HACK: but we have no choice until we remove the SavePassword method from IMemberService
             var providerMock = new Mock<MembersMembershipProvider>(ServiceContext.MemberService, ServiceContext.MemberTypeService) { CallBase = true };
             providerMock.Setup(@base => @base.AllowManuallyChangingPassword).Returns(false);
             providerMock.Setup(@base => @base.PasswordFormat).Returns(MembershipPasswordFormat.Hashed);
@@ -293,6 +295,29 @@ namespace Umbraco.Tests.Services
         }
 
         [Test]
+        public void Associate_Members_To_Roles_With_Member_Id_Casing()
+        {
+            ServiceContext.MemberService.AddRole("MyTestRole1");
+
+            IMemberType memberType = MockedContentTypes.CreateSimpleMemberType();
+            ServiceContext.MemberTypeService.Save(memberType);
+            var member1 = MockedMember.CreateSimpleMember(memberType, "test1", "test1@test.com", "pass", "test1");
+            ServiceContext.MemberService.Save(member1);
+            var member2 = MockedMember.CreateSimpleMember(memberType, "test2", "test2@test.com", "pass", "test2");
+            ServiceContext.MemberService.Save(member2);
+
+            // temp make sure they exist
+            Assert.IsNotNull(ServiceContext.MemberService.GetById(member1.Id));
+            Assert.IsNotNull(ServiceContext.MemberService.GetById(member2.Id));
+
+            ServiceContext.MemberService.AssignRoles(new[] { member1.Id, member2.Id }, new[] { "mytestrole1" });
+
+            var membersInRole = ServiceContext.MemberService.GetMembersInRole("MyTestRole1");
+
+            Assert.AreEqual(2, membersInRole.Count());
+        }
+
+        [Test]
         public void Associate_Members_To_Roles_With_Member_Username()
         {
             ServiceContext.MemberService.AddRole("MyTestRole1");
@@ -494,22 +519,6 @@ namespace Umbraco.Tests.Services
 
 
             Assert.AreEqual("Test Real Name", member.Name);
-        }
-
-        [Test]
-        public void Get_Member_Name_In_Created_Event()
-        {
-            IMemberType memberType = MockedContentTypes.CreateSimpleMemberType();
-            ServiceContext.MemberTypeService.Save(memberType);
-
-            TypedEventHandler<IMemberService, NewEventArgs<IMember>> callback = (sender, args) =>
-            {
-                Assert.AreEqual("Test Real Name", args.Entity.Name);
-            };
-
-            MemberService.Created += callback;
-            var member = ServiceContext.MemberService.CreateMember("testUsername", "test@test.com", "Test Real Name", memberType);
-            MemberService.Created -= callback;
         }
 
         [Test]
@@ -870,7 +879,7 @@ namespace Umbraco.Tests.Services
         public void Get_By_Property_Int_Value_Less_Than()
         {
             IMemberType memberType = MockedContentTypes.CreateSimpleMemberType();
-            memberType.AddPropertyType(new PropertyType(Constants.PropertyEditors.Aliases.Date, ValueStorageType.Date, "number")
+            memberType.AddPropertyType(new PropertyType(Constants.PropertyEditors.Aliases.DateTime, ValueStorageType.Date, "number")
             {
                 Name = "Number",
                 //NOTE: This is what really determines the db type - the above definition doesn't really do anything

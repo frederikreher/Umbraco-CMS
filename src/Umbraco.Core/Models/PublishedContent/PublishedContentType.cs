@@ -20,7 +20,7 @@ namespace Umbraco.Core.Models.PublishedContent
         /// Initializes a new instance of the <see cref="PublishedContentType"/> class with a content type.
         /// </summary>
         public PublishedContentType(IContentTypeComposition contentType, IPublishedContentTypeFactory factory)
-            : this(contentType.Id, contentType.Alias, contentType.GetItemType(), contentType.CompositionAliases(), contentType.Variations)
+            : this(contentType.Id, contentType.Alias, contentType.GetItemType(), contentType.CompositionAliases(), contentType.Variations, contentType.IsElement)
         {
             var propertyTypes = contentType.CompositionPropertyTypes
                 .Select(x => factory.CreatePropertyType(this, x))
@@ -41,8 +41,8 @@ namespace Umbraco.Core.Models.PublishedContent
         /// <para>This constructor is for tests and is not intended to be used directly from application code.</para>
         /// <para>Values are assumed to be consisted and are not checked.</para>
         /// </remarks>
-        public PublishedContentType(int id, string alias, PublishedItemType itemType, IEnumerable<string> compositionAliases, IEnumerable<PublishedPropertyType> propertyTypes, ContentVariation variations)
-            : this (id, alias, itemType, compositionAliases, variations)
+        public PublishedContentType(int id, string alias, PublishedItemType itemType, IEnumerable<string> compositionAliases, IEnumerable<PublishedPropertyType> propertyTypes, ContentVariation variations, bool isElement = false)
+            : this (id, alias, itemType, compositionAliases, variations, isElement)
         {
             var propertyTypesA = propertyTypes.ToArray();
             foreach (var propertyType in propertyTypesA)
@@ -52,13 +52,14 @@ namespace Umbraco.Core.Models.PublishedContent
             InitializeIndexes();
         }
 
-        private PublishedContentType(int id, string alias, PublishedItemType itemType, IEnumerable<string> compositionAliases, ContentVariation variations)
+        private PublishedContentType(int id, string alias, PublishedItemType itemType, IEnumerable<string> compositionAliases, ContentVariation variations, bool isElement)
         {
             Id = id;
             Alias = alias;
             ItemType = itemType;
             CompositionAliases = new HashSet<string>(compositionAliases, StringComparer.InvariantCultureIgnoreCase);
             Variations = variations;
+            IsElement = isElement;
         }
 
         private void InitializeIndexes()
@@ -81,11 +82,11 @@ namespace Umbraco.Core.Models.PublishedContent
             foreach ((var alias, (var dataTypeId, var editorAlias)) in BuiltinMemberProperties)
             {
                 if (aliases.Contains(alias)) continue;
-                propertyTypes.Add(factory.CreatePropertyType(this, alias, dataTypeId, ContentVariation.InvariantNeutral));
+                propertyTypes.Add(factory.CreatePropertyType(this, alias, dataTypeId, ContentVariation.Nothing));
             }
         }
 
-        // fixme - this list somehow also exists in constants, see memberTypeRepository => remove duplicate!
+        // TODO: this list somehow also exists in constants, see memberTypeRepository => remove duplicate!
         private static readonly Dictionary<string, (int, string)> BuiltinMemberProperties = new Dictionary<string, (int, string)>
         {
             { "Email", (Constants.DataTypes.Textbox, Constants.PropertyEditors.Aliases.TextBox) },
@@ -94,10 +95,10 @@ namespace Umbraco.Core.Models.PublishedContent
             { "Comments", (Constants.DataTypes.Textbox, Constants.PropertyEditors.Aliases.TextBox) },
             { "IsApproved", (Constants.DataTypes.Boolean, Constants.PropertyEditors.Aliases.Boolean) },
             { "IsLockedOut", (Constants.DataTypes.Boolean, Constants.PropertyEditors.Aliases.Boolean) },
-            { "LastLockoutDate", (Constants.DataTypes.Datetime, Constants.PropertyEditors.Aliases.DateTime) },
-            { "CreateDate", (Constants.DataTypes.Datetime, Constants.PropertyEditors.Aliases.DateTime) },
-            { "LastLoginDate", (Constants.DataTypes.Datetime, Constants.PropertyEditors.Aliases.DateTime) },
-            { "LastPasswordChangeDate", (Constants.DataTypes.Datetime, Constants.PropertyEditors.Aliases.DateTime) },
+            { "LastLockoutDate", (Constants.DataTypes.DateTime, Constants.PropertyEditors.Aliases.DateTime) },
+            { "CreateDate", (Constants.DataTypes.DateTime, Constants.PropertyEditors.Aliases.DateTime) },
+            { "LastLoginDate", (Constants.DataTypes.DateTime, Constants.PropertyEditors.Aliases.DateTime) },
+            { "LastPasswordChangeDate", (Constants.DataTypes.DateTime, Constants.PropertyEditors.Aliases.DateTime) },
         };
 
         #region Content type
@@ -147,7 +148,8 @@ namespace Umbraco.Core.Models.PublishedContent
             return -1;
         }
 
-        // virtual for unit tests - fixme explain
+        // virtual for unit tests
+        // TODO: explain why
         /// <summary>
         /// Gets a property type.
         /// </summary>
@@ -157,7 +159,8 @@ namespace Umbraco.Core.Models.PublishedContent
             return GetPropertyType(index);
         }
 
-        // virtual for unit tests - fixme explain
+        // virtual for unit tests
+        // TODO: explain why
         /// <summary>
         /// Gets a property type.
         /// </summary>
@@ -165,6 +168,11 @@ namespace Umbraco.Core.Models.PublishedContent
         {
             return index >= 0 && index < _propertyTypes.Length ? _propertyTypes[index] : null;
         }
+
+        /// <summary>
+        /// Gets a value indicating whether this content type is for an element.
+        /// </summary>
+        public bool IsElement { get; }
 
         #endregion
     }

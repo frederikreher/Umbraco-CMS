@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
 using Umbraco.Core;
@@ -13,16 +14,16 @@ namespace Umbraco.Tests.Clr
         [Test]
         public void EmitCtorEmits()
         {
-            var ctor1 = ReflectionUtilities.EmitCtor<Func<Class1>>();
+            var ctor1 = ReflectionUtilities.EmitConstructor<Func<Class1>>();
             Assert.IsInstanceOf<Class1>(ctor1());
 
-            var ctor2 = ReflectionUtilities.EmitCtor<Func<object>>(declaring: typeof(Class1));
+            var ctor2 = ReflectionUtilities.EmitConstructor<Func<object>>(declaring: typeof(Class1));
             Assert.IsInstanceOf<Class1>(ctor2());
 
-            var ctor3 = ReflectionUtilities.EmitCtor<Func<int, Class3>>();
+            var ctor3 = ReflectionUtilities.EmitConstructor<Func<int, Class3>>();
             Assert.IsInstanceOf<Class3>(ctor3(42));
 
-            var ctor4 = ReflectionUtilities.EmitCtor<Func<int, object>>(declaring: typeof(Class3));
+            var ctor4 = ReflectionUtilities.EmitConstructor<Func<int, object>>(declaring: typeof(Class3));
             Assert.IsInstanceOf<Class3>(ctor4(42));
         }
 
@@ -30,40 +31,40 @@ namespace Umbraco.Tests.Clr
         public void EmitCtorEmitsFromInfo()
         {
             var ctorInfo = typeof(Class1).GetConstructor(BindingFlags.Public | BindingFlags.Instance, null, CallingConventions.Any, Array.Empty<Type>(), null);
-            var ctor1 = ReflectionUtilities.EmitCtor<Func<Class1>>(ctorInfo);
+            var ctor1 = ReflectionUtilities.EmitConstructor<Func<Class1>>(ctorInfo);
             Assert.IsInstanceOf<Class1>(ctor1());
 
             ctorInfo = typeof(Class1).GetConstructor(BindingFlags.Public | BindingFlags.Instance, null, CallingConventions.Any, new[] { typeof(int) }, null);
-            var ctor3 = ReflectionUtilities.EmitCtor<Func<int, object>>(ctorInfo);
+            var ctor3 = ReflectionUtilities.EmitConstructor<Func<int, object>>(ctorInfo);
             Assert.IsInstanceOf<Class1>(ctor3(42));
 
-            Assert.Throws<ArgumentException>(() => ReflectionUtilities.EmitCtor<Func<string, object>>(ctorInfo));
+            Assert.Throws<ArgumentException>(() => ReflectionUtilities.EmitConstructor<Func<string, object>>(ctorInfo));
         }
 
         [Test]
         public void EmitCtorEmitsPrivateCtor()
         {
-            var ctor = ReflectionUtilities.EmitCtor<Func<string, Class3>>();
+            var ctor = ReflectionUtilities.EmitConstructor<Func<string, Class3>>();
             Assert.IsInstanceOf<Class3>(ctor("foo"));
         }
 
         [Test]
         public void EmitCtorThrowsIfNotFound()
         {
-            Assert.Throws<InvalidOperationException>(() => ReflectionUtilities.EmitCtor<Func<bool, Class3>>());
+            Assert.Throws<InvalidOperationException>(() => ReflectionUtilities.EmitConstructor<Func<bool, Class3>>());
         }
 
         [Test]
         public void EmitCtorThrowsIfInvalid()
         {
             var ctorInfo = typeof(Class1).GetConstructor(BindingFlags.Public | BindingFlags.Instance, null, CallingConventions.Any, Array.Empty<Type>(), null);
-            Assert.Throws<ArgumentException>(() => ReflectionUtilities.EmitCtor<Func<Class2>>(ctorInfo));
+            Assert.Throws<ArgumentException>(() => ReflectionUtilities.EmitConstructor<Func<Class2>>(ctorInfo));
         }
 
         [Test]
         public void EmitCtorReturnsNull()
         {
-            Assert.IsNull(ReflectionUtilities.EmitCtor<Func<bool, Class3>>(false));
+            Assert.IsNull(ReflectionUtilities.EmitConstructor<Func<bool, Class3>>(false));
         }
 
         [Test]
@@ -269,7 +270,7 @@ namespace Umbraco.Tests.Clr
         }
 
         [Test]
-        public void SetterCanCastUnsafeValue()
+        public void PropertySetterCanCastUnsafeValue()
         {
             // test that we can emit property setters that cast from eg 'object'
 
@@ -308,6 +309,9 @@ namespace Umbraco.Tests.Clr
             setterInt4(object4, 42);
             Assert.AreEqual(42, object4.IntValue);
 
+            // FIXME: the code below runs fine with ReSharper test running within VisualStudio
+            // but it crashes when running via vstest.console.exe - unless some settings are required?
+
             // converting works
             setterInt4(object4, 42.0);
             Assert.AreEqual(42, object4.IntValue);
@@ -317,7 +321,7 @@ namespace Umbraco.Tests.Clr
         }
 
         [Test]
-        public void SetterCanCastObject()
+        public void PropertySetterCanCastObject()
         {
             // Class5 inherits from Class4 and ClassValue is defined on Class4
 
@@ -336,7 +340,7 @@ namespace Umbraco.Tests.Clr
         }
 
         [Test]
-        public void SetterCanCastUnsafeObject()
+        public void PropertySetterCanCastUnsafeObject()
         {
             var type5 = typeof(Class5);
             var propClass4 = type5.GetProperty("ClassValue");
@@ -353,7 +357,7 @@ namespace Umbraco.Tests.Clr
         }
 
         [Test]
-        public void GetterCanCastValue()
+        public void PropertyGetterCanCastValue()
         {
             var type4 = typeof(Class4);
             var propClassA4 = type4.GetProperty("ClassAValue");
@@ -386,7 +390,7 @@ namespace Umbraco.Tests.Clr
         }
 
         [Test]
-        public void GetterCanCastObject()
+        public void PropertyGetterCanCastObject()
         {
             var type5 = typeof(Class5);
             var propClass4 = type5.GetProperty("ClassValue");
@@ -407,7 +411,7 @@ namespace Umbraco.Tests.Clr
         }
 
         [Test]
-        public void CanEmitCastGetters()
+        public void EmitPropertyCastGetterEmits()
         {
             // test that we can emit property getters that cast the returned value to 'object'
 
@@ -528,7 +532,43 @@ namespace Umbraco.Tests.Clr
             Assert.AreEqual(1, values5D["intValue2"]); // JsonProperty changes property name
         }
 
-        // fixme - missing tests specifying 'returned' on method, property
+        [Test]
+        public void EmitFieldGetterSetterEmits()
+        {
+            var getter1 = ReflectionUtilities.EmitFieldGetter<Class1, int>("Field1");
+            var getter2 = ReflectionUtilities.EmitFieldGetter<Class1, int>("Field2");
+            var c = new Class1();
+            Assert.AreEqual(33, getter1(c));
+            Assert.AreEqual(66, getter2(c));
+
+            var setter2 = ReflectionUtilities.EmitFieldSetter<Class1, int>("Field2");
+            setter2(c, 99);
+            Assert.AreEqual(99, getter2(c));
+
+            // works on readonly fields!
+            var (getter3, setter3) = ReflectionUtilities.EmitFieldGetterAndSetter<Class1, int>("Field3");
+            Assert.AreEqual(22, getter3(c));
+            setter3(c, 44);
+            Assert.AreEqual(44, getter3(c));
+        }
+
+        // FIXME: missing tests specifying 'returned' on method, property
+
+        [Test]
+        public void DeconstructAnonymousType()
+        {
+            var o = new { a = 1, b = "hello" };
+
+            var getters = new Dictionary<string, Func<object, object>>();
+            foreach (var prop in o.GetType().GetProperties())
+                getters[prop.Name] = ReflectionUtilities.EmitMethodUnsafe<Func<object, object>>(prop.GetMethod);
+
+            Assert.AreEqual(2, getters.Count);
+            Assert.IsTrue(getters.ContainsKey("a"));
+            Assert.IsTrue(getters.ContainsKey("b"));
+            Assert.AreEqual(1, getters["a"](o));
+            Assert.AreEqual("hello", getters["b"](o));
+        }
 
         #region IL Code
 
@@ -549,6 +589,28 @@ namespace Umbraco.Tests.Clr
         // unbox.any    [mscorlib]System.Double
         // conv.i4
         public void SetIntValue2(Class4 object4, object d) => object4.IntValue = (int) (double) d;
+
+        public void SetIntValue3(Class4 object4, object v)
+        {
+            if (v is int i)
+                object4.IntValue = i;
+            else
+                object4.IntValue = Convert.ToInt32(v);
+        }
+
+        public void SetIntValue4(Class4 object4, object v)
+        {
+            if (v is int i)
+                object4.IntValue = i;
+            else
+                object4.IntValue = (int) Convert.ChangeType(v, typeof(int));
+        }
+
+        // get field
+        public int GetIntField(Class1 object1) => object1.Field1;
+
+        // set field
+        public void SetIntField(Class1 object1, int i) => object1.Field1 = i;
 
         #endregion
 
@@ -583,6 +645,10 @@ namespace Umbraco.Tests.Clr
             public int Value2 { set { } }
             public int Value3 { get { return 42; } set { } }
             private int ValueP1 => 42;
+
+            public int Field1 = 33;
+            private int Field2 = 66;
+            public readonly int Field3 = 22;
         }
 
         public class Class2 { }

@@ -1,8 +1,11 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Umbraco.Core;
 using Umbraco.Core.Composing;
 using Umbraco.Core.Services;
+using Umbraco.Web.Services;
 using Umbraco.Web.Trees;
 
 namespace Umbraco.Web.Search
@@ -11,33 +14,31 @@ namespace Umbraco.Web.Search
     {
         private readonly Dictionary<string, SearchableApplicationTree> _dictionary;
 
-        public SearchableTreeCollection(IEnumerable<ISearchableTree> items, IApplicationTreeService treeService)
+        public SearchableTreeCollection(IEnumerable<ISearchableTree> items, ITreeService treeService)
             : base(items)
         {
             _dictionary = CreateDictionary(treeService);
         }
 
-        private Dictionary<string, SearchableApplicationTree> CreateDictionary(IApplicationTreeService treeService)
+        private Dictionary<string, SearchableApplicationTree> CreateDictionary(ITreeService treeService)
         {
-            var appTrees = treeService.GetAll().ToArray();
-            var dictionary = new Dictionary<string, SearchableApplicationTree>();
+            var appTrees = treeService.GetAll()
+                .OrderBy(x => x.SortOrder)
+                .ToArray();
+            var dictionary = new Dictionary<string, SearchableApplicationTree>(StringComparer.OrdinalIgnoreCase);
             var searchableTrees = this.ToArray();
-            foreach (var searchableTree in searchableTrees)
+            foreach (var appTree in appTrees)
             {
-                var found = appTrees.FirstOrDefault(x => x.Alias == searchableTree.TreeAlias);
+                var found = searchableTrees.FirstOrDefault(x => x.TreeAlias.InvariantEquals(appTree.TreeAlias));
                 if (found != null)
                 {
-                    dictionary[searchableTree.TreeAlias] = new SearchableApplicationTree(found.ApplicationAlias, found.Alias, searchableTree);
+                    dictionary[found.TreeAlias] = new SearchableApplicationTree(appTree.SectionAlias, appTree.TreeAlias, found);
                 }
             }
             return dictionary;
         }
 
-        // fixme - oh why?!
-        public IReadOnlyDictionary<string, SearchableApplicationTree> AsReadOnlyDictionary()
-        {
-            return new ReadOnlyDictionary<string, SearchableApplicationTree>(_dictionary);
-        }
+        public IReadOnlyDictionary<string, SearchableApplicationTree> SearchableApplicationTrees => _dictionary;
 
         public SearchableApplicationTree this[string key] => _dictionary[key];
     }

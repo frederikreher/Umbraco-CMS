@@ -14,14 +14,13 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 {
     internal class ServerRegistrationRepository : NPocoRepositoryBase<int, IServerRegistration>, IServerRegistrationRepository
     {
-        // fixme - should we use NoCache instead of CreateDisabledCacheHelper?!
         public ServerRegistrationRepository(IScopeAccessor scopeAccessor, ILogger logger)
-            : base(scopeAccessor, CacheHelper.CreateDisabledCacheHelper(), logger)
+            : base(scopeAccessor, AppCaches.NoCache, logger)
         { }
 
         protected override IRepositoryCachePolicy<IServerRegistration, int> CreateCachePolicy()
         {
-            // fixme - wtf are we doing with cache here?
+            // TODO: what are we doing with cache here?
             // why are we using disabled cache helper up there?
             //
             // 7.6 says:
@@ -29,7 +28,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             // and this is because the repository is special and should not participate in scopes
             // (cleanup in v8)
             //
-            return new FullDataSetRepositoryCachePolicy<IServerRegistration, int>(GlobalCache.RuntimeCache, ScopeAccessor, GetEntityId, /*expires:*/ false);
+            return new FullDataSetRepositoryCachePolicy<IServerRegistration, int>(AppCaches.RuntimeCache, ScopeAccessor, GetEntityId, /*expires:*/ false);
         }
 
         public void ClearCache()
@@ -56,9 +55,8 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
         protected override IEnumerable<IServerRegistration> PerformGetAll(params int[] ids)
         {
-            var factory = new ServerRegistrationFactory();
             return Database.Fetch<ServerRegistrationDto>("WHERE id > 0")
-                .Select(x => factory.BuildEntity(x));
+                .Select(x => ServerRegistrationFactory.BuildEntity(x));
         }
 
         protected override IEnumerable<IServerRegistration> PerformGetByQuery(IQuery<IServerRegistration> query)
@@ -100,8 +98,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         {
             ((ServerRegistration)entity).AddingEntity();
 
-            var factory = new ServerRegistrationFactory();
-            var dto = factory.BuildDto(entity);
+            var dto = ServerRegistrationFactory.BuildDto(entity);
 
             var id = Convert.ToInt32(Database.Insert(dto));
             entity.Id = id;
@@ -112,9 +109,8 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         protected override void PersistUpdatedItem(IServerRegistration entity)
         {
             ((ServerRegistration)entity).UpdatingEntity();
-
-            var factory = new ServerRegistrationFactory();
-            var dto = factory.BuildDto(entity);
+            
+            var dto = ServerRegistrationFactory.BuildDto(entity);
 
             Database.Update(dto);
 

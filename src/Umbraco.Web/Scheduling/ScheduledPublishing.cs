@@ -1,7 +1,7 @@
 ﻿using System;
+using System.Linq;
 using Umbraco.Core;
 using Umbraco.Core.Logging;
-using Umbraco.Core.Publishing;
 using Umbraco.Core.Services;
 using Umbraco.Core.Sync;
 
@@ -11,17 +11,17 @@ namespace Umbraco.Web.Scheduling
     {
         private readonly IRuntimeState _runtime;
         private readonly IContentService _contentService;
+        private readonly IUmbracoContextFactory _umbracoContextFactory;
         private readonly ILogger _logger;
-        private readonly IUserService _userService;
 
         public ScheduledPublishing(IBackgroundTaskRunner<RecurringTaskBase> runner, int delayMilliseconds, int periodMilliseconds,
-            IRuntimeState runtime, IContentService contentService, ILogger logger, IUserService userService)
+            IRuntimeState runtime, IContentService contentService, IUmbracoContextFactory umbracoContextFactory, ILogger logger)
             : base(runner, delayMilliseconds, periodMilliseconds)
         {
             _runtime = runtime;
             _contentService = contentService;
+            _umbracoContextFactory = umbracoContextFactory;
             _logger = logger;
-            _userService = userService;
         }
 
         public override bool PerformRun()
@@ -31,8 +31,8 @@ namespace Umbraco.Web.Scheduling
 
             switch (_runtime.ServerRole)
             {
-                case ServerRole.Slave:
-                    _logger.Debug<ScheduledPublishing>("Does not run on slave servers.");
+                case ServerRole.Replica:
+                    _logger.Debug<ScheduledPublishing>("Does not run on replica servers.");
                     return true; // DO repeat, server role can change
                 case ServerRole.Unknown:
                     _logger.Debug<ScheduledPublishing>("Does not run on servers with unknown role.");
@@ -55,16 +55,36 @@ namespace Umbraco.Web.Scheduling
 
             try
             {
-                // run
-                // fixme context & events during scheduled publishing?
-                // in v7 we create an UmbracoContext and an HttpContext, and cache instructions
-                // are batched, and we have to explicitely flush them, how is it going to work here?
-                var publisher = new ScheduledPublisher(_contentService, _logger, _userService);
-                var count = publisher.CheckPendingAndProcess();
+                // ensure we run with an UmbracoContext, because this may run in a background task,
+                // yet developers may be using the 'current' UmbracoContext in the event handlers
+                //
+                // TODO: or maybe not, CacheRefresherComponent already ensures a context when handling events
+                // - UmbracoContext 'current' needs to be refactored and cleaned up
+                // - batched messenger should not depend on a current HttpContext
+                //    but then what should be its "scope"? could we attach it to scopes?
+                // - and we should definitively *not* have to flush it here (should be auto)
+                //
+                using (var contextReference = _umbracoContextFactory.EnsureUmbracoContext())
+                {
+                    try
+                    {
+                        // run
+                        var result = _contentService.PerformScheduledPublish(DateTime.Now);
+                        foreach (var grouped in result.GroupBy(x => x.Result))
+                            _logger.Info<ScheduledPublishing>("Scheduled publishing result: '{StatusCount}' items with status {Status}", grouped.Count(), grouped.Key);
+                    }
+                    finally
+                    {
+                        // if running on a temp context, we have to flush the messenger
+                        if (contextReference.IsRoot && Composing.Current.ServerMessenger is BatchedDatabaseServerMessenger m)
+                            m.FlushBatch();
+                    }
+                }
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                _logger.Error<ScheduledPublishing>("Failed.", e);
+                // important to catch *everything* to ensure the task repeats
+                _logger.Error<ScheduledPublishing>(ex, "Failed.");
             }
 
             return true; // repeat

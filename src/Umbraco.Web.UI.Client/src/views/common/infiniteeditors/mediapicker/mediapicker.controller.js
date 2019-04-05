@@ -1,10 +1,16 @@
 //used for the media picker dialog
 angular.module("umbraco")
     .controller("Umbraco.Editors.MediaPickerController",
-        function($scope, mediaResource, umbRequestHelper, entityResource, $log, mediaHelper, mediaTypeHelper, eventsService, treeService, $element, $timeout, $cookies, localStorageService, localizationService, editorService) {
+        function($scope, mediaResource, entityResource, mediaHelper, mediaTypeHelper, eventsService, treeService, localStorageService, localizationService, editorService) {
 
             if (!$scope.model.title) {
-                $scope.model.title = localizationService.localize("defaultdialogs_selectMedia");
+                localizationService.localizeMany(["defaultdialogs_selectMedia", "general_includeFromsubFolders"])
+                    .then(function (data) {
+                        $scope.labels = {
+                            title: data[0],
+                            includeSubFolders: data[1]
+                        }
+                    });
             }
 
             var dialogOptions = $scope.model;
@@ -17,6 +23,7 @@ angular.module("umbraco")
             $scope.cropSize = dialogOptions.cropSize;
             $scope.lastOpenedNode = localStorageService.get("umbLastOpenedMediaNodeId");
             $scope.lockedFolder = true;
+            $scope.allowMediaEdit = dialogOptions.allowMediaEdit ? dialogOptions.allowMediaEdit : false;
 
             var umbracoSettings = Umbraco.Sys.ServerVariables.umbracoSettings;
             var allowedUploadFiles = mediaHelper.formatFileTypes(umbracoSettings.allowedUploadFiles);
@@ -34,7 +41,7 @@ angular.module("umbraco")
 
             $scope.maxFileSize = umbracoSettings.maxFileSize + "KB";
 
-            $scope.model.selectedImages = [];
+            $scope.model.selection = [];
 
             $scope.acceptedMediatypes = [];
             mediaTypeHelper.getAllowedImagetypes($scope.startNodeId)
@@ -47,7 +54,7 @@ angular.module("umbraco")
                 pageSize: 100,
                 totalItems: 0,
                 totalPages: 0,
-                filter: '',
+                filter: ''
             };
 
             //preload selected item
@@ -97,7 +104,7 @@ angular.module("umbraco")
             }
 
             $scope.upload = function(v) {
-                angular.element(".umb-file-dropzone-directive .file-select").click();
+                angular.element(".umb-file-dropzone .file-select").trigger("click");
             };
 
             $scope.dragLeave = function(el, event) {
@@ -109,10 +116,10 @@ angular.module("umbraco")
             };
 
             $scope.submitFolder = function() {
-                if ($scope.newFolderName) {
+                if ($scope.model.newFolderName) {
                     $scope.creatingFolder = true;
                     mediaResource
-                        .addFolder($scope.newFolderName, $scope.currentFolder.id)
+                        .addFolder($scope.model.newFolderName, $scope.currentFolder.id)
                         .then(function(data) {
                             //we've added a new folder so lets clear the tree cache for that specific item
                             treeService.clearCache({
@@ -122,7 +129,7 @@ angular.module("umbraco")
                             $scope.creatingFolder = false;
                             $scope.gotoFolder(data);
                             $scope.showFolderInput = false;
-                            $scope.newFolderName = "";
+                            $scope.model.newFolderName = "";
                         });
                 } else {
                     $scope.showFolderInput = false;
@@ -138,7 +145,7 @@ angular.module("umbraco")
 
             $scope.gotoFolder = function(folder) {
                 if (!$scope.multiPicker) {
-                    deselectAllImages($scope.model.selectedImages);
+                    deselectAllImages($scope.model.selection);
                 }
 
                 if (!folder) {
@@ -147,7 +154,7 @@ angular.module("umbraco")
 
                 if (folder.id > 0) {
                     entityResource.getAncestors(folder.id, "media")
-                        .then(function(anc) {              
+                        .then(function(anc) {
                             $scope.path = _.filter(anc,
                                 function(f) {
                                     return f.path.indexOf($scope.startNodeId) !== -1;
@@ -205,19 +212,19 @@ angular.module("umbraco")
 
             function selectImage(image) {
                 if (image.selected) {
-                    for (var i = 0; $scope.model.selectedImages.length > i; i++) {
-                        var imageInSelection = $scope.model.selectedImages[i];
+                    for (var i = 0; $scope.model.selection.length > i; i++) {
+                        var imageInSelection = $scope.model.selection[i];
                         if (image.key === imageInSelection.key) {
                             image.selected = false;
-                            $scope.model.selectedImages.splice(i, 1);
+                            $scope.model.selection.splice(i, 1);
                         }
                     }
                 } else {
                     if (!$scope.multiPicker) {
-                        deselectAllImages($scope.model.selectedImages);
+                        deselectAllImages($scope.model.selection);
                     }
                     image.selected = true;
-                    $scope.model.selectedImages.push(image);
+                    $scope.model.selection.push(image);
                 }
             }
 
@@ -231,8 +238,11 @@ angular.module("umbraco")
 
             $scope.onUploadComplete = function(files) {
                 $scope.gotoFolder($scope.currentFolder).then(function() {
-                    if (files.length === 1 && $scope.model.selectedImages.length === 0) {
-                        selectImage($scope.images[$scope.images.length - 1]);
+                    if (files.length === 1 && $scope.model.selection.length === 0) {
+                        var image = $scope.images[$scope.images.length - 1];
+                        $scope.target = image;
+                        $scope.target.url = mediaHelper.resolveFile(image);
+                        selectImage(image);
                     }
                 });
             };
@@ -245,7 +255,8 @@ angular.module("umbraco")
                 // make sure that last opened node is on the same path as start node
                 var nodePath = node.path.split(",");
 
-                if (nodePath.indexOf($scope.startNodeId.toString()) !== -1) {
+                // also make sure the node is not trashed
+                if (nodePath.indexOf($scope.startNodeId.toString()) !== -1 && node.trashed === false) {
                     $scope.gotoFolder({ id: $scope.lastOpenedNode, name: "Media", icon: "icon-folder" });
                     return true;
                 } else {
@@ -264,7 +275,7 @@ angular.module("umbraco")
                 $scope.mediaPickerDetailsOverlay.show = true;
 
                 $scope.mediaPickerDetailsOverlay.submit = function(model) {
-                    $scope.model.selectedImages.push($scope.target);
+                    $scope.model.selection.push($scope.target);
                     $scope.model.submit($scope.model);
 
                     $scope.mediaPickerDetailsOverlay.show = false;
@@ -300,6 +311,11 @@ angular.module("umbraco")
                 debounceSearchMedia();
             };
 
+            $scope.toggle = function() {
+                // Make sure to activate the changeSearch function everytime the toggle is clicked
+                $scope.changeSearch();
+            }
+
             $scope.changePagination = function(pageNumber) {
                 $scope.loading = true;
                 $scope.searchOptions.pageNumber = pageNumber;
@@ -308,7 +324,7 @@ angular.module("umbraco")
 
             function searchMedia() {
                 $scope.loading = true;
-                entityResource.getPagedDescendants($scope.startNodeId, "Media", $scope.searchOptions)
+                entityResource.getPagedDescendants($scope.currentFolder.id, "Media", $scope.searchOptions)
                     .then(function(data) {
                         // update image data to work with image grid
                         angular.forEach(data.items, function(mediaItem) {
@@ -368,11 +384,11 @@ angular.module("umbraco")
                     var folderImage = $scope.images[folderImageIndex];
                     var imageIsSelected = false;
 
-                    if ($scope.model && angular.isArray($scope.model.selectedImages)) {
+                    if ($scope.model && angular.isArray($scope.model.selection)) {
                         for (var selectedImageIndex = 0;
-                            selectedImageIndex < $scope.model.selectedImages.length;
+                            selectedImageIndex < $scope.model.selection.length;
                             selectedImageIndex++) {
-                            var selectedImage = $scope.model.selectedImages[selectedImageIndex];
+                            var selectedImage = $scope.model.selection[selectedImageIndex];
 
                             if (folderImage.key === selectedImage.key) {
                                 imageIsSelected = true;

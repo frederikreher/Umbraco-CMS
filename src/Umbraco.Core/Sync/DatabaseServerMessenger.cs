@@ -33,7 +33,7 @@ namespace Umbraco.Core.Sync
         private readonly IRuntimeState _runtime;
         private readonly ManualResetEvent _syncIdle;
         private readonly object _locko = new object();
-        private readonly ProfilingLogger _profilingLogger;
+        private readonly IProfilingLogger _profilingLogger;
         private readonly ISqlContext _sqlContext;
         private readonly Lazy<string> _distCacheFilePath;
         private int _lastId = -1;
@@ -46,7 +46,7 @@ namespace Umbraco.Core.Sync
         public DatabaseServerMessengerOptions Options { get; }
 
         public DatabaseServerMessenger(
-            IRuntimeState runtime, IScopeProvider scopeProvider, ISqlContext sqlContext, ProfilingLogger proflog, IGlobalSettings globalSettings,
+            IRuntimeState runtime, IScopeProvider scopeProvider, ISqlContext sqlContext, IProfilingLogger proflog, IGlobalSettings globalSettings,
             bool distributedEnabled, DatabaseServerMessengerOptions options)
             : base(distributedEnabled)
         {
@@ -54,7 +54,7 @@ namespace Umbraco.Core.Sync
             _sqlContext = sqlContext;
             _runtime = runtime;
             _profilingLogger = proflog ?? throw new ArgumentNullException(nameof(proflog));
-            Logger = proflog.Logger;
+            Logger = proflog;
             Options = options ?? throw new ArgumentNullException(nameof(options));
             _lastPruned = _lastSync = DateTime.UtcNow;
             _syncIdle = new ManualResetEvent(true);
@@ -153,7 +153,7 @@ namespace Umbraco.Core.Sync
             ReadLastSynced(); // get _lastId
             using (var scope = ScopeProvider.CreateScope())
             {
-                EnsureInstructions(scope.Database); // reset _lastId if instrs are missing
+                EnsureInstructions(scope.Database); // reset _lastId if instructions are missing
                 Initialize(scope.Database); // boot
 
                 scope.Complete();
@@ -192,9 +192,11 @@ namespace Umbraco.Core.Sync
                     if (count > Options.MaxProcessingInstructionCount)
                     {
                         //too many instructions, proceed to cold boot
-                        Logger.Warn<DatabaseServerMessenger>(() => $"The instruction count ({count}) exceeds the specified MaxProcessingInstructionCount ({Options.MaxProcessingInstructionCount})."
+                        Logger.Warn<DatabaseServerMessenger>(
+                            "The instruction count ({InstructionCount}) exceeds the specified MaxProcessingInstructionCount ({MaxProcessingInstructionCount})."
                             + " The server will skip existing instructions, rebuild its caches and indexes entirely, adjust its last synced Id"
-                            + " to the latest found in the database and maintain cache updates based on that Id.");
+                            + " to the latest found in the database and maintain cache updates based on that Id.",
+                            count, Options.MaxProcessingInstructionCount);
 
                         coldboot = true;
                     }
@@ -300,7 +302,7 @@ namespace Umbraco.Core.Sync
             // (depending on what the cache refreshers are doing). I think it's best we do the one time check, process them and continue, if there are
             // pending requests after being processed, they'll just be processed on the next poll.
             //
-            // FIXME not true if we're running on a background thread, assuming we can?
+            // TODO: not true if we're running on a background thread, assuming we can?
 
             var sql = Sql().SelectAll()
                 .From<CacheInstructionDto>()
@@ -324,7 +326,7 @@ namespace Umbraco.Core.Sync
             var processed = new HashSet<RefreshInstruction>();
 
             //It would have been nice to do this in a Query instead of Fetch using a data reader to save
-            // some memory however we cannot do thta because inside of this loop the cache refreshers are also
+            // some memory however we cannot do that because inside of this loop the cache refreshers are also
             // performing some lookups which cannot be done with an active reader open
             foreach (var dto in database.Fetch<CacheInstructionDto>(topSql))
             {
@@ -350,7 +352,10 @@ namespace Umbraco.Core.Sync
                 }
                 catch (JsonException ex)
                 {
-                    Logger.Error<DatabaseServerMessenger>($"Failed to deserialize instructions ({dto.Id}: \"{dto.Instructions}\").", ex);
+                    Logger.Error<DatabaseServerMessenger>(ex, "Failed to deserialize instructions ({DtoId}: '{DtoInstructions}').",
+                        dto.Id,
+                        dto.Instructions);
+
                     lastId = dto.Id; // skip
                     continue;
                 }
@@ -400,13 +405,16 @@ namespace Umbraco.Core.Sync
             }
             //catch (ThreadAbortException ex)
             //{
-            //    //This will occur if the instructions processing is taking too long since this is occuring on a request thread.
+            //    //This will occur if the instructions processing is taking too long since this is occurring on a request thread.
             //    // Or possibly if IIS terminates the appdomain. In any case, we should deal with this differently perhaps...
             //}
             catch (Exception ex)
             {
                     Logger.Error<DatabaseServerMessenger>(
-                        $"DISTRIBUTED CACHE IS NOT UPDATED. Failed to execute instructions ({dto.Id}: \"{dto.Instructions}\"). Instruction is being skipped/ignored", ex);
+                        ex,
+                        "DISTRIBUTED CACHE IS NOT UPDATED. Failed to execute instructions ({DtoId}: '{DtoInstructions}'). Instruction is being skipped/ignored",
+                        dto.Id,
+                        dto.Instructions);
 
                 //we cannot throw here because this invalid instruction will just keep getting processed over and over and errors
                 // will be thrown over and over. The only thing we can do is ignore and move on.
@@ -526,27 +534,7 @@ namespace Umbraco.Core.Sync
         {
             var fileName = HttpRuntime.AppDomainAppId.ReplaceNonAlphanumericChars(string.Empty) + "-lastsynced.txt";
 
-            string distCacheFilePath;
-            switch (globalSettings.LocalTempStorageLocation)
-            {
-                case LocalTempStorage.AspNetTemp:
-                    distCacheFilePath = Path.Combine(HttpRuntime.CodegenDir, @"UmbracoData", fileName);
-                    break;
-                case LocalTempStorage.EnvironmentTemp:
-                    var appDomainHash = HttpRuntime.AppDomainAppId.ToSHA1();
-                    var cachePath = Path.Combine(Environment.ExpandEnvironmentVariables("%temp%"), "UmbracoData",
-                        //include the appdomain hash is just a safety check, for example if a website is moved from worker A to worker B and then back
-                        // to worker A again, in theory the %temp%  folder should already be empty but we really want to make sure that its not
-                        // utilizing an old path
-                        appDomainHash);
-                    distCacheFilePath = Path.Combine(cachePath, fileName);
-                    break;
-                case LocalTempStorage.Default:
-                default:
-                    var tempFolder = IOHelper.MapPath("~/App_Data/TEMP/DistCache");
-                    distCacheFilePath = Path.Combine(tempFolder, fileName);
-                    break;
-            }
+            var distCacheFilePath = Path.Combine(globalSettings.LocalTempPath, "DistCache", fileName);
 
             //ensure the folder exists
             var folder = Path.GetDirectoryName(distCacheFilePath);
@@ -616,7 +604,7 @@ namespace Umbraco.Core.Sync
         /// <param name="instructions"></param>
         /// <param name="processed"></param>
         /// <returns>
-        /// Returns true if all instructions were processed, otherwise false if the processing was interupted (i.e. app shutdown)
+        /// Returns true if all instructions were processed, otherwise false if the processing was interrupted (i.e. app shutdown)
         /// </returns>
         private bool NotifyRefreshers(IEnumerable<RefreshInstruction> instructions, HashSet<RefreshInstruction> processed)
         {

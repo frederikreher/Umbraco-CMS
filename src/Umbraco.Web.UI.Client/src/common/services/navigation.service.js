@@ -4,9 +4,7 @@
  *
  * @requires $rootScope
  * @requires $routeParams
- * @requires $log
  * @requires $location
- * @requires dialogService
  * @requires treeService
  * @requires sectionResource
  *
@@ -15,7 +13,7 @@
  * Section navigation and search, and maintain their state for the entire application lifetime
  *
  */
-function navigationService($rootScope, $route, $routeParams, $log, $location, $q, $timeout, $injector, urlHelper, eventsService, dialogService, umbModelMapper, treeService, notificationsService, historyService, appState, angularHelper) {
+function navigationService($routeParams, $location, $q, $timeout, $injector, eventsService, umbModelMapper, treeService, appState) {
 
     //the promise that will be resolved when the navigation is ready
     var navReadyPromise = $q.defer();
@@ -28,13 +26,13 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
         navReadyPromise.resolve(mainTreeApi);
     });
 
+    
 
-    //used to track the current dialog object
-    var currentDialog = null;
+    //A list of query strings defined that when changed will not cause a reload of the route
+    var nonRoutingQueryStrings = ["mculture", "cculture", "lq"];
+    var retainedQueryStrings = ["mculture"];
+
         
-    //tracks the user profile dialog
-    var userDialog = null;
-
     function setMode(mode) {
         switch (mode) {
         case 'tree':
@@ -44,8 +42,6 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
             appState.setMenuState("showMenuDialog", false);
             appState.setGlobalState("stickyNavigation", false);
             appState.setGlobalState("showTray", false);
-
-            //$("#search-form input").focus();
             break;
         case 'menu':
             appState.setGlobalState("navMode", "menu");
@@ -60,6 +56,7 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
             appState.setGlobalState("showNavigation", true);
             appState.setMenuState("showMenu", false);
             appState.setMenuState("showMenuDialog", true);
+            appState.setMenuState("allowHideMenuDialog", true);
             break;
         case 'search':
             appState.setGlobalState("navMode", "search");
@@ -68,20 +65,16 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
             appState.setMenuState("showMenu", false);
             appState.setSectionState("showSearchResults", true);
             appState.setMenuState("showMenuDialog", false);
-
-            //TODO: This would be much better off in the search field controller listening to appState changes
-            $timeout(function() {
-                $("#search-field").focus();
-            });
-
             break;
         default:
             appState.setGlobalState("navMode", "default");
             appState.setMenuState("showMenu", false);
             appState.setMenuState("showMenuDialog", false);
+            appState.setMenuState("allowHideMenuDialog", true);
             appState.setSectionState("showSearchResults", false);
             appState.setGlobalState("stickyNavigation", false);
             appState.setGlobalState("showTray", false);
+			appState.setMenuState("currentNode", null);
 
             if (appState.getGlobalState("isTablet") === true) {
                 appState.setGlobalState("showNavigation", false);
@@ -91,7 +84,84 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
         }
     }
 
+    /**
+     * Converts a string request path to a dictionary of route params
+     * @param {any} requestPath
+     */
+    function pathToRouteParts(requestPath) {
+        if (!angular.isString(requestPath)) {
+            throw "The value for requestPath is not a string";
+        }
+        var pathAndQuery = requestPath.split("#")[1];
+        if (pathAndQuery) {
+            if (pathAndQuery.indexOf("%253") || pathAndQuery.indexOf("%252")) {
+                pathAndQuery = decodeURIComponent(pathAndQuery);
+            }
+            var pathParts = pathAndQuery.split("?");
+            var path = pathParts[0];
+            var qry = pathParts.length === 1 ? "" : pathParts[1];
+            var qryParts = qry.split("&");
+            var result = {
+                path: path
+            };
+            for (var i = 0; i < qryParts.length; i++) {
+                var keyVal = qryParts[i].split("=");
+                if (keyVal.length == 2) {
+                    result[keyVal[0]] = keyVal[1];
+                }
+            }
+            return result;
+        }
+    }
+
     var service = {
+
+        /**
+         * @ngdoc method
+         * @name umbraco.services.navigationService#isRouteChangingNavigation
+         * @methodOf umbraco.services.navigationService
+         *
+         * @description
+         * Detects if the route param differences will cause a navigation change or if the route param differences are
+         * only tracking state changes.
+         * This is used for routing operations where reloadOnSearch is false and when detecting form dirty changes when navigating to a different page.
+         * @param {object} currUrlParams Either a string path or a dictionary of route parameters
+         * @param {object} nextUrlParams Either a string path or a dictionary of route parameters
+         */
+        isRouteChangingNavigation: function (currUrlParams, nextUrlParams) {
+
+            if (angular.isString(currUrlParams)) {
+                currUrlParams = pathToRouteParts(currUrlParams);
+            }
+
+            if (angular.isString(nextUrlParams)) {
+                nextUrlParams = pathToRouteParts(nextUrlParams);
+            }
+
+            var allowRoute = true;
+
+            //The only time that we want to not route is if only any of the nonRoutingQueryStrings have changed/added.
+            //If any of the other parts have changed we do not cancel
+            var currRoutingKeys = _.difference(_.keys(currUrlParams), nonRoutingQueryStrings);
+            var nextRoutingKeys = _.difference(_.keys(nextUrlParams), nonRoutingQueryStrings);
+            var diff1 = _.difference(currRoutingKeys, nextRoutingKeys);
+            var diff2 = _.difference(nextRoutingKeys, currRoutingKeys);
+            
+            //if the routing parameter keys are the same, we'll compare their values to see if any have changed and if so then the routing will be allowed.
+            if (diff1.length === 0 && diff2.length === 0) {
+                var partsChanged = 0;
+                _.each(currRoutingKeys, function (k) {
+                    if (currUrlParams[k] != nextUrlParams[k]) {
+                        partsChanged++;
+                    }
+                });
+                if (partsChanged === 0) {
+                    allowRoute = false; //nothing except our query strings changed, so don't continue routing
+                }
+            }
+
+            return allowRoute;
+        },
 
         /**
          * @ngdoc method
@@ -113,8 +183,8 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
          * @description
          * utility to clear the querystring/search params while maintaining a known list of parameters that should be maintained throughout the app
          */
-        clearSearch: function () {
-            var toRetain = ["mculture"];
+        clearSearch: function (toRetain) {
+            var toRetain = _.union(retainedQueryStrings, toRetain);
             var currentSearch = $location.search();
             $location.search('');
             _.each(toRetain, function (k) {
@@ -122,6 +192,29 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
                     $location.search(k, currentSearch[k]);
                 }
             });
+        },
+
+        /**
+         * @ngdoc method
+         * @name umbraco.services.navigationService#retainQueryStrings
+         * @methodOf umbraco.services.navigationService
+         *
+         * @description
+         * Will check the next route parameters to see if any of the query strings that should be retained from the previous route are missing,
+         * if they are they will be merged and an object containing all route parameters is returned. If nothing should be changed, then null is returned.
+         * @param {Object} currRouteParams The current route parameters
+         * @param {Object} nextRouteParams The next route parameters
+         */
+        retainQueryStrings: function (currRouteParams, nextRouteParams) {
+            var toRetain = angular.copy(nextRouteParams);
+            var updated = false;
+            _.each(retainedQueryStrings, function (r) {
+                if (currRouteParams[r] && !nextRouteParams[r]) {
+                    toRetain[r] = currRouteParams[r];
+                    updated = true;
+                }
+            });
+            return updated ? toRetain : null;
         },
 
         /**
@@ -193,7 +286,7 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
             appState.setGlobalState("showTray", false);
         },
 
-        /**
+        /**     
          * @ngdoc method
          * @name umbraco.services.navigationService#syncTree
          * @methodOf umbraco.services.navigationService
@@ -209,7 +302,6 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
          * @param {String} args.tree the tree alias to sync to
          * @param {Array} args.path the path to sync the tree to
          * @param {Boolean} args.forceReload optional, specifies whether to force reload the node data from the server even if it already exists in the tree currently
-         * @param {Boolean} args.activate optional, specifies whether to set the synced node to be the active node, this will default to true if not specified
          */
         syncTree: function (args) {
             if (!args) {
@@ -230,6 +322,8 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
         /**
             Internal method that should ONLY be used by the legacy API wrapper, the legacy API used to
             have to set an active tree and then sync, the new API does this in one method by using syncTree
+
+            TODO: Delete this if not required
         */
         _syncPath: function(path, forceReload) {
             return navReadyPromise.promise.then(function () {
@@ -262,7 +356,8 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
 
             if (appState.getGlobalState("isTablet") === true && !appState.getGlobalState("stickyNavigation")) {
                 //reset it to whatever is in the url
-                appState.setSectionState("currentSection", $routeParams.section);
+				appState.setSectionState("currentSection", $routeParams.section);
+
                 setMode("default-hidesectiontree");
             }
 
@@ -281,10 +376,9 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
          */
         showMenu: function(args) {
             
-            var deferred = $q.defer();
             var self = this;
 
-            treeService.getMenu({ treeNode: args.node })
+            return treeService.getMenu({ treeNode: args.node })
                 .then(function(data) {
 
                     //check for a default
@@ -301,20 +395,13 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
                             //NOTE: This is assigning the current action node - this is not the same as the currently selected node!
                             appState.setMenuState("currentNode", args.node);
 
-                            //ensure the current dialog is cleared before creating another!
-                            if (currentDialog) {
-                                dialogService.close(currentDialog);
-                            }
-
-                            var dialog = self.showDialog({
+                            self.showDialog({
                                 node: args.node,
                                 action: found,
                                 section: appState.getSectionState("currentSection")
                             });
 
-                            //return the dialog this is opening.
-                            deferred.resolve(dialog);
-                            return;
+                            return $q.resolve();
                         }
                     }
 
@@ -326,11 +413,9 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
                     appState.setMenuState("menuActions", data.menuItems);
                     appState.setMenuState("dialogTitle", args.node.name);
 
-                    //we're not opening a dialog, return null.
-                    deferred.resolve(null);
+                    return $q.resolve();
                 });
-
-            return deferred.promise;
+            
         },
 
         /**
@@ -376,7 +461,7 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
 
                     //if it is not two parts long then this most likely means that it's a legacy action
                     var js = action.metaData["jsAction"].replace("javascript:", "");
-                    //there's not really a different way to acheive this except for eval
+                    //there's not really a different way to achieve this except for eval
                     eval(js);
                 }
                 else {
@@ -419,14 +504,13 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
          *
          * @description
          * Opens a dialog, for a given action on a given tree node
-         * uses the dialogService to inject the selected action dialog
-         * into #dialog div.umb-panel-body
          * the path to the dialog view is determined by:
          * "views/" + current tree + "/" + action alias + ".html"
          * The dialog controller will get passed a scope object that is created here with the properties:
-         *  scope.currentNode = the selected tree node
-         *  scope.currentAction = the selected menu item
-         *  so that the dialog controllers can use these properties
+         * scope.currentNode = the selected tree node
+         * scope.title = the title of the menu item
+         * scope.view = the path to the view html file
+         * so that the dialog controllers can use these properties
          *
          * @param {Object} args arguments passed to the function
          * @param {Scope} args.scope current scope passed to the dialog
@@ -444,22 +528,6 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
                 throw "The args parameter must have a 'node' as the active tree node";
             }
 
-            //ensure the current dialog is cleared before creating another!
-            if (currentDialog) {
-                dialogService.close(currentDialog);
-                currentDialog = null;
-            }
-
-            setMode("dialog");
-
-            //NOTE: Set up the scope object and assign properties, this is legacy functionality but we have to live with it now.
-            // we should be passing in currentNode and currentAction using 'dialogData' for the dialog, not attaching it to a scope.
-            // This scope instance will be destroyed by the dialog so it cannot be a scope that exists outside of the dialog.
-            // If a scope instance has been passed in, we'll have to create a child scope of it, otherwise a new root scope.
-            var dialogScope = args.scope ? args.scope.$new() : $rootScope.$new();
-            dialogScope.currentNode = args.node;
-            dialogScope.currentAction = args.action;
-
             //the title might be in the meta data, check there first
             if (args.action.metaData["dialogTitle"]) {
                 appState.setMenuState("dialogTitle", args.action.metaData["dialogTitle"]);
@@ -469,15 +537,9 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
             }
 
             var templateUrl;
-            var iframe;
 
-            if (args.action.metaData["actionUrl"]) {
-                templateUrl = args.action.metaData["actionUrl"];
-                iframe = true;
-            }
-            else if (args.action.metaData["actionView"]) {
+            if (args.action.metaData["actionView"]) {
                 templateUrl = args.action.metaData["actionView"];
-                iframe = false;
             }
             else {
 
@@ -503,35 +565,30 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
                     templateUrl = "views/" + treeAlias + "/" + args.action.alias + ".html";
                 }
 
-                iframe = false;
             }
 
-            //TODO: some action's want to launch a new window like live editing, we support this in the menu item's metadata with
-            // a key called: "actionUrlMethod" which can be set to either: Dialog, BlankWindow. Normally this is always set to Dialog
-            // if a URL is specified in the "actionUrl" metadata. For now I'm not going to implement launching in a blank window,
-            // though would be v-easy, just not sure we want to ever support that?
+            setMode("dialog");
 
-            var dialog = dialogService.open(
-                {
-                    container: $("#dialog div.umb-modalcolumn-body"),
-                    //The ONLY reason we're passing in scope to the dialogService (which is legacy functionality) is
-                    // for backwards compatibility since many dialogs require $scope.currentNode or $scope.currentAction
-                    // to exist
-                    scope: dialogScope,
-                    inline: true,
-                    show: true,
-                    iframe: iframe,
-                    modalClass: "umb-dialog",
-                    template: templateUrl,
+            if(templateUrl) {
+                appState.setMenuState("dialogTemplateUrl", templateUrl);
+            }
+            
+        },
 
-                    //These will show up on the dialog controller's $scope under dialogOptions
-                    currentNode: args.node,
-                    currentAction: args.action,
-                });
-
-            //save the currently assigned dialog so it can be removed before a new one is created
-            currentDialog = dialog;
-            return dialog;
+        /**
+          * @ngdoc method
+          * @name umbraco.services.navigationService#allowHideDialog
+          * @methodOf umbraco.services.navigationService
+          *
+          * @param {boolean} allow false if the navigation service should disregard instructions to hide the current dialog, true otherwise
+          * @description
+          * instructs the navigation service whether it's allowed to hide the current dialog
+          */
+        allowHideDialog: function (allow) {
+            if (appState.getGlobalState("navMode") !== "dialog") {
+                return;
+            }
+            appState.setMenuState("allowHideMenuDialog", allow);
         },
 
         /**
@@ -543,11 +600,13 @@ function navigationService($rootScope, $route, $routeParams, $log, $location, $q
 	     * hides the currently open dialog
 	     */
         hideDialog: function (showMenu) {
-
-            setMode("default");
-
-            if(showMenu){
-                this.showMenu(undefined, { skipDefault: true, node: appState.getMenuState("currentNode") });
+            if (appState.getMenuState("allowHideMenuDialog") === false) {
+                return;
+            }
+            if (showMenu) {
+                this.showMenu({ skipDefault: true, node: appState.getMenuState("currentNode") });
+            } else {
+                setMode("default");
             }
         },
         /**

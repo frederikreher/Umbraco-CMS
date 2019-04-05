@@ -55,12 +55,12 @@ namespace Umbraco.Tests.TestHelpers
 
         public static void InitializeContentDirectories()
         {
-            CreateDirectories(new[] { SystemDirectories.Masterpages, SystemDirectories.MvcViews, SystemDirectories.Media, SystemDirectories.AppPlugins });
+            CreateDirectories(new[] { SystemDirectories.MvcViews, SystemDirectories.Media, SystemDirectories.AppPlugins });
         }
 
         public static void CleanContentDirectories()
         {
-            CleanDirectories(new[] { SystemDirectories.Masterpages, SystemDirectories.MvcViews, SystemDirectories.Media });
+            CleanDirectories(new[] { SystemDirectories.MvcViews, SystemDirectories.Media });
         }
 
         public static void CreateDirectories(string[] directories)
@@ -77,7 +77,6 @@ namespace Umbraco.Tests.TestHelpers
         {
             var preserves = new Dictionary<string, string[]>
             {
-                { SystemDirectories.Masterpages, new[] {"dummy.txt"} },
                 { SystemDirectories.MvcViews, new[] {"dummy.txt"} }
             };
             foreach (var directory in directories)
@@ -99,7 +98,7 @@ namespace Umbraco.Tests.TestHelpers
                 File.Delete(umbracoSettingsFile);
         }
 
-        // fixme obsolete the dateTimeFormat thing and replace with dateDelta
+        // FIXME: obsolete the dateTimeFormat thing and replace with dateDelta
         public static void AssertPropertyValuesAreEqual(object actual, object expected, string dateTimeFormat = null, Func<IEnumerable, IEnumerable> sorter = null, string[] ignoreProperties = null)
         {
             const int dateDeltaMilliseconds = 500; // .5s
@@ -127,6 +126,11 @@ namespace Umbraco.Tests.TestHelpers
         {
             if (!(expected is string) && expected is IEnumerable)
             {
+                // sort property collection by alias, not by property ids
+                // on members, built-in properties don't have ids (always zero)
+                if (expected is PropertyCollection)
+                    sorter = e => ((PropertyCollection) e).OrderBy(x => x.Alias);
+
                 // compare lists
                 AssertListsAreEqual(property, (IEnumerable) actual, (IEnumerable) expected, sorter, dateDeltaMilliseconds);
             }
@@ -168,6 +172,8 @@ namespace Umbraco.Tests.TestHelpers
 
         private static void AssertListsAreEqual(PropertyInfo property, IEnumerable expected, IEnumerable actual, Func<IEnumerable, IEnumerable> sorter = null, int dateDeltaMilliseconds = 0)
         {
+
+
             if (sorter == null)
             {
                 // this is pretty hackerific but saves us some code to write

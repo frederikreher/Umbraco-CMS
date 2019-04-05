@@ -1,171 +1,162 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
-using System.Xml.Linq;
 using Examine;
-using Examine.LuceneEngine;
-using Examine.LuceneEngine.Providers;
-using Lucene.Net.Documents;
-using Lucene.Net.Index;
 using Umbraco.Core;
 using Umbraco.Core.Cache;
-using Umbraco.Core.Components;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
-using Umbraco.Core.PropertyEditors;
 using Umbraco.Core.Scoping;
 using Umbraco.Core.Services;
 using Umbraco.Core.Services.Changes;
-using Umbraco.Core.Services.Implement;
-using Umbraco.Core.Strings;
 using Umbraco.Core.Sync;
 using Umbraco.Web.Cache;
-using Umbraco.Web.Composing;
-using Umbraco.Web.PropertyEditors;
 using Umbraco.Examine;
+using Umbraco.Core.Persistence.DatabaseModelDefinitions;
+using Umbraco.Web.Scheduling;
+using System.Threading.Tasks;
+using Examine.LuceneEngine.Directories;
+using Umbraco.Core.Composing;
 
 namespace Umbraco.Web.Search
 {
-    /// <summary>
-    /// Configures and installs Examine.
-    /// </summary>
-    [RuntimeLevel(MinLevel = RuntimeLevel.Run)]
-    public sealed class ExamineComponent : UmbracoComponentBase, IUmbracoCoreComponent
+    public sealed class ExamineComponent : IComponent
     {
-        private IExamineManager _examineManager;
+        private readonly IExamineManager _examineManager;
+        private readonly IContentValueSetBuilder _contentValueSetBuilder;
+        private readonly IPublishedContentValueSetBuilder _publishedContentValueSetBuilder;
+        private readonly IValueSetBuilder<IMedia> _mediaValueSetBuilder;
+        private readonly IValueSetBuilder<IMember> _memberValueSetBuilder;
         private static bool _disableExamineIndexing = false;
         private static volatile bool _isConfigured = false;
         private static readonly object IsConfiguredLocker = new object();
-        private IScopeProvider _scopeProvider;
-        private UrlSegmentProviderCollection _urlSegmentProviders;
-        private ServiceContext _services;
+        private readonly IScopeProvider _scopeProvider;
+        private readonly ServiceContext _services;
+        private static BackgroundTaskRunner<IBackgroundTask> _rebuildOnStartupRunner;
+        private static readonly object RebuildLocker = new object();
+        private readonly IMainDom _mainDom;
+        private readonly IProfilingLogger _logger;
+        private readonly IUmbracoIndexesCreator _indexCreator;
+        private readonly IndexRebuilder _indexRebuilder;
 
         // the default enlist priority is 100
         // enlist with a lower priority to ensure that anything "default" runs after us
         // but greater that SafeXmlReaderWriter priority which is 60
         private const int EnlistPriority = 80;
 
-        internal void Initialize(IRuntimeState runtime, MainDom mainDom, PropertyEditorCollection propertyEditors, IExamineManager examineManager, ProfilingLogger profilingLogger, IScopeProvider scopeProvider, UrlSegmentProviderCollection urlSegmentProviderCollection, ServiceContext services)
+        public ExamineComponent(IMainDom mainDom,
+            IExamineManager examineManager, IProfilingLogger profilingLogger,
+            IScopeProvider scopeProvider, IUmbracoIndexesCreator indexCreator,
+            IndexRebuilder indexRebuilder, ServiceContext services,
+            IContentValueSetBuilder contentValueSetBuilder,
+            IPublishedContentValueSetBuilder publishedContentValueSetBuilder,
+            IValueSetBuilder<IMedia> mediaValueSetBuilder,
+            IValueSetBuilder<IMember> memberValueSetBuilder)
         {
             _services = services;
-            _urlSegmentProviders = urlSegmentProviderCollection;
             _scopeProvider = scopeProvider;
             _examineManager = examineManager;
+            _contentValueSetBuilder = contentValueSetBuilder;
+            _publishedContentValueSetBuilder = publishedContentValueSetBuilder;
+            _mediaValueSetBuilder = mediaValueSetBuilder;
+            _memberValueSetBuilder = memberValueSetBuilder;
 
-            //We want to manage Examine's appdomain shutdown sequence ourselves so first we'll disable Examine's default behavior
-            //and then we'll use MainDom to control Examine's shutdown
-            ExamineManager.DisableDefaultHostingEnvironmentRegistration();
+            _mainDom = mainDom;
+            _logger = profilingLogger;
+            _indexCreator = indexCreator;
+            _indexRebuilder = indexRebuilder;
+        }
 
-            //we want to tell examine to use a different fs lock instead of the default NativeFSFileLock which could cause problems if the appdomain
+        public void Initialize()
+        {
+            //we want to tell examine to use a different fs lock instead of the default NativeFSFileLock which could cause problems if the AppDomain
             //terminates and in some rare cases would only allow unlocking of the file if IIS is forcefully terminated. Instead we'll rely on the simplefslock
             //which simply checks the existence of the lock file
-            DirectoryTracker.DefaultLockFactory = d =>
+            DirectoryFactory.DefaultLockFactory = d =>
             {
                 var simpleFsLockFactory = new NoPrefixSimpleFsLockFactory(d);
                 return simpleFsLockFactory;
             };
-            
+
             //let's deal with shutting down Examine with MainDom
-            var examineShutdownRegistered = mainDom.Register(() =>
+            var examineShutdownRegistered = _mainDom.Register(() =>
             {
-                using (profilingLogger.TraceDuration<ExamineComponent>("Examine shutting down"))
+                using (_logger.TraceDuration<ExamineComponent>("Examine shutting down"))
                 {
-                    ExamineManager.Instance.Dispose();
+                    _examineManager.Dispose();
                 }
             });
 
             if (!examineShutdownRegistered)
             {
-                profilingLogger.Logger.Debug<ExamineComponent>("Examine shutdown not registered, this appdomain is not the MainDom, Examine will be disabled");
+                _logger.Debug<ExamineComponent>("Examine shutdown not registered, this AppDomain is not the MainDom, Examine will be disabled");
 
                 //if we could not register the shutdown examine ourselves, it means we are not maindom! in this case all of examine should be disabled!
-                Suspendable.ExamineEvents.SuspendIndexers();
+                Suspendable.ExamineEvents.SuspendIndexers(_logger);
                 _disableExamineIndexing = true;
                 return; //exit, do not continue
             }
 
-            profilingLogger.Logger.Debug<ExamineComponent>("Examine shutdown registered with MainDom");
+            //create the indexes and register them with the manager
+            foreach(var index in _indexCreator.Create())
+                _examineManager.AddIndex(index);
 
-            var registeredIndexers = examineManager.IndexProviders.Values.OfType<UmbracoExamineIndexer>().Count(x => x.EnableDefaultEventHandler);
+            _logger.Debug<ExamineComponent>("Examine shutdown registered with MainDom");
 
-            profilingLogger.Logger.Info<ExamineComponent>($"Adding examine event handlers for {registeredIndexers} index providers.");
+            var registeredIndexers = _examineManager.Indexes.OfType<IUmbracoIndex>().Count(x => x.EnableDefaultEventHandler);
+
+            _logger.Info<ExamineComponent>("Adding examine event handlers for {RegisteredIndexers} index providers.", registeredIndexers);
 
             // don't bind event handlers if we're not suppose to listen
             if (registeredIndexers == 0)
                 return;
 
-            BindGridToExamine(profilingLogger.Logger, examineManager, propertyEditors);
-
             // bind to distributed cache events - this ensures that this logic occurs on ALL servers
             // that are taking part in a load balanced environment.
             ContentCacheRefresher.CacheUpdated += ContentCacheRefresherUpdated;
+            ContentTypeCacheRefresher.CacheUpdated += ContentTypeCacheRefresherUpdated; ;
             MediaCacheRefresher.CacheUpdated += MediaCacheRefresherUpdated;
             MemberCacheRefresher.CacheUpdated += MemberCacheRefresherUpdated;
 
-            // fixme - content type?
-            // events handling removed in ef013f9d3b945d0a48a306ff1afbd49c10c3fff8
-            // because, could not make sense of it?
+            EnsureUnlocked(_logger, _examineManager);
 
-            EnsureUnlocked(profilingLogger.Logger, examineManager);
-
-            RebuildIndexesOnStartup(profilingLogger.Logger);
+            // TODO: Instead of waiting 5000 ms, we could add an event handler on to fulfilling the first request, then start?
+            RebuildIndexes(_indexRebuilder, _logger, true, 5000);
         }
+
+        public void Terminate()
+        { }
 
         /// <summary>
         /// Called to rebuild empty indexes on startup
         /// </summary>
+        /// <param name="indexRebuilder"></param>
         /// <param name="logger"></param>
-        private void RebuildIndexesOnStartup(ILogger logger)
-        {
-            //TODO: need a way to disable rebuilding on startup
-
-            logger.Info<ExamineComponent>("Starting initialize async background thread.");
-
-            // make it async in order not to slow down the boot
-            // fixme - should be a proper background task else we cannot stop it!
-            var bg = new Thread(() =>
-            {
-                try
-                {
-                    // rebuilds any empty indexes
-                    RebuildIndexes(true, _examineManager, logger);
-                }
-                catch (Exception e)
-                {
-                    logger.Error<ExamineComponent>("Failed to rebuild empty indexes.", e);
-                }
-            });
-            bg.Start();
-        }
-
-        /// <summary>
-        /// Used to rebuild indexes on startup or cold boot
-        /// </summary>
         /// <param name="onlyEmptyIndexes"></param>
-        /// <param name="examineManager"></param>
-        /// <param name="logger"></param>
-        internal static void RebuildIndexes(bool onlyEmptyIndexes, IExamineManager examineManager, ILogger logger)
+        /// <param name="waitMilliseconds"></param>
+        public static void RebuildIndexes(IndexRebuilder indexRebuilder, ILogger logger, bool onlyEmptyIndexes, int waitMilliseconds = 0)
         {
-            //do not attempt to do this if this has been disabled since we are not the main dom.
-            //this can be called during a cold boot
-            if (_disableExamineIndexing) return;
+            // TODO: need a way to disable rebuilding on startup
 
-            EnsureUnlocked(logger, examineManager);
-
-            if (onlyEmptyIndexes)
+            lock(RebuildLocker)
             {
-                foreach (var indexer in examineManager.IndexProviders.Values.Where(x => x.IsIndexNew()))
+                if (_rebuildOnStartupRunner != null && _rebuildOnStartupRunner.IsRunning)
                 {
-                    indexer.RebuildIndex();
+                    logger.Warn<ExamineComponent>("Call was made to RebuildIndexes but the task runner for rebuilding is already running");
+                    return;
                 }
-            }
-            else
-            {
-                //do all of them
-                ExamineManager.Instance.RebuildIndexes();
+
+                logger.Info<ExamineComponent>("Starting initialize async background thread.");
+                //do the rebuild on a managed background thread
+                var task = new RebuildOnStartupTask(indexRebuilder, logger, onlyEmptyIndexes, waitMilliseconds);
+
+                _rebuildOnStartupRunner = new BackgroundTaskRunner<IBackgroundTask>(
+                    "RebuildIndexesOnStartup",
+                    logger);
+
+                _rebuildOnStartupRunner.TryAdd(task);
             }
         }
 
@@ -183,45 +174,110 @@ namespace Umbraco.Web.Search
 
             lock (IsConfiguredLocker)
             {
-                //double chekc
+                //double check
                 if (_isConfigured) return;
 
                 _isConfigured = true;
-
-                foreach (var luceneIndexer in examineManager.IndexProviders.Values.OfType<LuceneIndexer>())
-                {
-                    //We now need to disable waiting for indexing for Examine so that the appdomain is shutdown immediately and doesn't wait for pending
-                    //indexing operations. We used to wait for indexing operations to complete but this can cause more problems than that is worth because
-                    //that could end up halting shutdown for a very long time causing overlapping appdomains and many other problems.
-                    luceneIndexer.WaitForIndexQueueOnShutdown = false;
-
-                    //we should check if the index is locked ... it shouldn't be! We are using simple fs lock now and we are also ensuring that
-                    //the indexes are not operational unless MainDom is true
-                    var dir = luceneIndexer.GetLuceneDirectory();
-                    if (IndexWriter.IsLocked(dir))
-                    {
-                        logger.Info<ExamineComponent>("Forcing index " + luceneIndexer.Name + " to be unlocked since it was left in a locked state");
-                        IndexWriter.Unlock(dir);
-                    }
-                }
+                examineManager.UnlockLuceneIndexes(logger);
             }
         }
 
-        private static void BindGridToExamine(ILogger logger, IExamineManager examineManager, IEnumerable propertyEditors)
+        #region Cache refresher updated event handlers
+
+        /// <summary>
+        /// Updates indexes based on content changes
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="args"></param>
+        private void ContentCacheRefresherUpdated(ContentCacheRefresher sender, CacheRefresherEventArgs args)
         {
-            //bind the grid property editors - this is a hack until http://issues.umbraco.org/issue/U4-8437
-            try
+            if (Suspendable.ExamineEvents.CanIndex == false)
+                return;
+
+            if (args.MessageType != MessageType.RefreshByPayload)
+                throw new NotSupportedException();
+
+            var contentService = _services.ContentService;
+
+            foreach (var payload in (ContentCacheRefresher.JsonPayload[])args.MessageObject)
             {
-                var grid = propertyEditors.OfType<GridPropertyEditor>().FirstOrDefault();
-                if (grid != null)
+                if (payload.ChangeTypes.HasType(TreeChangeTypes.Remove))
                 {
-                    foreach (var i in examineManager.IndexProviders.Values.OfType<UmbracoExamineIndexer>())
-                        i.DocumentWriting += grid.DocumentWriting;
+                    // delete content entirely (with descendants)
+                    //  false: remove entirely from all indexes
+                    DeleteIndexForEntity(payload.Id, false);
                 }
-            }
-            catch (Exception e)
-            {
-                logger.Error<ExamineComponent>("Failed to bind grid property editor.", e);
+                else if (payload.ChangeTypes.HasType(TreeChangeTypes.RefreshAll))
+                {
+                    // ExamineEvents does not support RefreshAll
+                    // just ignore that payload
+                    // so what?!
+
+                    // TODO: Rebuild the index at this point?
+                }
+                else // RefreshNode or RefreshBranch (maybe trashed)
+                {
+                    // don't try to be too clever - refresh entirely
+                    // there has to be race conditions in there ;-(
+
+                    var content = contentService.GetById(payload.Id);
+                    if (content == null)
+                    {
+                        // gone fishing, remove entirely from all indexes (with descendants)
+                        DeleteIndexForEntity(payload.Id, false);
+                        continue;
+                    }
+
+                    IContent published = null;
+                    if (content.Published && contentService.IsPathPublished(content))
+                        published = content;
+
+                    if (published == null)
+                        DeleteIndexForEntity(payload.Id, true);
+
+                    // just that content
+                    ReIndexForContent(content, published != null);
+
+                    // branch
+                    if (payload.ChangeTypes.HasType(TreeChangeTypes.RefreshBranch))
+                    {
+                        var masked = published == null ? null : new List<int>();
+                        const int pageSize = 500;
+                        var page = 0;
+                        var total = long.MaxValue;
+                        while (page * pageSize < total)
+                        {
+                            var descendants = contentService.GetPagedDescendants(content.Id, page++, pageSize, out total,
+                                //order by shallowest to deepest, this allows us to check it's published state without checking every item
+                                ordering: Ordering.By("Path", Direction.Ascending));
+
+                            foreach (var descendant in descendants)
+                            {
+                                published = null;
+                                if (masked != null) // else everything is masked
+                                {
+                                    if (masked.Contains(descendant.ParentId) || !descendant.Published)
+                                        masked.Add(descendant.Id);
+                                    else
+                                        published = descendant;
+                                }
+
+                                ReIndexForContent(descendant, published != null);
+                            }
+                        }
+                    }
+                }
+
+                // NOTE
+                //
+                // DeleteIndexForEntity is handled by UmbracoContentIndexer.DeleteFromIndex() which takes
+                //  care of also deleting the descendants
+                //
+                // ReIndexForContent is NOT taking care of descendants so we have to reload everything
+                //  again in order to process the branch - we COULD improve that by just reloading the
+                //  XML from database instead of reloading content & re-serializing!
+                //
+                // BUT ... pretty sure it is! see test "Index_Delete_Index_Item_Ensure_Heirarchy_Removed"
             }
         }
 
@@ -278,7 +334,7 @@ namespace Umbraco.Web.Search
 
             var mediaService = _services.MediaService;
 
-            foreach (var payload in (MediaCacheRefresher.JsonPayload[]) args.MessageObject)
+            foreach (var payload in (MediaCacheRefresher.JsonPayload[])args.MessageObject)
             {
                 if (payload.ChangeTypes.HasType(TreeChangeTypes.Remove))
                 {
@@ -294,30 +350,44 @@ namespace Umbraco.Web.Search
                 else // RefreshNode or RefreshBranch (maybe trashed)
                 {
                     var media = mediaService.GetById(payload.Id);
-                    if (media == null || media.Trashed)
+                    if (media == null)
                     {
                         // gone fishing, remove entirely
                         DeleteIndexForEntity(payload.Id, false);
                         continue;
                     }
 
+                    if (media.Trashed)
+                        DeleteIndexForEntity(payload.Id, true);
+
                     // just that media
-                    ReIndexForMedia(media, media.Trashed == false);
+                    ReIndexForMedia(media, !media.Trashed);
 
                     // branch
                     if (payload.ChangeTypes.HasType(TreeChangeTypes.RefreshBranch))
                     {
-                        var descendants = mediaService.GetDescendants(media);
-                        foreach (var descendant in descendants)
+                        const int pageSize = 500;
+                        var page = 0;
+                        var total = long.MaxValue;
+                        while (page * pageSize < total)
                         {
-                            ReIndexForMedia(descendant, descendant.Trashed == false);
+                            var descendants = mediaService.GetPagedDescendants(media.Id, page++, pageSize, out total);
+                            foreach (var descendant in descendants)
+                            {
+                                ReIndexForMedia(descendant, !descendant.Trashed);
+                            }
                         }
                     }
                 }
             }
         }
 
-        private void ContentCacheRefresherUpdated(ContentCacheRefresher sender, CacheRefresherEventArgs args)
+        /// <summary>
+        /// Updates indexes based on content type changes
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="args"></param>
+        private void ContentTypeCacheRefresherUpdated(ContentTypeCacheRefresher sender, CacheRefresherEventArgs args)
         {
             if (Suspendable.ExamineEvents.CanIndex == false)
                 return;
@@ -325,105 +395,158 @@ namespace Umbraco.Web.Search
             if (args.MessageType != MessageType.RefreshByPayload)
                 throw new NotSupportedException();
 
-            var contentService = _services.ContentService;
+            var changedIds = new Dictionary<string, (List<int> removedIds, List<int> refreshedIds, List<int> otherIds)>();
 
-            foreach (var payload in (ContentCacheRefresher.JsonPayload[]) args.MessageObject)
+            foreach (var payload in (ContentTypeCacheRefresher.JsonPayload[])args.MessageObject)
             {
-                if (payload.ChangeTypes.HasType(TreeChangeTypes.Remove))
+                if (!changedIds.TryGetValue(payload.ItemType, out var idLists))
                 {
-                    // delete content entirely (with descendants)
-                    //  false: remove entirely from all indexes
-                    DeleteIndexForEntity(payload.Id, false);
+                    idLists = (removedIds: new List<int>(), refreshedIds: new List<int>(), otherIds: new List<int>());
+                    changedIds.Add(payload.ItemType, idLists);
                 }
-                else if (payload.ChangeTypes.HasType(TreeChangeTypes.RefreshAll))
-                {
-                    // ExamineEvents does not support RefreshAll
-                    // just ignore that payload
-                    // so what?!
-                }
-                else // RefreshNode or RefreshBranch (maybe trashed)
-                {
-                    // don't try to be too clever - refresh entirely
-                    // there has to be race conds in there ;-(
 
-                    var content = contentService.GetById(payload.Id);
-                    if (content == null || content.Trashed)
+                if (payload.ChangeTypes.HasType(ContentTypeChangeTypes.Remove))
+                    idLists.removedIds.Add(payload.Id);
+                else if (payload.ChangeTypes.HasType(ContentTypeChangeTypes.RefreshMain))
+                    idLists.refreshedIds.Add(payload.Id);
+                else if (payload.ChangeTypes.HasType(ContentTypeChangeTypes.RefreshOther))
+                    idLists.otherIds.Add(payload.Id);
+            }
+
+            const int pageSize = 500;
+
+            foreach (var ci in changedIds)
+            {
+                if (ci.Value.refreshedIds.Count > 0 || ci.Value.otherIds.Count > 0)
+                {
+                    switch (ci.Key)
                     {
-                        // gone fishing, remove entirely from all indexes (with descendants)
-                        DeleteIndexForEntity(payload.Id, false);
-                        continue;
+                        case var itemType when itemType == typeof(IContentType).Name:
+                            RefreshContentOfContentTypes(ci.Value.refreshedIds.Concat(ci.Value.otherIds).Distinct().ToArray());
+                            break;
+                        case var itemType when itemType == typeof(IMediaType).Name:
+                            RefreshMediaOfMediaTypes(ci.Value.refreshedIds.Concat(ci.Value.otherIds).Distinct().ToArray());
+                            break;
+                        case var itemType when itemType == typeof(IMemberType).Name:
+                            RefreshMemberOfMemberTypes(ci.Value.refreshedIds.Concat(ci.Value.otherIds).Distinct().ToArray());
+                            break;
                     }
+                }
 
-                    IContent published = null;
-                    if (content.Published && ((ContentService)contentService).IsPathPublished(content))
-                        published = content;
-
-                    // just that content
-                    ReIndexForContent(content, published);
-
-                    // branch
-                    if (payload.ChangeTypes.HasType(TreeChangeTypes.RefreshBranch))
+                //Delete all content of this content/media/member type that is in any content indexer by looking up matched examine docs
+                foreach (var id in ci.Value.removedIds)
+                {
+                    foreach (var index in _examineManager.Indexes.OfType<IUmbracoIndex>())
                     {
-                        var masked = published == null ? null : new List<int>();
-                        var descendants = contentService.GetDescendants(content);
-                        foreach (var descendant in descendants)
-                        {
-                            published = null;
-                            if (masked != null) // else everything is masked
-                            {
-                                if (masked.Contains(descendant.ParentId) || !descendant.Published)
-                                    masked.Add(descendant.Id);
-                                else
-                                    published = descendant;
-                            }
+                        var searcher = index.GetSearcher();
 
-                            ReIndexForContent(descendant, published);
+                        var page = 0;
+                        var total = long.MaxValue;
+                        while (page * pageSize < total)
+                        {
+                            //paging with examine, see https://shazwazza.com/post/paging-with-examine/
+                            var results = searcher.CreateQuery().Field("nodeType", id.ToInvariantString()).Execute(maxResults: pageSize * (page + 1));
+                            total = results.TotalItemCount;
+                            var paged = results.Skip(page * pageSize);
+
+                            foreach (var item in paged)
+                                if (int.TryParse(item.Id, out var contentId))
+                                    DeleteIndexForEntity(contentId, false);
+                            page++;
                         }
                     }
                 }
-
-                // NOTE
-                //
-                // DeleteIndexForEntity is handled by UmbracoContentIndexer.DeleteFromIndex() which takes
-                //  care of also deleting the descendants
-                //
-                // ReIndexForContent is NOT taking care of descendants so we have to reload everything
-                //  again in order to process the branch - we COULD improve that by just reloading the
-                //  XML from database instead of reloading content & re-serializing!
-                //
-                // BUT ... pretty sure it is! see test "Index_Delete_Index_Item_Ensure_Heirarchy_Removed"
             }
         }
 
-        private void ReIndexForContent(IContent content, IContent published)
+        private void RefreshMemberOfMemberTypes(int[] memberTypeIds)
         {
-            if (published != null && content.VersionId == published.VersionId)
+            const int pageSize = 500;
+
+            var memberTypes = _services.MemberTypeService.GetAll(memberTypeIds);
+            foreach (var memberType in memberTypes)
             {
-                ReIndexForContent(content); // same = both
-            }
-            else
-            {
-                if (published == null)
+                var page = 0;
+                var total = long.MaxValue;
+                while (page * pageSize < total)
                 {
-                    // remove 'published' - keep 'draft'
-                    DeleteIndexForEntity(content.Id, true);
+                    var memberToRefresh = _services.MemberService.GetAll(
+                        page++, pageSize, out total, "LoginName", Direction.Ascending,
+                        memberType.Alias);
+
+                    foreach (var c in memberToRefresh)
+                    {
+                        ReIndexForMember(c);
+                    }
                 }
-                else
-                {
-                    // index 'published' - don't overwrite 'draft'
-                    ReIndexForContent(published, false);
-                }
-                ReIndexForContent(content, true); // index 'draft'
             }
         }
 
-        private void ReIndexForContent(IContent sender, bool? supportUnpublished = null)
+        private void RefreshMediaOfMediaTypes(int[] mediaTypeIds)
+        {
+            const int pageSize = 500;
+            var page = 0;
+            var total = long.MaxValue;
+            while (page * pageSize < total)
+            {
+                var mediaToRefresh = _services.MediaService.GetPagedOfTypes(
+                    //Re-index all content of these types
+                    mediaTypeIds,
+                    page++, pageSize, out total, null,
+                    Ordering.By("Path", Direction.Ascending));
+
+                foreach (var c in mediaToRefresh)
+                {
+                    ReIndexForMedia(c, c.Trashed == false);
+                }
+            }
+        }
+
+        private void RefreshContentOfContentTypes(int[] contentTypeIds)
+        {
+            const int pageSize = 500;
+            var page = 0;
+            var total = long.MaxValue;
+            while (page * pageSize < total)
+            {
+                var contentToRefresh = _services.ContentService.GetPagedOfTypes(
+                    //Re-index all content of these types
+                    contentTypeIds,
+                    page++, pageSize, out total, null,
+                    //order by shallowest to deepest, this allows us to check it's published state without checking every item
+                    Ordering.By("Path", Direction.Ascending));
+
+                //track which Ids have their paths are published
+                var publishChecked = new Dictionary<int, bool>();
+
+                foreach (var c in contentToRefresh)
+                {
+                    var isPublished = false;
+                    if (c.Published)
+                    {
+                        if (!publishChecked.TryGetValue(c.ParentId, out isPublished))
+                        {
+                            //nothing by parent id, so query the service and cache the result for the next child to check against
+                            isPublished = _services.ContentService.IsPathPublished(c);
+                            publishChecked[c.Id] = isPublished;
+                        }
+                    }
+
+                    ReIndexForContent(c, isPublished);
+                }
+            }
+        }
+
+        #endregion
+
+        #region ReIndex/Delete for entity
+        private void ReIndexForContent(IContent sender, bool isPublished)
         {
             var actions = DeferedActions.Get(_scopeProvider);
             if (actions != null)
-                actions.Add(new DeferedReIndexForContent(this, sender, supportUnpublished));
+                actions.Add(new DeferedReIndexForContent(this, sender, isPublished));
             else
-                DeferedReIndexForContent.Execute(this, sender, supportUnpublished);
+                DeferedReIndexForContent.Execute(this, sender, isPublished);
         }
 
         private void ReIndexForMember(IMember member)
@@ -435,17 +558,17 @@ namespace Umbraco.Web.Search
                 DeferedReIndexForMember.Execute(this, member);
         }
 
-        private void ReIndexForMedia(IMedia sender, bool isMediaPublished)
+        private void ReIndexForMedia(IMedia sender, bool isPublished)
         {
             var actions = DeferedActions.Get(_scopeProvider);
             if (actions != null)
-                actions.Add(new DeferedReIndexForMedia(this, sender, isMediaPublished));
+                actions.Add(new DeferedReIndexForMedia(this, sender, isPublished));
             else
-                DeferedReIndexForMedia.Execute(this, sender, isMediaPublished);
+                DeferedReIndexForMedia.Execute(this, sender, isPublished);
         }
 
         /// <summary>
-        /// Remove items from any index that doesn't support unpublished content
+        /// Remove items from an index
         /// </summary>
         /// <param name="entityId"></param>
         /// <param name="keepIfUnpublished">
@@ -458,9 +581,11 @@ namespace Umbraco.Web.Search
             if (actions != null)
                 actions.Add(new DeferedDeleteIndex(this, entityId, keepIfUnpublished));
             else
-                DeferedDeleteIndex.Execute(this, entityId, keepIfUnpublished);            
+                DeferedDeleteIndex.Execute(this, entityId, keepIfUnpublished);
         }
+        #endregion
 
+        #region Deferred Actions
         private class DeferedActions
         {
             private readonly List<DeferedAction> _actions = new List<DeferedAction>();
@@ -499,30 +624,34 @@ namespace Umbraco.Web.Search
         {
             private readonly ExamineComponent _examineComponent;
             private readonly IContent _content;
-            private readonly bool? _supportUnpublished;
+            private readonly bool _isPublished;
 
-            public DeferedReIndexForContent(ExamineComponent examineComponent, IContent content, bool? supportUnpublished)
-            {                
+            public DeferedReIndexForContent(ExamineComponent examineComponent, IContent content, bool isPublished)
+            {
                 _examineComponent = examineComponent;
                 _content = content;
-                _supportUnpublished = supportUnpublished;
+                _isPublished = isPublished;
             }
 
             public override void Execute()
             {
-                Execute(_examineComponent, _content, _supportUnpublished);
+                Execute(_examineComponent, _content, _isPublished);
             }
 
-            public static void Execute(ExamineComponent examineComponent, IContent content, bool? supportUnpublished)
+            public static void Execute(ExamineComponent examineComponent, IContent content, bool isPublished)
             {
-                var valueSet = UmbracoContentIndexer.GetValueSets(examineComponent._urlSegmentProviders, examineComponent._services.UserService, content);
+                foreach (var index in examineComponent._examineManager.Indexes.OfType<IUmbracoIndex>()
+                    //filter the indexers
+                    .Where(x => isPublished || !x.PublishedValuesOnly)
+                    .Where(x => x.EnableDefaultEventHandler))
+                {
+                    //for content we have a different builder for published vs unpublished
+                    var builder = index.PublishedValuesOnly
+                        ? examineComponent._publishedContentValueSetBuilder
+                        : (IValueSetBuilder<IContent>)examineComponent._contentValueSetBuilder;
 
-                ExamineManager.Instance.IndexItems(
-                    valueSet.ToArray(),
-                    examineComponent._examineManager.IndexProviders.Values.OfType<UmbracoContentIndexer>()
-                        // only for the specified indexers
-                        .Where(x => supportUnpublished.HasValue == false || supportUnpublished.Value == x.SupportUnpublishedContent)
-                        .Where(x => x.EnableDefaultEventHandler));
+                    index.IndexItems(builder.GetValueSets(content));
+                }
             }
         }
 
@@ -546,15 +675,15 @@ namespace Umbraco.Web.Search
 
             public static void Execute(ExamineComponent examineComponent, IMedia media, bool isPublished)
             {
-                var valueSet = UmbracoContentIndexer.GetValueSets(examineComponent._urlSegmentProviders, examineComponent._services.UserService, media);
+                var valueSet = examineComponent._mediaValueSetBuilder.GetValueSets(media).ToList();
 
-                ExamineManager.Instance.IndexItems(
-                    valueSet.ToArray(),
-                    examineComponent._examineManager.IndexProviders.Values.OfType<UmbracoContentIndexer>()
-                        // index this item for all indexers if the media is not trashed, otherwise if the item is trashed
-                        // then only index this for indexers supporting unpublished media
-                        .Where(x => isPublished || (x.SupportUnpublishedContent))
-                        .Where(x => x.EnableDefaultEventHandler));
+                foreach (var index in examineComponent._examineManager.Indexes.OfType<IUmbracoIndex>()
+                    //filter the indexers
+                    .Where(x => isPublished || !x.PublishedValuesOnly)
+                    .Where(x => x.EnableDefaultEventHandler))
+                {
+                    index.IndexItems(valueSet);
+                }
             }
         }
 
@@ -576,13 +705,13 @@ namespace Umbraco.Web.Search
 
             public static void Execute(ExamineComponent examineComponent, IMember member)
             {
-                var valueSet = UmbracoMemberIndexer.GetValueSets(member);
-
-                ExamineManager.Instance.IndexItems(
-                    valueSet.ToArray(),
-                    examineComponent._examineManager.IndexProviders.Values.OfType<UmbracoExamineIndexer>()
-                        //ensure that only the providers are flagged to listen execute
-                        .Where(x => x.EnableDefaultEventHandler));
+                var valueSet = examineComponent._memberValueSetBuilder.GetValueSets(member).ToList();
+                foreach (var index in examineComponent._examineManager.Indexes.OfType<IUmbracoIndex>()
+                    //filter the indexers
+                    .Where(x => x.EnableDefaultEventHandler))
+                {
+                    index.IndexItems(valueSet);
+                }
             }
         }
 
@@ -606,15 +735,74 @@ namespace Umbraco.Web.Search
 
             public static void Execute(ExamineComponent examineComponent, int id, bool keepIfUnpublished)
             {
-                ExamineManager.Instance.DeleteFromIndexes(
-                    id.ToString(CultureInfo.InvariantCulture),
-                    examineComponent._examineManager.IndexProviders.Values.OfType<UmbracoExamineIndexer>()
-                        // if keepIfUnpublished == true then only delete this item from indexes not supporting unpublished content,
-                        // otherwise if keepIfUnpublished == false then remove from all indexes
-                        .Where(x => keepIfUnpublished == false || (x is UmbracoContentIndexer && ((UmbracoContentIndexer)x).SupportUnpublishedContent == false))
-                        .Where(x => x.EnableDefaultEventHandler));
+                var strId = id.ToString(CultureInfo.InvariantCulture);
+                foreach (var index in examineComponent._examineManager.Indexes.OfType<IUmbracoIndex>()
+                    .Where(x => (keepIfUnpublished && !x.PublishedValuesOnly) || !keepIfUnpublished)
+                    .Where(x => x.EnableDefaultEventHandler))
+                {
+                    index.DeleteFromIndex(strId);
+                }
             }
         }
+        #endregion
 
+        /// <summary>
+        /// Background task used to rebuild empty indexes on startup
+        /// </summary>
+        private class RebuildOnStartupTask : IBackgroundTask
+        {
+            private readonly IndexRebuilder _indexRebuilder;
+            private readonly ILogger _logger;
+            private readonly bool _onlyEmptyIndexes;
+            private readonly int _waitMilliseconds;
+
+            public RebuildOnStartupTask(IndexRebuilder indexRebuilder, ILogger logger, bool onlyEmptyIndexes, int waitMilliseconds = 0)
+            {
+                _indexRebuilder = indexRebuilder ?? throw new ArgumentNullException(nameof(indexRebuilder));
+                _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+                _onlyEmptyIndexes = onlyEmptyIndexes;
+                _waitMilliseconds = waitMilliseconds;
+            }
+
+            public bool IsAsync => false;
+
+            public void Dispose()
+            {
+            }
+
+            public void Run()
+            {
+                try
+                {
+                    // rebuilds indexes
+                    RebuildIndexes();
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error<ExamineComponent>(ex, "Failed to rebuild empty indexes.");
+                }
+            }
+
+            public Task RunAsync(CancellationToken token)
+            {
+                throw new NotImplementedException();
+            }
+
+            /// <summary>
+            /// Used to rebuild indexes on startup or cold boot
+            /// </summary>
+            private void RebuildIndexes()
+            {
+                //do not attempt to do this if this has been disabled since we are not the main dom.
+                //this can be called during a cold boot
+                if (_disableExamineIndexing) return;
+
+                if (_waitMilliseconds > 0)
+                    Thread.Sleep(_waitMilliseconds);
+
+                EnsureUnlocked(_logger, _indexRebuilder.ExamineManager);
+                _indexRebuilder.RebuildIndexes(_onlyEmptyIndexes);
+            }
+        }
     }
 }

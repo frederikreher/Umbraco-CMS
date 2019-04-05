@@ -65,36 +65,59 @@ angular.module('umbraco.services')
             return path;
         }
 
-        /**
-         * Loads in moment.js requirements during the _loadInitAssets call
-         */
-        function loadMomentLocaleForCurrentUser() {
+        function getMomentLocales(locales, supportedLocales) {
+            return getLocales(locales, supportedLocales, 'lib/moment/');
+        }
 
-            var self = this;
-
-            function loadLocales(currentUser, supportedLocales) {
-                var locale = currentUser.locale.toLowerCase();
+        function getFlatpickrLocales(locales, supportedLocales) {
+            return getLocales(locales, supportedLocales, 'lib/flatpickr/l10n/');
+        }
+        
+        function getLocales(locales, supportedLocales, path) {
+            var localeUrls = [];
+            var locales = locales.split(',');
+            for (var i = 0; i < locales.length; i++) {
+                var locale = locales[i].toString().toLowerCase();
                 if (locale !== 'en-us') {
-                    var localeUrls = [];
                     if (supportedLocales.indexOf(locale + '.js') > -1) {
-                        localeUrls.push('lib/moment/' + locale + '.js');
+                        localeUrls.push(path + locale + '.js');
                     }
                     if (locale.indexOf('-') > -1) {
                         var majorLocale = locale.split('-')[0] + '.js';
                         if (supportedLocales.indexOf(majorLocale) > -1) {
-                            localeUrls.push('lib/moment/' + majorLocale);
+                            localeUrls.push(path + majorLocale);
                         }
                     }
-                    return self.load(localeUrls, $rootScope);
-                }
-                else {
-                    $q.when(true);
                 }
             }
 
+            return localeUrls;
+        }
+
+        /**
+         * Loads specific Moment.js and Flatpickr Locales.
+         * @param {any} locales
+         * @param {any} supportedLocales
+         */
+        function loadLocales(locales, supportedLocales) {
+            var localeUrls = getMomentLocales(locales, supportedLocales.moment);
+            localeUrls = localeUrls.concat(getFlatpickrLocales(locales, supportedLocales.flatpickr));
+            if (localeUrls.length >= 1) {
+                return service.load(localeUrls, $rootScope);
+            }
+            else {
+                $q.when(true);
+            }
+        }
+
+        /**
+         * Loads in locale requirements during the _loadInitAssets call
+         */
+        function loadLocaleForCurrentUser() {
+
             userService.getCurrentUser().then(function (currentUser) {
-                return javascriptLibraryResource.getSupportedLocalesForMoment().then(function (supportedLocales) {
-                    return loadLocales(currentUser, supportedLocales);
+                return javascriptLibraryResource.getSupportedLocales().then(function (supportedLocales) {
+                    return loadLocales(currentUser.locale, supportedLocales);
                 });
             });
 
@@ -125,18 +148,16 @@ angular.module('umbraco.services')
                     var self = this;
                     return self.loadJs(umbRequestHelper.getApiUrl("serverVarsJs", "", ""), $rootScope).then(function () {
                         initAssetsLoaded = true;
-
-                        //now we need to go get the legacyTreeJs - but this can be done async without waiting.
-                        self.loadJs(umbRequestHelper.getApiUrl("legacyTreeJs", "", ""), $rootScope);
-
-                        return loadMomentLocaleForCurrentUser();
+                        return loadLocaleForCurrentUser();
                     });
                 }
                 else {
                     return $q.when(true);
                 }
             },
-            
+
+            loadLocales: loadLocales,
+
             /**
              * @ngdoc method
              * @name umbraco.services.assetsService#loadCss

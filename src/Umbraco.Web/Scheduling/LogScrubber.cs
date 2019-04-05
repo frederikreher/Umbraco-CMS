@@ -16,12 +16,11 @@ namespace Umbraco.Web.Scheduling
         private readonly IRuntimeState _runtime;
         private readonly IAuditService _auditService;
         private readonly IUmbracoSettingsSection _settings;
-        private readonly ILogger _logger;
-        private readonly ProfilingLogger _proflog;
+        private readonly IProfilingLogger _logger;
         private readonly IScopeProvider _scopeProvider;
 
         public LogScrubber(IBackgroundTaskRunner<RecurringTaskBase> runner, int delayMilliseconds, int periodMilliseconds,
-            IRuntimeState runtime, IAuditService auditService, IUmbracoSettingsSection settings, IScopeProvider scopeProvider, ILogger logger, ProfilingLogger proflog)
+            IRuntimeState runtime, IAuditService auditService, IUmbracoSettingsSection settings, IScopeProvider scopeProvider, IProfilingLogger logger)
             : base(runner, delayMilliseconds, periodMilliseconds)
         {
             _runtime = runtime;
@@ -29,7 +28,6 @@ namespace Umbraco.Web.Scheduling
             _settings = settings;
             _scopeProvider = scopeProvider;
             _logger = logger;
-            _proflog = proflog;
         }
 
         // maximum age, in minutes
@@ -41,9 +39,9 @@ namespace Umbraco.Web.Scheduling
                 if (settings.Logging.MaxLogAge > -1)
                     maximumAge = settings.Logging.MaxLogAge;
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                _logger.Error<LogScrubber>("Unable to locate a log scrubbing maximum age. Defaulting to 24 hours.", e);
+                _logger.Error<LogScrubber>(ex, "Unable to locate a log scrubbing maximum age. Defaulting to 24 hours.");
             }
             return maximumAge;
 
@@ -51,16 +49,7 @@ namespace Umbraco.Web.Scheduling
 
         public static int GetLogScrubbingInterval(IUmbracoSettingsSection settings, ILogger logger)
         {
-            var interval = 4 * 60 * 60 * 1000; // 4 hours, in milliseconds
-            try
-            {
-                if (settings.Logging.CleaningMiliseconds > -1)
-                    interval = settings.Logging.CleaningMiliseconds;
-            }
-            catch (Exception e)
-            {
-                logger.Error<LogScrubber>("Unable to locate a log scrubbing interval. Defaulting to 4 hours.", e);
-            }
+            const int interval = 4 * 60 * 60 * 1000; // 4 hours, in milliseconds
             return interval;
         }
 
@@ -68,8 +57,8 @@ namespace Umbraco.Web.Scheduling
         {
             switch (_runtime.ServerRole)
             {
-                case ServerRole.Slave:
-                    _logger.Debug<LogScrubber>("Does not run on slave servers.");
+                case ServerRole.Replica:
+                    _logger.Debug<LogScrubber>("Does not run on replica servers.");
                     return true; // DO repeat, server role can change
                 case ServerRole.Unknown:
                     _logger.Debug<LogScrubber>("Does not run on servers with unknown role.");
@@ -86,7 +75,7 @@ namespace Umbraco.Web.Scheduling
             // running on a background task, and Log.CleanLogs uses the old SqlHelper,
             // better wrap in a scope and ensure it's all cleaned up and nothing leaks
             using (var scope = _scopeProvider.CreateScope())
-            using (_proflog.DebugDuration<LogScrubber>("Log scrubbing executing", "Log scrubbing complete"))
+            using (_logger.DebugDuration<LogScrubber>("Log scrubbing executing", "Log scrubbing complete"))
             {
                 _auditService.CleanLogs(GetLogScrubbingMaximumAge(_settings));
                 scope.Complete();

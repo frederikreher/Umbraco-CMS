@@ -1,5 +1,19 @@
-function RowConfigController($scope) {
+function RowConfigController($scope, localizationService) {
 
+    function init() {
+        setTitle();
+    }
+
+    function setTitle() {
+        if (!$scope.model.title) {
+            localizationService.localize("grid_addRowConfiguration")
+                .then(function(data){
+                    $scope.model.title = data;
+                });
+        }
+    }
+    
+    
     $scope.currentRow = $scope.model.currentRow;
     $scope.editors = $scope.model.editors;
     $scope.columns = $scope.model.columns;
@@ -21,16 +35,6 @@ function RowConfigController($scope) {
     $scope.percentage = function(spans) {
         return ((spans / $scope.columns) * 100).toFixed(8);
     };
-
-    $scope.toggleCollection = function(collection, toggle) {
-        if (toggle) {
-            collection = [];
-        }
-        else {
-            delete collection;
-        }
-    };
-
 
     /****************
         area
@@ -55,8 +59,18 @@ function RowConfigController($scope) {
                 row.areas.push(cell);
             }
             $scope.currentCell = cell;
+            $scope.currentCell.allowAll = cell.allowAll || !cell.allowed || !cell.allowed.length;
         }
     };
+
+    $scope.toggleAllowed = function (cell) {
+        if (cell.allowed) {
+            delete cell.allowed;
+        }
+        else {
+            cell.allowed = [];
+        }
+    }
 
     $scope.deleteArea = function (cell, row) {
     	if ($scope.currentCell === cell) {
@@ -69,6 +83,12 @@ function RowConfigController($scope) {
     $scope.closeArea = function() {
         $scope.currentCell = undefined;
     };
+    
+    $scope.close = function() {
+        if($scope.model.close) {
+            $scope.model.close();
+        }
+    }
 
     $scope.nameChanged = false;
     var originalName = $scope.currentRow.name;
@@ -92,6 +112,10 @@ function RowConfigController($scope) {
             }
         }
     }, true);
+
+    
+    init();
+    
 
 }
 

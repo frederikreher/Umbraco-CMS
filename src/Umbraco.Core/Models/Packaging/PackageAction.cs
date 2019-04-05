@@ -4,13 +4,9 @@ using System.Xml.Linq;
 
 namespace Umbraco.Core.Models.Packaging
 {
-    public enum ActionRunAt
-    {
-        Undefined = 0,
-        Install,
-        Uninstall
-    }
-
+    /// <summary>
+    /// Defines a package action declared within a package manifest
+    /// </summary>
     [Serializable]
     [DataContract(IsReference = true)]
     public class PackageAction
@@ -27,7 +23,7 @@ namespace Umbraco.Core.Models.Packaging
             set => _runAt = value;
         }
 
-        public bool Undo //NOTE: Should thid default to "False"? but the documentation says default "True" (http://our.umbraco.org/wiki/reference/packaging/package-actions)
+        public bool Undo
         {
             get => _undo ?? true;
             set => _undo = value;

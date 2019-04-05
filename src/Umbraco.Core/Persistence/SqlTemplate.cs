@@ -95,9 +95,10 @@ namespace Umbraco.Core.Persistence
             return new Sql<ISqlContext>(_sqlContext, isBuilt, _sql, args);
         }
 
-        internal void WriteToConsole()
+        internal string ToText()
         {
-            new Sql<ISqlContext>(_sqlContext, _sql, _args.Values.ToArray()).WriteToConsole();
+            var sql = new Sql<ISqlContext>(_sqlContext, _sql, _args.Values.ToArray());
+            return sql.ToText();
         }
 
         /// <summary>
@@ -116,7 +117,6 @@ namespace Umbraco.Core.Persistence
         public static IEnumerable<T> ArgIn<T>(string name)
         {
             // don't return an empty enumerable, as it breaks NPoco
-            // fixme - should we cache these arrays?
             return new[] { default (T) };
         }
     }

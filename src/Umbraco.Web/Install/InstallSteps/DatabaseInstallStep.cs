@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
+using System.Threading.Tasks;
 using Umbraco.Core;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Logging;
@@ -24,12 +25,12 @@ namespace Umbraco.Web.Install.InstallSteps
             _logger = logger;
         }
 
-        public override InstallSetupResult Execute(object model)
+        public override Task<InstallSetupResult> ExecuteAsync(object model)
         {
             if (_runtime.Level == RuntimeLevel.Run)
                 throw new Exception("Umbraco is already configured!");
 
-            var result = _databaseBuilder.CreateDatabaseSchemaAndData();
+            var result = _databaseBuilder.CreateSchemaAndData();
 
             if (result.Success == false)
             {
@@ -39,14 +40,14 @@ namespace Umbraco.Web.Install.InstallSteps
             if (result.RequiresUpgrade == false)
             {
                 HandleConnectionStrings(_logger);
-                return null;
+                return Task.FromResult<InstallSetupResult>(null);
             }
 
             //upgrade is required so set the flag for the next step
-            return new InstallSetupResult(new Dictionary<string, object>
+            return Task.FromResult(new InstallSetupResult(new Dictionary<string, object>
             {
                 {"upgrade", true}
-            });
+            }));
         }
 
         internal static void HandleConnectionStrings(ILogger logger)
@@ -59,7 +60,7 @@ namespace Umbraco.Web.Install.InstallSteps
             else
             {
                 var ex = new ArgumentNullException(string.Format("ConfigurationManager.ConnectionStrings[{0}]", Constants.System.UmbracoConnectionName), "Install / upgrade did not complete successfully, umbracoDbDSN was not set in the connectionStrings section");
-                logger.Error<DatabaseInstallStep>("", ex);
+                logger.Error<DatabaseInstallStep>(ex, "Install / upgrade did not complete successfully, umbracoDbDSN was not set in the connectionStrings section");
                 throw ex;
             }
         }

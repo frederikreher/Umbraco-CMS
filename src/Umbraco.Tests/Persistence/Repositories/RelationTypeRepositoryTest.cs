@@ -28,7 +28,7 @@ namespace Umbraco.Tests.Persistence.Repositories
 
         private RelationTypeRepository CreateRepository(IScopeProvider provider)
         {
-            return new RelationTypeRepository((IScopeAccessor) provider, CacheHelper.CreateDisabledCacheHelper(), Mock.Of<ILogger>());
+            return new RelationTypeRepository((IScopeAccessor) provider, AppCaches.Disabled, Mock.Of<ILogger>());
         }
 
 
@@ -135,7 +135,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 Assert.That(relationTypes, Is.Not.Null);
                 Assert.That(relationTypes.Any(), Is.True);
                 Assert.That(relationTypes.Any(x => x == null), Is.False);
-                Assert.That(relationTypes.Count(), Is.EqualTo(4));
+                Assert.That(relationTypes.Count(), Is.EqualTo(5));
             }
         }
 
@@ -170,7 +170,7 @@ namespace Umbraco.Tests.Persistence.Repositories
 
                 // Act
                 var exists = repository.Exists(3);
-                var doesntExist = repository.Exists(5);
+                var doesntExist = repository.Exists(6);
 
                 // Assert
                 Assert.That(exists, Is.True);
@@ -192,7 +192,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 int count = repository.Count(query);
 
                 // Assert
-                Assert.That(count, Is.EqualTo(4));
+                Assert.That(count, Is.EqualTo(5));
             }
         }
 
@@ -232,7 +232,7 @@ namespace Umbraco.Tests.Persistence.Repositories
             var provider = TestObjects.GetScopeProvider(Logger);
             using (var scope = ScopeProvider.CreateScope())
             {
-                var repository = new RelationTypeRepository((IScopeAccessor) provider, CacheHelper.CreateDisabledCacheHelper(), Mock.Of<ILogger>());
+                var repository = new RelationTypeRepository((IScopeAccessor) provider, AppCaches.Disabled, Mock.Of<ILogger>());
 
                 repository.Save(relateContent);//Id 2
                 repository.Save(relateContentType);//Id 3

@@ -11,7 +11,9 @@ using Umbraco.Core.Models;
 using Umbraco.Core.Models.Entities;
 using Umbraco.Core.Security;
 using Umbraco.Core.Services;
-using Umbraco.Web._Legacy.Actions;
+using Umbraco.Web.Actions;
+using Umbraco.Web.Services;
+
 
 namespace Umbraco.Web.Models.Mapping
 {
@@ -21,7 +23,7 @@ namespace Umbraco.Web.Models.Mapping
             => entity is ContentEntitySlim contentEntity ? contentEntity.ContentTypeIcon : null;
 
         public UserMapperProfile(ILocalizedTextService textService, IUserService userService, IEntityService entityService, ISectionService sectionService,
-            IRuntimeCacheProvider runtimeCache, ActionCollection actions, IGlobalSettings globalSettings)
+            AppCaches appCaches, ActionCollection actions, IGlobalSettings globalSettings)
         {
             var userGroupDefaultPermissionsResolver = new UserGroupDefaultPermissionsResolver(textService, actions);
 
@@ -97,7 +99,7 @@ namespace Umbraco.Web.Models.Mapping
                 .ForMember(dest => dest.LastLockoutDate, opt => opt.Ignore())
                 .ForMember(dest => dest.FailedPasswordAttempts, opt => opt.Ignore())
                 //all invited users will not be approved, completing the invite will approve the user
-                .ForMember(user => user.IsApproved, opt => opt.UseValue(false))
+                .ForMember(user => user.IsApproved, opt => opt.MapFrom(_ => false))
                 .AfterMap((invite, user) =>
                 {
                     user.ClearGroups();
@@ -117,7 +119,7 @@ namespace Umbraco.Web.Models.Mapping
                 .ForMember(dest => dest.Notifications, opt => opt.Ignore())
                 .ForMember(dest => dest.Udi, opt => opt.Ignore())
                 .ForMember(dest => dest.Trashed, opt => opt.Ignore())
-                .ForMember(dest => dest.ParentId, opt => opt.UseValue(-1))
+                .ForMember(dest => dest.ParentId, opt => opt.MapFrom(_ => -1))
                 .ForMember(dest => dest.Path, opt => opt.MapFrom(userGroup => "-1," + userGroup.Id))
                 .ForMember(dest => dest.AdditionalData, opt => opt.Ignore())
                 .AfterMap((group, display) =>
@@ -132,7 +134,7 @@ namespace Umbraco.Web.Models.Mapping
                 .ForMember(dest => dest.Notifications, opt => opt.Ignore())
                 .ForMember(dest => dest.Udi, opt => opt.Ignore())
                 .ForMember(dest => dest.Trashed, opt => opt.Ignore())
-                .ForMember(dest => dest.ParentId, opt => opt.UseValue(-1))
+                .ForMember(dest => dest.ParentId, opt => opt.MapFrom(_ => -1))
                 .ForMember(dest => dest.Path, opt => opt.MapFrom(userGroup => "-1," + userGroup.Id))
                 .ForMember(dest => dest.AdditionalData, opt => opt.Ignore())
                 .AfterMap((group, display) =>
@@ -146,9 +148,9 @@ namespace Umbraco.Web.Models.Mapping
                 .ForMember(dest => dest.Trashed, opt => opt.Ignore())
                 .ForMember(dest => dest.AdditionalData, opt => opt.Ignore())
                 .ForMember(dest => dest.Id, opt => opt.MapFrom(group => group.Id))
-                .ForMember(dest => dest.ParentId, opt => opt.UseValue(-1))
+                .ForMember(dest => dest.ParentId, opt => opt.MapFrom(_ => -1))
                 .ForMember(dest => dest.Path, opt => opt.MapFrom(userGroup => "-1," + userGroup.Id))
-                .ForMember(dest => dest.DefaultPermissions, opt => opt.ResolveUsing(src => userGroupDefaultPermissionsResolver.Resolve(src)))
+                .ForMember(dest => dest.DefaultPermissions, opt => opt.MapFrom(src => userGroupDefaultPermissionsResolver.Resolve(src)))
                 //these will be manually mapped and by default they are null
                 .ForMember(dest => dest.AssignedPermissions, opt => opt.Ignore())
                 .AfterMap((group, display) =>
@@ -180,11 +182,11 @@ namespace Umbraco.Web.Models.Mapping
                 .ForMember(dest => dest.Notifications, opt => opt.Ignore())
                 .ForMember(dest => dest.Udi, opt => opt.Ignore())
                 .ForMember(dest => dest.Trashed, opt => opt.Ignore())
-                .ForMember(dest => dest.ParentId, opt => opt.UseValue(-1))
+                .ForMember(dest => dest.ParentId, opt => opt.MapFrom(_ => -1))
                 .ForMember(dest => dest.Path, opt => opt.MapFrom(userGroup => "-1," + userGroup.Id))
                 .ForMember(dest => dest.AdditionalData, opt => opt.Ignore())
                 .ForMember(dest => dest.Users, opt => opt.Ignore())
-                .ForMember(dest => dest.DefaultPermissions, opt => opt.ResolveUsing(src => userGroupDefaultPermissionsResolver.Resolve(src)))
+                .ForMember(dest => dest.DefaultPermissions, opt => opt.MapFrom(src => userGroupDefaultPermissionsResolver.Resolve(src)))
                 .ForMember(dest => dest.AssignedPermissions, opt => opt.Ignore())
                 .AfterMap((group, display) =>
                 {
@@ -242,7 +244,7 @@ namespace Umbraco.Web.Models.Mapping
             //Important! Currently we are never mapping to multiple UserDisplay objects but if we start doing that
             // this will cause an N+1 and we'll need to change how this works.
             CreateMap<IUser, UserDisplay>()
-                .ForMember(dest => dest.Avatars, opt => opt.MapFrom(user => user.GetUserAvatarUrls(runtimeCache)))
+                .ForMember(dest => dest.Avatars, opt => opt.MapFrom(user => user.GetUserAvatarUrls(appCaches.RuntimeCache)))
                 .ForMember(dest => dest.Username, opt => opt.MapFrom(user => user.Username))
                 .ForMember(dest => dest.LastLoginDate, opt => opt.MapFrom(user => user.LastLoginDate == default(DateTime) ? null : (DateTime?)user.LastLoginDate))
                 .ForMember(dest => dest.UserGroups, opt => opt.MapFrom(user => user.Groups))
@@ -274,7 +276,7 @@ namespace Umbraco.Web.Models.Mapping
                 .ForMember(
                     dest => dest.EmailHash,
                     opt => opt.MapFrom(user => user.Email.ToLowerInvariant().Trim().GenerateHash()))
-                .ForMember(dest => dest.ParentId, opt => opt.UseValue(-1))
+                .ForMember(dest => dest.ParentId, opt => opt.MapFrom(_ => -1))
                 .ForMember(dest => dest.Path, opt => opt.MapFrom(user => "-1," + user.Id))
                 .ForMember(dest => dest.Notifications, opt => opt.Ignore())
                 .ForMember(dest => dest.Udi, opt => opt.Ignore())
@@ -292,7 +294,7 @@ namespace Umbraco.Web.Models.Mapping
                 //like the load time is waiting.
                 .ForMember(detail =>
                     detail.Avatars,
-                    opt => opt.MapFrom(user => user.GetUserAvatarUrls(runtimeCache)))
+                    opt => opt.MapFrom(user => user.GetUserAvatarUrls(appCaches.RuntimeCache)))
                 .ForMember(dest => dest.Username, opt => opt.MapFrom(user => user.Username))
                 .ForMember(dest => dest.UserGroups, opt => opt.MapFrom(user => user.Groups))
                 .ForMember(dest => dest.LastLoginDate, opt => opt.MapFrom(user => user.LastLoginDate == default(DateTime) ? null : (DateTime?)user.LastLoginDate))
@@ -300,7 +302,7 @@ namespace Umbraco.Web.Models.Mapping
                 .ForMember(
                     dest => dest.EmailHash,
                     opt => opt.MapFrom(user => user.Email.ToLowerInvariant().Trim().ToMd5()))
-                .ForMember(dest => dest.ParentId, opt => opt.UseValue(-1))
+                .ForMember(dest => dest.ParentId, opt => opt.MapFrom(_ => -1))
                 .ForMember(dest => dest.Path, opt => opt.MapFrom(user => "-1," + user.Id))
                 .ForMember(dest => dest.Notifications, opt => opt.Ignore())
                 .ForMember(dest => dest.IsCurrentUser, opt => opt.Ignore())
@@ -312,7 +314,7 @@ namespace Umbraco.Web.Models.Mapping
                 .ForMember(dest => dest.AdditionalData, opt => opt.Ignore());
 
             CreateMap<IUser, UserDetail>()
-                .ForMember(dest => dest.Avatars, opt => opt.MapFrom(user => user.GetUserAvatarUrls(runtimeCache)))
+                .ForMember(dest => dest.Avatars, opt => opt.MapFrom(user => user.GetUserAvatarUrls(appCaches.RuntimeCache)))
                 .ForMember(dest => dest.UserId, opt => opt.MapFrom(user => GetIntId(user.Id)))
                 .ForMember(dest => dest.StartContentIds, opt => opt.MapFrom(user => user.CalculateContentStartNodeIds(entityService)))
                 .ForMember(dest => dest.StartMediaIds, opt => opt.MapFrom(user => user.CalculateMediaStartNodeIds(entityService)))

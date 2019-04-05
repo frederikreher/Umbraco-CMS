@@ -6,7 +6,6 @@ using System.Web.Hosting;
 using Umbraco.Core;
 using Umbraco.Core.Events;
 using Umbraco.Core.Logging;
-using LightInject;
 
 namespace Umbraco.Web.Scheduling
 {
@@ -15,7 +14,51 @@ namespace Umbraco.Web.Scheduling
     /// </summary>
     /// <remarks>This class exists for logging purposes - the one you want to use is BackgroundTaskRunner{T}.</remarks>
     public abstract class BackgroundTaskRunner
-    { }
+    {
+        /// <summary>
+        /// Represents a MainDom hook.
+        /// </summary>
+        public class MainDomHook
+        {
+            /// <summary>
+            /// Initializes a new instance of the <see cref="MainDomHook"/> class.
+            /// </summary>
+            /// <param name="mainDom">The <see cref="IMainDom"/> object.</param>
+            /// <param name="install">A method to execute when hooking into the main domain.</param>
+            /// <param name="release">A method to execute when the main domain releases.</param>
+            public MainDomHook(IMainDom mainDom, Action install, Action release)
+            {
+                MainDom = mainDom;
+                Install = install;
+                Release = release;
+            }
+
+            /// <summary>
+            /// Gets the <see cref="IMainDom"/> object.
+            /// </summary>
+            public IMainDom MainDom { get; }
+
+            /// <summary>
+            /// Gets the method to execute when hooking into the main domain.
+            /// </summary>
+            public Action Install { get; }
+
+            /// <summary>
+            /// Gets the method to execute when the main domain releases.
+            /// </summary>
+            public Action Release { get; }
+
+            internal bool Register()
+            {
+                if (MainDom != null)
+                    return MainDom.Register(Install, Release);
+
+                // tests
+                Install?.Invoke();
+                return true;
+            }
+        }
+    }
 
     /// <summary>
     /// Manages a queue of tasks of type <typeparamref name="T"/> and runs them in the background.
@@ -55,42 +98,6 @@ namespace Umbraco.Web.Scheduling
         private bool _terminated; // remember we've terminated
         private readonly TaskCompletionSource<int> _terminatedSource = new TaskCompletionSource<int>(); // enable awaiting termination
 
-        // fixme - this is temp
-        // at the moment MainDom is internal so we have to find a way to hook into it - temp
-        public class MainDomHook
-        {
-            private MainDomHook(MainDom mainDom, Action install, Action release)
-            {
-                MainDom = mainDom;
-                Install = install;
-                Release = release;
-            }
-
-            internal MainDom MainDom { get; }
-            public Action Install { get; }
-            public Action Release { get; }
-
-            public static MainDomHook Create(Action install, Action release)
-            {
-                return new MainDomHook(Core.Composing.Current.Container.GetInstance<MainDom>(), install, release);
-            }
-
-            public static MainDomHook CreateForTest(Action install, Action release)
-            {
-                return new MainDomHook(null, install, release);
-            }
-
-            public bool Register()
-            {
-                if (MainDom != null)
-                    return MainDom.Register(Install, Release);
-
-                // tests
-                Install?.Invoke();
-                return true;
-            }
-        }
-
         /// <summary>
         /// Initializes a new instance of the <see cref="BackgroundTaskRunner{T}"/> class.
         /// </summary>
@@ -129,11 +136,9 @@ namespace Umbraco.Web.Scheduling
         /// <param name="hook">An optional main domain hook.</param>
         public BackgroundTaskRunner(string name, BackgroundTaskRunnerOptions options, ILogger logger, MainDomHook hook = null)
         {
-            if (options == null) throw new ArgumentNullException(nameof(options));
-            if (logger == null) throw new ArgumentNullException(nameof(logger));
-            _options = options;
+            _options = options ?? throw new ArgumentNullException(nameof(options));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _logPrefix = "[" + name + "] ";
-            _logger = logger;
 
             if (options.Hosted)
                 HostingEnvironment.RegisterObject(this);
@@ -233,7 +238,7 @@ namespace Umbraco.Web.Scheduling
                     throw new InvalidOperationException("The task runner has completed.");
 
                 // add task
-                _logger.Debug<BackgroundTaskRunner>(() => _logPrefix + "Task added " + task.GetType().FullName);
+                _logger.Debug<BackgroundTaskRunner>("{LogPrefix} Task Added {TaskType}", _logPrefix , task.GetType().FullName);
                 _tasks.Post(task);
 
                 // start
@@ -253,12 +258,12 @@ namespace Umbraco.Web.Scheduling
             {
                 if (_completed)
                 {
-                    _logger.Debug<BackgroundTaskRunner>(() => _logPrefix + $"Task cannot be added {task.GetType().FullName}, the task runner has already shutdown");
+                    _logger.Debug<BackgroundTaskRunner>("{LogPrefix} Task cannot be added {TaskType}, the task runner has already shutdown", _logPrefix, task.GetType().FullName);
                     return false;
                 }
 
                 // add task
-                _logger.Debug<BackgroundTaskRunner>(() => _logPrefix + "Task added " + task.GetType().FullName);
+                _logger.Debug<BackgroundTaskRunner>("{LogPrefix} Task added {TaskType}", _logPrefix, task.GetType().FullName);
                 _tasks.Post(task);
 
                 // start
@@ -315,11 +320,11 @@ namespace Umbraco.Web.Scheduling
             _shutdownToken = _shutdownTokenSource.Token;
             _runningTask = Task.Run(async () => await Pump().ConfigureAwait(false), _shutdownToken);
 
-            _logger.Debug<BackgroundTaskRunner>(_logPrefix + "Starting");
+            _logger.Debug<BackgroundTaskRunner>("{LogPrefix} Starting", _logPrefix);
         }
 
         /// <summary>
-        /// Shuts the taks runner down.
+        /// Shuts the tasks runner down.
         /// </summary>
         /// <param name="force">True for force the runner to stop.</param>
         /// <param name="wait">True to wait until the runner has stopped.</param>
@@ -350,12 +355,14 @@ namespace Umbraco.Web.Scheduling
                 // break latched tasks
                 // stop processing the queue
                 _shutdownTokenSource.Cancel(false); // false is the default
+                _shutdownTokenSource.Dispose();
+                _shutdownTokenSource = null;
             }
 
             // tasks in the queue will be executed...
             if (wait == false) return;
 
-            _runningTask?.Wait(); // wait for whatever is running to end...
+            _runningTask?.Wait(CancellationToken.None); // wait for whatever is running to end...
         }
 
         private async Task Pump()
@@ -374,28 +381,38 @@ namespace Umbraco.Web.Scheduling
                     _cancelTokenSource = CancellationTokenSource.CreateLinkedTokenSource(_shutdownToken);
                 }
 
-                // wait for latch should return the task
-                // if it returns null it's either that the task has been cancelled
-                // or the whole runner is going down - in both cases, continue,
-                // and GetNextBackgroundTask will take care of shutdowns
-                bgTask = await WaitForLatch(bgTask, _cancelTokenSource.Token);
-                if (bgTask == null) continue;
-
-                // executes & be safe - RunAsync should NOT throw but only raise an event,
-                // but... just make sure we never ever take everything down
                 try
                 {
-                    await RunAsync(bgTask, _cancelTokenSource.Token).ConfigureAwait(false);
-                }
-                catch (Exception e)
-                {
-                    _logger.Error<BackgroundTaskRunner>(_logPrefix + "Task runner exception.", e);
-                }
+                    // wait for latch should return the task
+                    // if it returns null it's either that the task has been cancelled
+                    // or the whole runner is going down - in both cases, continue,
+                    // and GetNextBackgroundTask will take care of shutdowns
+                    bgTask = await WaitForLatch(bgTask, _cancelTokenSource.Token);
 
-                // done
-                lock (_locker)
+                    if (bgTask != null)
+                    {
+                        // executes & be safe - RunAsync should NOT throw but only raise an event,
+                        // but... just make sure we never ever take everything down
+                        try
+                        {
+                            await RunAsync(bgTask, _cancelTokenSource.Token).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error<BackgroundTaskRunner>(ex, "{LogPrefix} Task runner exception", _logPrefix);
+                        }
+                    }
+                }
+                finally
                 {
-                    _cancelTokenSource = null;
+                    // done
+                    lock (_locker)
+                    {
+                        // always dispose CancellationTokenSource when you are done using them
+                        // https://lowleveldesign.org/2015/11/30/catch-in-cancellationtokensource/
+                        _cancelTokenSource.Dispose();
+                        _cancelTokenSource = null;
+                    }
                 }
             }
         }
@@ -414,7 +431,7 @@ namespace Umbraco.Web.Scheduling
                     if (_shutdownToken.IsCancellationRequested == false && _tasks.Count > 0) continue;
 
                     // if we really have nothing to do, stop
-                    _logger.Debug<BackgroundTaskRunner>(_logPrefix + "Stopping");
+                    _logger.Debug<BackgroundTaskRunner>("{LogPrefix} Stopping", _logPrefix);
 
                     if (_options.PreserveRunningTask == false)
                         _runningTask = null;
@@ -429,12 +446,12 @@ namespace Umbraco.Web.Scheduling
 
         private async Task<T> GetNextBackgroundTask2(CancellationToken shutdownToken)
         {
-            // exit if cancelling
+            // exit if canceling
             if (shutdownToken.IsCancellationRequested)
                 return null;
 
-            // if keepalive is false then don't block, exit if there is
-            // no task in the buffer - yes, there is a race cond, which
+            // if KeepAlive is false then don't block, exit if there is
+            // no task in the buffer - yes, there is a race condition, which
             // we'll take care of
             if (_options.KeepAlive == false && _tasks.Count == 0)
                 return null;
@@ -477,7 +494,7 @@ namespace Umbraco.Web.Scheduling
             var latched = bgTask as ILatchedBackgroundTask;
             if (latched == null || latched.IsLatched == false) return bgTask;
 
-            // support cancelling awaiting
+            // support canceling awaiting
             // read https://github.com/dotnet/corefx/issues/2704
             // read http://stackoverflow.com/questions/27238232/how-can-i-cancel-task-whenall
             var tokenTaskSource = new TaskCompletionSource<bool>();
@@ -514,7 +531,7 @@ namespace Umbraco.Web.Scheduling
                     try
                     {
                         if (bgTask.IsAsync)
-                            //configure await = false since we don't care about the context, we're on a background thread.
+                            // configure await = false since we don't care about the context, we're on a background thread.
                             await bgTask.RunAsync(token).ConfigureAwait(false);
                         else
                             bgTask.Run();
@@ -536,7 +553,8 @@ namespace Umbraco.Web.Scheduling
             }
             catch (Exception ex)
             {
-                _logger.Error<BackgroundTaskRunner>(_logPrefix + "Task has failed", ex);
+
+                _logger.Error<BackgroundTaskRunner>(ex, "{LogPrefix} Task has failed", _logPrefix);
             }
         }
 
@@ -579,7 +597,7 @@ namespace Umbraco.Web.Scheduling
             }
             catch (Exception ex)
             {
-                _logger.Error<BackgroundTaskRunner>(_logPrefix + name + " exception occurred", ex);
+                _logger.Error<BackgroundTaskRunner>(ex, "{LogPrefix} {Name} exception occurred", _logPrefix, name);
             }
         }
 
@@ -647,13 +665,13 @@ namespace Umbraco.Web.Scheduling
         #endregion
 
         /// <summary>
-        /// Requests a registered object to unregister.
+        /// Requests a registered object to un-register.
         /// </summary>
-        /// <param name="immediate">true to indicate the registered object should unregister from the hosting
+        /// <param name="immediate">true to indicate the registered object should un-register from the hosting
         /// environment before returning; otherwise, false.</param>
         /// <remarks>
         /// <para>"When the application manager needs to stop a registered object, it will call the Stop method."</para>
-        /// <para>The application manager will call the Stop method to ask a registered object to unregister. During
+        /// <para>The application manager will call the Stop method to ask a registered object to un-register. During
         /// processing of the Stop method, the registered object must call the HostingEnvironment.UnregisterObject method.</para>
         /// </remarks>
         public void Stop(bool immediate)
@@ -667,7 +685,7 @@ namespace Umbraco.Web.Scheduling
                 if (_terminating == false)
                 {
                     _terminating = true;
-                    _logger.Info<BackgroundTaskRunner>(_logPrefix + "Terminating" + (immediate ? " (immediate)" : ""));
+                    _logger.Info<BackgroundTaskRunner>("{LogPrefix} Terminating {Immediate}", _logPrefix, immediate ? immediate.ToString() : string.Empty);
                     onTerminating = true;
                 }
             }
@@ -681,7 +699,7 @@ namespace Umbraco.Web.Scheduling
                 // processing, call the UnregisterObject method, and then return or it can return immediately and complete
                 // processing asynchronously before calling the UnregisterObject method.
 
-                _logger.Info<BackgroundTaskRunner>(_logPrefix + "Waiting for tasks to complete");
+                _logger.Info<BackgroundTaskRunner>("{LogPrefix} Waiting for tasks to complete", _logPrefix);
                 Shutdown(false, false); // do not accept any more tasks, flush the queue, do not wait
 
                 // raise the completed event only after the running threading task has completed
@@ -700,7 +718,7 @@ namespace Umbraco.Web.Scheduling
                 // immediate parameter is true, the registered object must call the UnregisterObject method before returning;
                 // otherwise, its registration will be removed by the application manager.
 
-                _logger.Info<BackgroundTaskRunner>(_logPrefix + "Cancelling tasks");
+                _logger.Info<BackgroundTaskRunner>("{LogPrefix} Canceling tasks", _logPrefix);
                 Shutdown(true, true); // cancel all tasks, wait for the current one to end
                 Terminate(true);
             }
@@ -723,7 +741,9 @@ namespace Umbraco.Web.Scheduling
                 terminatedSource = _terminatedSource;
             }
 
-            _logger.Info<BackgroundTaskRunner>(_logPrefix + "Tasks " + (immediate ? "cancelled" : "completed") + ", terminated");
+            _logger.Info<BackgroundTaskRunner>("{LogPrefix} Tasks {TaskStatus}, terminated",
+                _logPrefix,
+                immediate ? "cancelled" : "completed");
 
             OnEvent(Terminated, "Terminated");
 

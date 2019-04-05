@@ -59,11 +59,11 @@
         * Method for internal use, based on the collection of layouts passed, the method selects either
         * any previous layout from local storage, or picks the first allowed layout
         *
-        * @param {Number} nodeId The id of the current node displayed in the content editor
+        * @param {Any} id The identifier of the current node or application displayed in the content editor
         * @param {Array} availableLayouts Array of all allowed layouts, available from $scope.model.config.layouts
         */
 
-        function getLayout(nodeId, availableLayouts) {
+        function getLayout(id, availableLayouts) {
 
             var storedLayouts = [];
 
@@ -74,8 +74,8 @@
             if (storedLayouts && storedLayouts.length > 0) {
                 for (var i = 0; storedLayouts.length > i; i++) {
                     var layout = storedLayouts[i];
-                    if (layout.nodeId === nodeId) {
-                        return setLayout(nodeId, layout, availableLayouts);
+                    if (isMatchingLayout(id, layout)) {
+                        return setLayout(id, layout, availableLayouts);
                     }
                 }
 
@@ -93,12 +93,12 @@
         * @description
         * Changes the current layout used by the listview to the layout passed in. Stores selection in localstorage
         *
-        * @param {Number} nodeID Id of the current node displayed in the content editor
+        * @param {Any} id The identifier of the current node or application displayed in the content editor
         * @param {Object} selectedLayout Layout selected as the layout to set as the current layout
         * @param {Array} availableLayouts Array of all allowed layouts, available from $scope.model.config.layouts
         */
 
-        function setLayout(nodeId, selectedLayout, availableLayouts) {
+        function setLayout(id, selectedLayout, availableLayouts) {
 
             var activeLayout = {};
             var layoutFound = false;
@@ -118,7 +118,7 @@
                 activeLayout = getFirstAllowedLayout(availableLayouts);
             }
 
-            saveLayoutInLocalStorage(nodeId, activeLayout);
+            saveLayoutInLocalStorage(id, activeLayout);
 
             return activeLayout;
 
@@ -132,11 +132,11 @@
         * @description
         * Stores a given layout as the current default selection in local storage
         *
-        * @param {Number} nodeId Id of the current node displayed in the content editor
+        * @param {Any} id The identifier of the current node or application displayed in the content editor
         * @param {Object} selectedLayout Layout selected as the layout to set as the current layout
         */
 
-        function saveLayoutInLocalStorage(nodeId, selectedLayout) {
+        function saveLayoutInLocalStorage(id, selectedLayout) {
             var layoutFound = false;
             var storedLayouts = [];
 
@@ -147,7 +147,7 @@
             if (storedLayouts.length > 0) {
                 for (var i = 0; storedLayouts.length > i; i++) {
                     var layout = storedLayouts[i];
-                    if (layout.nodeId === nodeId) {
+                    if (isMatchingLayout(id, layout)) {
                         layout.path = selectedLayout.path;
                         layoutFound = true;
                     }
@@ -156,7 +156,7 @@
 
             if (!layoutFound) {
                 var storageObject = {
-                    "nodeId": nodeId,
+                    "id": id,
                     "path": selectedLayout.path
                 };
                 storedLayouts.push(storageObject);
@@ -272,12 +272,19 @@
             for (var i = 0; selection.length > i; i++) {
                 var selectedItem = selection[i];
                 // if item.id is 2147483647 (int.MaxValue) use item.key
-                if ((item.id !== 2147483647 && item.id === selectedItem.id) || item.key === selectedItem.key) {
+                if ((item.id !== 2147483647 && item.id === selectedItem.id) || (item.key && item.key === selectedItem.key)) {
                     isSelected = true;
                 }
             }
             if (!isSelected) {
-                selection.push({ id: item.id, key: item.key });
+                var obj = {
+                    id: item.id
+                };
+                if (item.key) {
+                    obj.key = item.key;
+                }
+
+                selection.push(obj);
                 item.selected = true;
             }
         }
@@ -298,7 +305,7 @@
             for (var i = 0; selection.length > i; i++) {
                 var selectedItem = selection[i];
                 // if item.id is 2147483647 (int.MaxValue) use item.key
-                if ((item.id !== 2147483647 && item.id === selectedItem.id) || item.key === selectedItem.key) {
+                if ((item.id !== 2147483647 && item.id === selectedItem.id) || (item.key && item.key === selectedItem.key)) {
                     selection.splice(i, 1);
                     item.selected = false;
                 }
@@ -368,9 +375,15 @@
             for (var i = 0; i < items.length; i++) {
 
                 var item = items[i];
+                var obj = {
+                    id: item.id
+                };
+                if (item.key) {
+                    obj.key = item.key
+                }
 
                 if (checkbox.checked) {
-                    selection.push({ id: item.id, key: item.key });
+                    selection.push(obj);
                 } else {
                     clearSelection = true;
                 }
@@ -410,7 +423,7 @@
                     var selectedItem = selection[selectedIndex];
 
                     // if item.id is 2147483647 (int.MaxValue) use item.key
-                    if ((item.id !== 2147483647 && item.id === selectedItem.id) || item.key === selectedItem.key) {
+                    if ((item.id !== 2147483647 && item.id === selectedItem.id) || (item.key && item.key === selectedItem.key)) {
                         numberOfSelectedItem++;
                     }
                 }
@@ -484,7 +497,7 @@
             });
 
             //we need to use 'apply' to call intersection with an array of arrays,
-            //see: http://stackoverflow.com/a/16229480/694494
+            //see: https://stackoverflow.com/a/16229480/694494
             var intersectPermissions = _.intersection.apply(_, arr);
 
             return {
@@ -493,8 +506,14 @@
                 canDelete: _.contains(intersectPermissions, 'D'), //Magic Char = D
                 canMove: _.contains(intersectPermissions, 'M'), //Magic Char = M
                 canPublish: _.contains(intersectPermissions, 'U'), //Magic Char = U
-                canUnpublish: _.contains(intersectPermissions, 'U'), //Magic Char = Z (however UI says it can't be set, so if we can publish 'U' we can unpublish)
+                canUnpublish: _.contains(intersectPermissions, 'U') //Magic Char = Z (however UI says it can't be set, so if we can publish 'U' we can unpublish)
             };
+        }
+
+        
+        function isMatchingLayout(id, layout) {
+            // legacy format uses "nodeId", be sure to look for both
+            return layout.id === id || layout.nodeId === id;
         }
 
         var service = {

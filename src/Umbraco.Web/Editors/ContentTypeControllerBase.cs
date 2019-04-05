@@ -7,9 +7,13 @@ using System.Text;
 using System.Web.Http;
 using AutoMapper;
 using Umbraco.Core;
+using Umbraco.Core.Cache;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.Dictionary;
 using Umbraco.Core.Exceptions;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
+using Umbraco.Core.Persistence;
 using Umbraco.Core.Services;
 using Umbraco.Web.Composing;
 using Umbraco.Web.Models.ContentEditing;
@@ -26,7 +30,16 @@ namespace Umbraco.Web.Editors
     public abstract class ContentTypeControllerBase<TContentType> : UmbracoAuthorizedJsonController
         where TContentType : class, IContentTypeComposition
     {
+        private readonly ICultureDictionaryFactory _cultureDictionaryFactory;
         private ICultureDictionary _cultureDictionary;
+
+        protected ContentTypeControllerBase(ICultureDictionaryFactory cultureDictionaryFactory, IGlobalSettings globalSettings, IUmbracoContextAccessor umbracoContextAccessor, ISqlContext sqlContext, ServiceContext services, AppCaches appCaches, IProfilingLogger logger, IRuntimeState runtimeState, UmbracoHelper umbracoHelper)
+            : base(globalSettings, umbracoContextAccessor, sqlContext, services, appCaches, logger, runtimeState, umbracoHelper)
+        {
+            _cultureDictionaryFactory = cultureDictionaryFactory;
+        }
+
+
 
         /// <summary>
         /// Returns the available composite content types for a given content type
@@ -89,6 +102,8 @@ namespace Umbraco.Web.Editors
 
             var availableCompositions = Services.ContentTypeService.GetAvailableCompositeContentTypes(source, allContentTypes, filterContentTypes, filterPropertyTypes);
 
+
+
             var currCompositions = source == null ? new IContentTypeComposition[] { } : source.ContentTypeComposition.ToArray();
             var compAliases = currCompositions.Select(x => x.Alias).ToArray();
             var ancestors = availableCompositions.Ancestors.Select(x => x.Alias);
@@ -97,9 +112,6 @@ namespace Umbraco.Web.Editors
                 .Select(x => new Tuple<EntityBasic, bool>(Mapper.Map<IContentTypeComposition, EntityBasic>(x.Composition), x.Allowed))
                 .Select(x =>
                 {
-                    //translate the name
-                    x.Item1.Name = TranslateItem(x.Item1.Name);
-
                     //we need to ensure that the item is enabled if it is already selected
                     // but do not allow it if it is any of the ancestors
                     if (compAliases.Contains(x.Item1.Alias) && ancestors.Contains(x.Item1.Alias) == false)
@@ -108,18 +120,113 @@ namespace Umbraco.Web.Editors
                         x = new Tuple<EntityBasic, bool>(x.Item1, true);
                     }
 
+                    //translate the name
+                    x.Item1.Name = TranslateItem(x.Item1.Name);
+
+                    var contentType = allContentTypes.FirstOrDefault(c => c.Key == x.Item1.Key);
+                    var containers = GetEntityContainers(contentType, type)?.ToArray();
+                    var containerPath = $"/{(containers != null && containers.Any() ? $"{string.Join("/", containers.Select(c => c.Name))}/" : null)}";
+                    x.Item1.AdditionalData["containerPath"] = containerPath;
+
                     return x;
                 })
                 .ToList();
         }
 
+        private IEnumerable<EntityContainer> GetEntityContainers(IContentTypeComposition contentType, UmbracoObjectTypes type)
+        {
+            if (contentType == null)
+            {
+                return null;
+            }
+
+            switch (type)
+            {
+                case UmbracoObjectTypes.DocumentType:
+                    return Services.ContentTypeService.GetContainers(contentType as IContentType);
+                case UmbracoObjectTypes.MediaType:
+                    return Services.MediaTypeService.GetContainers(contentType as IMediaType);
+                case UmbracoObjectTypes.MemberType:
+                    return new EntityContainer[0];
+                default:
+                    throw new ArgumentOutOfRangeException("The entity type was not a content type");
+            }
+        }
+
+        /// <summary>
+        /// Returns a list of content types where a particular composition content type is used
+        /// </summary>
+        /// <param name="type">Type of content Type, eg documentType or mediaType</param>
+        /// <param name="contentTypeId">Id of composition content type</param>
+        /// <returns></returns>
+        protected IEnumerable<EntityBasic> PerformGetWhereCompositionIsUsedInContentTypes(int contentTypeId, UmbracoObjectTypes type)
+        {
+            var id = 0;
+
+            if (contentTypeId > 0)
+            {
+                IContentTypeComposition source;
+
+                switch (type)
+                {
+                    case UmbracoObjectTypes.DocumentType:
+                        source = Services.ContentTypeService.Get(contentTypeId);
+                        break;
+
+                    case UmbracoObjectTypes.MediaType:
+                        source = Services.MediaTypeService.Get(contentTypeId);
+                        break;
+
+                    case UmbracoObjectTypes.MemberType:
+                        source = Services.MemberTypeService.Get(contentTypeId);
+                        break;
+
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(type));
+                }
+
+                if (source == null)
+                    throw new HttpResponseException(Request.CreateResponse(HttpStatusCode.NotFound));
+
+                id = source.Id;
+            }
+
+            IEnumerable<IContentTypeComposition> composedOf;
+
+            switch (type)
+            {
+                case UmbracoObjectTypes.DocumentType:
+                    composedOf = Services.ContentTypeService.GetComposedOf(id);
+                    break;
+
+                case UmbracoObjectTypes.MediaType:
+                    composedOf = Services.MediaTypeService.GetComposedOf(id);
+                    break;
+
+                case UmbracoObjectTypes.MemberType:
+                    composedOf = Services.MemberTypeService.GetComposedOf(id);
+                    break;
+
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(type));
+            }
+
+            EntityBasic TranslateName(EntityBasic e)
+            {
+                e.Name = TranslateItem(e.Name);
+                return e;
+            }
+
+            return composedOf
+                .Select(Mapper.Map<IContentTypeComposition, EntityBasic>)
+                .Select(TranslateName)
+                .ToList();
+        }
 
         protected string TranslateItem(string text)
         {
             if (text == null)
-            {
                 return null;
-            }
 
             if (text.StartsWith("#") == false)
                 return text;
@@ -147,12 +254,12 @@ namespace Umbraco.Web.Editors
             // works since that is based on aliases.
             var allAliases = Services.ContentTypeService.GetAllContentTypeAliases();
             var exists = allAliases.InvariantContains(contentTypeSave.Alias);
-            if ((exists) && (ctId == 0 || ct.Alias != contentTypeSave.Alias))
+            if (exists && (ctId == 0 || !ct.Alias.InvariantEquals(contentTypeSave.Alias)))
             {
-                ModelState.AddModelError("Alias", "A content type, media type or member type with this alias already exists");
+                ModelState.AddModelError("Alias", Services.TextService.Localize("editcontenttype/aliasAlreadyExists"));
             }
 
-            // execute the externam validators
+            // execute the external validators
             EditorValidator.Validate(ModelState, contentTypeSave);
 
             if (ModelState.IsValid == false)
@@ -216,7 +323,7 @@ namespace Umbraco.Web.Editors
                 catch (Exception ex)
                 {
                     var responseEx = CreateInvalidCompositionResponseException<TContentTypeDisplay, TContentTypeSave, TPropertyType>(ex, contentTypeSave, ct, ctId);
-                    if (responseEx != null) throw responseEx;
+                    throw responseEx ?? ex;
                 }
 
                 var exResult = CreateCompositionValidationExceptionIfInvalid<TContentTypeSave, TPropertyType, TContentTypeDisplay>(contentTypeSave, newCt);
@@ -262,7 +369,7 @@ namespace Umbraco.Web.Editors
             if (result.Success)
             {
                 var response = Request.CreateResponse(HttpStatusCode.OK);
-                response.Content = new StringContent(toMove.Path, Encoding.UTF8, "application/json");
+                response.Content = new StringContent(toMove.Path, Encoding.UTF8, "text/plain");
                 return response;
             }
 
@@ -306,7 +413,7 @@ namespace Umbraco.Web.Editors
             {
                 var copy = result.Result.Entity;
                 var response = Request.CreateResponse(HttpStatusCode.OK);
-                response.Content = new StringContent(copy.Path, Encoding.UTF8, "application/json");
+                response.Content = new StringContent(copy.Path, Encoding.UTF8, "text/plain");
                 return response;
             }
 
@@ -442,6 +549,6 @@ namespace Umbraco.Web.Editors
         }
 
         private ICultureDictionary CultureDictionary
-            => _cultureDictionary ?? (_cultureDictionary = Current.CultureDictionaryFactory.CreateDictionary());
+            => _cultureDictionary ?? (_cultureDictionary = _cultureDictionaryFactory.CreateDictionary());
     }
 }

@@ -4,9 +4,12 @@ using System.Net;
 using System.Net.Http;
 using System.Web.Http;
 using Umbraco.Core;
+using Umbraco.Core.Cache;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.Models.Editors;
+using Umbraco.Core.Persistence;
 using Umbraco.Core.PropertyEditors;
 using Umbraco.Core.Services;
 using Umbraco.Web.Composing;
@@ -18,11 +21,16 @@ using Umbraco.Web.WebApi.Filters;
 namespace Umbraco.Web.Editors
 {
     /// <summary>
-    /// An abstract base controller used for media/content (and probably members) to try to reduce code replication.
+    /// An abstract base controller used for media/content/members to try to reduce code replication.
     /// </summary>
-    [OutgoingDateTimeFormat]
+    [JsonDateTimeFormatAttribute]
     public abstract class ContentControllerBase : BackOfficeNotificationsController
     {
+        protected ContentControllerBase(IGlobalSettings globalSettings, IUmbracoContextAccessor umbracoContextAccessor, ISqlContext sqlContext, ServiceContext services, AppCaches appCaches, IProfilingLogger logger, IRuntimeState runtimeState, UmbracoHelper umbracoHelper)
+            : base(globalSettings, umbracoContextAccessor, sqlContext, services, appCaches, logger, runtimeState, umbracoHelper)
+        {
+        }
+
         protected HttpResponseMessage HandleContentNotFound(object id, bool throwException = true)
         {
             ModelState.AddModelError("id", $"content with id: {id} was not found");
@@ -39,25 +47,22 @@ namespace Umbraco.Web.Editors
         /// <summary>
         /// Maps the dto property values to the persisted model
         /// </summary>
-        /// <typeparam name="TPersisted"></typeparam>
-        /// <typeparam name="TSaved"></typeparam>
-        /// <param name="contentItem"></param>
-        /// <param name="getPropertyValue"></param>
-        /// <param name="savePropertyValue"></param>
-        protected void MapPropertyValues<TPersisted, TSaved>(
+        internal void MapPropertyValuesForPersistence<TPersisted, TSaved>(
             TSaved contentItem,
+            ContentPropertyCollectionDto dto,
             Func<TSaved, Property, object> getPropertyValue,
-            Action<TSaved, Property, object> savePropertyValue)
+            Action<TSaved, Property, object> savePropertyValue,
+            string culture)
             where TPersisted : IContentBase
-            where TSaved : ContentBaseItemSave<TPersisted>
+            where TSaved : IContentSave<TPersisted>
         {
             // map the property values
-            foreach (var propertyDto in contentItem.ContentDto.Properties)
+            foreach (var propertyDto in dto.Properties)
             {
                 // get the property editor
                 if (propertyDto.PropertyEditor == null)
                 {
-                    Logger.Warn<ContentController>("No property editor found for property " + propertyDto.Alias);
+                    Logger.Warn<ContentController>("No property editor found for property {PropertyAlias}", propertyDto.Alias);
                     continue;
                 }
 
@@ -69,8 +74,11 @@ namespace Umbraco.Web.Editors
                 // get the property
                 var property = contentItem.PersistedContent.Properties[propertyDto.Alias];
 
-                // prepare files, if any
-                var files = contentItem.UploadedFiles.Where(x => x.PropertyAlias == propertyDto.Alias).ToArray();
+                // prepare files, if any matching property and culture
+                var files = contentItem.UploadedFiles
+                    .Where(x => x.PropertyAlias == propertyDto.Alias && x.Culture == propertyDto.Culture)
+                    .ToArray();
+
                 foreach (var file in files)
                     file.FileName = file.FileName.ToSafeFileName();
 
@@ -91,19 +99,17 @@ namespace Umbraco.Web.Editors
                 {
                     var tagConfiguration = ConfigurationEditor.ConfigurationAs<TagConfiguration>(propertyDto.DataType.Configuration);
                     if (tagConfiguration.Delimiter == default) tagConfiguration.Delimiter = tagAttribute.Delimiter;
-                    //fixme how is this supposed to work with variants?
-                    property.SetTagsValue(value, tagConfiguration);
+                    var tagCulture = property.PropertyType.VariesByCulture() ? culture : null;
+                    property.SetTagsValue(value, tagConfiguration, tagCulture);
                 }
                 else
                     savePropertyValue(contentItem, property, value);
             }
         }
 
-        protected void HandleInvalidModelState<T, TPersisted>(ContentItemDisplayBase<T, TPersisted> display)
-            where TPersisted : IContentBase
-            where T : ContentPropertyBasic
+        protected virtual void HandleInvalidModelState(IErrorModel display)
         {
-            //lasty, if it is not valid, add the modelstate to the outgoing object and throw a 403
+            //lastly, if it is not valid, add the model state to the outgoing object and throw a 403
             if (!ModelState.IsValid)
             {
                 display.Errors = ModelState.ToErrorDictionary();
@@ -119,7 +125,7 @@ namespace Umbraco.Web.Editors
         /// <param name="getFromService"></param>
         /// <returns></returns>
         /// <remarks>
-        /// This is useful for when filters have alraedy looked up a persisted entity and we don't want to have
+        /// This is useful for when filters have already looked up a persisted entity and we don't want to have
         /// to look it up again.
         /// </remarks>
         protected TPersisted GetObjectFromRequest<TPersisted>(Func<TPersisted> getFromService)
@@ -145,16 +151,18 @@ namespace Umbraco.Web.Editors
             string header = "speechBubbles/operationCancelledHeader",
             string message = "speechBubbles/operationCancelledText",
             bool localizeHeader = true,
-            bool localizeMessage = true)
+            bool localizeMessage = true,
+            string[] headerParams = null,
+            string[] messageParams = null)
         {
             //if there's already a default event message, don't add our default one
-            //fixme inject
+            // TODO: inject
             var msgs = Current.EventMessages;
             if (msgs != null && msgs.GetAll().Any(x => x.IsDefaultEventMessage)) return;
 
             display.AddWarningNotification(
-                localizeHeader ? Services.TextService.Localize(header) : header,
-                localizeMessage ? Services.TextService.Localize(message): message);
+                localizeHeader ? Services.TextService.Localize(header, headerParams) : header,
+                localizeMessage ? Services.TextService.Localize(message, messageParams): message);
         }
     }
 }

@@ -3,19 +3,22 @@ using System.Collections.Generic;
 using System.Xml;
 using Moq;
 using NUnit.Framework;
-using LightInject;
+using Umbraco.Core;
 using Umbraco.Core.Cache;
 using Umbraco.Core.Composing;
+using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.Events;
+using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
 using Umbraco.Core.Services;
 using Umbraco.Core.Services.Implement;
 using Umbraco.Core.Sync;
+using Umbraco.Tests.LegacyXmlPublishedCache;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.Testing;
+using Umbraco.Web;
 using Umbraco.Web.Cache;
 using Umbraco.Web.PublishedCache;
-using Umbraco.Web.PublishedCache.XmlPublishedCache;
 
 namespace Umbraco.Tests.Scoping
 {
@@ -23,7 +26,7 @@ namespace Umbraco.Tests.Scoping
     [UmbracoTest(Database = UmbracoTestOptions.Database.NewSchemaPerTest, PublishedRepositoryEvents = true)]
     public class ScopedXmlTests : TestWithDatabaseBase
     {
-        private CacheRefresherComponent _cacheRefresher;
+        private DistributedCacheBinder _distributedCacheBinder;
 
         protected override void Compose()
         {
@@ -31,19 +34,25 @@ namespace Umbraco.Tests.Scoping
 
             // the cache refresher component needs to trigger to refresh caches
             // but then, it requires a lot of plumbing ;(
-            // fixme - and we cannot inject a DistributedCache yet
+            // FIXME: and we cannot inject a DistributedCache yet
             // so doing all this mess
-            Container.RegisterSingleton<IServerMessenger, LocalServerMessenger>();
-            Container.RegisterSingleton(f => Mock.Of<IServerRegistrar>());
-            Container.RegisterCollectionBuilder<CacheRefresherCollectionBuilder>()
-                .Add(f => f.TryGetInstance<TypeLoader>().GetCacheRefreshers());
+            Composition.RegisterUnique<IServerMessenger, LocalServerMessenger>();
+            Composition.RegisterUnique(f => Mock.Of<IServerRegistrar>());
+            Composition.WithCollectionBuilder<CacheRefresherCollectionBuilder>()
+                .Add(() => Composition.TypeLoader.GetCacheRefreshers());
+        }
+
+        protected override void ComposeSettings()
+        {
+            Composition.Configs.Add(SettingsForTests.GenerateMockUmbracoSettings);
+            Composition.Configs.Add(SettingsForTests.GenerateMockGlobalSettings);
         }
 
         [TearDown]
         public void Teardown()
         {
-            _cacheRefresher?.Unbind();
-            _cacheRefresher = null;
+            _distributedCacheBinder?.UnbindEvents();
+            _distributedCacheBinder = null;
 
             _onPublishedAssertAction = null;
             ContentService.Published -= OnPublishedAssert;
@@ -64,7 +73,7 @@ namespace Umbraco.Tests.Scoping
         //  xmlStore.Xml - the actual main xml document
         //  publishedContentCache.GetXml() - the captured xml
 
-        private static XmlStore XmlStore => (Current.Container.GetInstance<IPublishedSnapshotService>() as PublishedSnapshotService).XmlStore;
+        private static XmlStore XmlStore => (Current.Factory.GetInstance<IPublishedSnapshotService>() as PublishedSnapshotService).XmlStore;
         private static XmlDocument XmlMaster => XmlStore.Xml;
         private static XmlDocument XmlInContext => ((PublishedContentCache) Umbraco.Web.Composing.Current.UmbracoContext.ContentCache).GetXml(false);
 
@@ -78,20 +87,14 @@ namespace Umbraco.Tests.Scoping
             Assert.AreSame(umbracoContext, Umbraco.Web.Composing.Current.UmbracoContext);
             Assert.AreSame(XmlStore, ((PublishedContentCache) umbracoContext.ContentCache).XmlStore);
 
-            // settings
-            var settings = SettingsForTests.GenerateMockUmbracoSettings();
-            var contentMock = Mock.Get(settings.Content);
-            contentMock.Setup(x => x.XmlCacheEnabled).Returns(false);
-            SettingsForTests.ConfigureSettings(settings);
-
             // create document type, document
             var contentType = new ContentType(-1) { Alias = "CustomDocument", Name = "Custom Document" };
             Current.Services.ContentTypeService.Save(contentType);
             var item = new Content("name", -1, contentType);
 
             // wire cache refresher
-            _cacheRefresher = new CacheRefresherComponent(true);
-            _cacheRefresher.Initialize(new DistributedCache());
+            _distributedCacheBinder = new DistributedCacheBinder(new DistributedCache(), Mock.Of<IUmbracoContextFactory>(), Mock.Of<ILogger>());
+            _distributedCacheBinder.BindEvents(true);
 
             // check xml in context = "before"
             var xml = XmlInContext;
@@ -123,10 +126,8 @@ namespace Umbraco.Tests.Scoping
 
             using (var scope = ScopeProvider.CreateScope())
             {
-                item.TryPublishValues();
                 Current.Services.ContentService.SaveAndPublish(item); // should create an xml clone
                 item.Name = "changed";
-                item.TryPublishValues();
                 Current.Services.ContentService.SaveAndPublish(item); // should re-use the xml clone
 
                 // this should never change
@@ -200,19 +201,13 @@ namespace Umbraco.Tests.Scoping
             Assert.AreSame(umbracoContext, Umbraco.Web.Composing.Current.UmbracoContext);
             Assert.AreSame(XmlStore, ((PublishedContentCache)umbracoContext.ContentCache).XmlStore);
 
-            // settings
-            var settings = SettingsForTests.GenerateMockUmbracoSettings();
-            var contentMock = Mock.Get(settings.Content);
-            contentMock.Setup(x => x.XmlCacheEnabled).Returns(false);
-            SettingsForTests.ConfigureSettings(settings);
-
             // create document type
             var contentType = new ContentType(-1) { Alias = "CustomDocument", Name = "Custom Document" };
             Current.Services.ContentTypeService.Save(contentType);
 
             // wire cache refresher
-            _cacheRefresher = new CacheRefresherComponent(true);
-            _cacheRefresher.Initialize(new DistributedCache());
+            _distributedCacheBinder = new DistributedCacheBinder(new DistributedCache(), Mock.Of<IUmbracoContextFactory>(), Mock.Of<ILogger>());
+            _distributedCacheBinder.BindEvents(true);
 
             // check xml in context = "before"
             var xml = XmlInContext;
@@ -230,13 +225,11 @@ namespace Umbraco.Tests.Scoping
 
             using (var scope = ScopeProvider.CreateScope())
             {
-                item.TryPublishValues();
                 Current.Services.ContentService.SaveAndPublish(item);
 
                 for (var i = 0; i < count; i++)
                 {
                     var temp = new Content("content_" + i, -1, contentType);
-                    temp.TryPublishValues();
                     Current.Services.ContentService.SaveAndPublish(temp);
                     ids[i] = temp.Id;
                 }

@@ -3,13 +3,13 @@
 * @name umbraco.directives.directive:umbTree
 * @restrict E
 **/
-function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificationsService, $timeout, userService) {
+function umbTreeDirective($q, $rootScope, treeService, notificationsService, userService) {
 
     return {
         restrict: 'E',
         replace: true,
         terminal: false,
-
+        templateUrl: 'views/components/tree/umb-tree.html',
         scope: {
             section: '@',
             treealias: '@',
@@ -17,40 +17,15 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
             hideheader: '@',
             cachekey: '@',
             isdialog: '@',
-            onlyinitialized: '@',
+            onlyInitialized: '@',
             //Custom query string arguments to pass in to the tree as a string, example: "startnodeid=123&something=value"
             customtreeparams: '@',
             enablecheckboxes: '@',
             enablelistviewsearch: '@',
             enablelistviewexpand: '@',
-
             api: '=?',
             onInit: '&?'
         },
-
-        compile: function (element, attrs) {
-            //config
-            //var showheader = (attrs.showheader !== 'false');
-            var hideoptions = (attrs.hideoptions === 'true') ? "hide-options" : "";
-            var template = '<ul class="umb-tree ' + hideoptions + '"><li class="root">';
-            template += '<div data-element="tree-root" ng-class="getNodeCssClass(tree.root)" ng-hide="hideheader" on-right-click="altSelect(tree.root, $event)">' +
-                '<h5>' +
-                '<a href="#/{{section}}" ng-click="select(tree.root, $event)"  class="root-link"><i ng-if="enablecheckboxes == \'true\'" ng-class="selectEnabledNodeClass(tree.root)"></i> {{tree.name}}</a></h5>' +
-                '<a data-element="tree-item-options" class="umb-options" ng-hide="tree.root.isContainer || !tree.root.menuUrl" ng-click="options(tree.root, $event)" ng-swipe-right="options(tree.root, $event)"><i></i><i></i><i></i></a>' +
-                '</div>';
-            template += '<ul>' +
-                '<umb-tree-item ng-repeat="child in tree.root.children" enablelistviewexpand="{{enablelistviewexpand}}" node="child" current-node="currentNode" tree="this" section="{{section}}" ng-animate="animation()"></umb-tree-item>' +
-                '</ul>' +
-                '</li>' +
-                '</ul>';
-
-            element.replaceWith(template);
-
-            return function (scope, elem, attr, controller) {
-
-            };
-        },
-
         controller: function ($scope, $element) {
 
             var vm = this;
@@ -89,6 +64,7 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
             vm.load = load;
             vm.reloadNode = reloadNode;
             vm.syncTree = syncTree;
+            vm.loadChildren = loadChildren;
 
             //wire up the exposed api object for hosting controllers
             if ($scope.api) {
@@ -104,11 +80,9 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
             // entire tree again since we already still have it in memory. Of course if the section is different we will
             // reload it. This saves a lot on processing if someone is navigating in and out of the same section many times
             // since it saves on data retreival and DOM processing.
+            // TODO: This isn't used!?
             var lastSection = "";
             
-            //flag to enable/disable delete animations
-            var deleteAnimations = false;
-
             /** Helper function to emit tree events */
             function emitEvent(eventName, args) {
                 if (registeredCallbacks[eventName] && angular.isArray(registeredCallbacks[eventName])) {
@@ -118,15 +92,7 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
                 }
             }
 
-            /** This will deleteAnimations to true after the current digest */
-            function enableDeleteAnimations() {
-                //do timeout so that it re-enables them after this digest
-                $timeout(function () {
-                    //enable delete animations
-                    deleteAnimations = true;
-                }, 0, false);
-            }
-
+            // TODO: This isn't used!?
             function clearCache(section) {
                 treeService.clearCache({ section: section });
             }
@@ -191,52 +157,46 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
 
                 args.path = _.filter(args.path, function (item) { return (item !== "init" && item !== "-1"); });
 
-                //Once those are filtered we need to check if the current user has a special start node id,
-                // if they do, then we're going to trim the start of the array for anything found from that start node
-                // and previous so that the tree syncs properly. The tree syncs from the top down and if there are parts
-                // of the tree's path in there that don't actually exist in the dom/model then syncing will not work.
+                var treeNode = loadActiveTree(args.tree);
 
-                return userService.getCurrentUser().then(function (userData) {
+                return treeService.syncTree({
+                    node: treeNode,
+                    path: args.path,
+                    forceReload: args.forceReload
+                }).then(function (data) {
 
-                    var startNodes = [];
-                    for (var i = 0; i < userData.startContentIds; i++) {
-                        startNodes.push(userData.startContentIds[i]);
-                    }
-                    for (var j = 0; j < userData.startMediaIds; j++) {
-                        startNodes.push(userData.startMediaIds[j]);
+                    if (args.activate === undefined || args.activate === true) {
+                        $scope.currentNode = data;
                     }
 
-                    _.each(startNodes, function (i) {
-                        var found = _.find(args.path, function (p) {
-                            return String(p) === String(i);
-                        });
-                        if (found) {
-                            args.path = args.path.splice(_.indexOf(args.path, found));
-                        }
-                    });
+                    emitEvent("treeSynced", { node: data, activate: args.activate });
 
-                    deleteAnimations = false;
-
-                    var treeNode = loadActiveTree(args.tree);
-
-                    return treeService.syncTree({
-                        node: treeNode,
-                        path: args.path,
-                        forceReload: args.forceReload
-                    }).then(function (data) {
-
-                        if (args.activate === undefined || args.activate === true) {
-                            $scope.currentNode = data;
-                        }
-
-                        emitEvent("treeSynced", { node: data, activate: args.activate });
-
-                        enableDeleteAnimations();
-
-                        return $q.when({ node: data, activate: args.activate });
-                    });
+                    return $q.when({ node: data, activate: args.activate });
                 });
                 
+            }
+
+            /** This will check the section tree loaded and return all actual root nodes based on a tree type (non group nodes, non section groups) */
+            function getTreeRootNodes() {
+                var roots;
+                if ($scope.tree.root.containsGroups) {
+                    //all children in this case are group nodes, so we want the children of these children
+                    roots = _.reduce(
+                        //get the array of array of children
+                        _.map($scope.tree.root.children, function (n) {
+                            return n.children
+                        }), function (m, p) {
+                            //combine the arrays to one array
+                            return m.concat(p)
+                        });
+                }
+                else {
+                    roots = [$scope.tree.root].concat($scope.tree.root.children);
+                }
+
+                return _.filter(roots, function (node) {
+                    return node && node.metaData && node.metaData.treeAlias;
+                });
             }
 
             //given a tree alias, this will search the current section tree for the specified tree alias and set the current active tree to it's root node
@@ -254,12 +214,9 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
                     return $scope.activeTree;
                 }
 
-                var childrenAndSelf = [$scope.tree.root].concat($scope.tree.root.children);
-                $scope.activeTree = _.find(childrenAndSelf, function (node) {
-                    if (node && node.metaData && node.metaData.treeAlias) {
-                        return node.metaData.treeAlias.toUpperCase() === treeAlias.toUpperCase();
-                    }
-                    return false;
+                var treeRoots = getTreeRootNodes();
+                $scope.activeTree = _.find(treeRoots, function (node) {
+                    return node.metaData.treeAlias.toUpperCase() === treeAlias.toUpperCase();
                 });
 
                 if (!$scope.activeTree) {
@@ -276,12 +233,9 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
             function loadTree() {
                 if (!$scope.loading && $scope.section) {
                     $scope.loading = true;
-
-                    //anytime we want to load the tree we need to disable the delete animations
-                    deleteAnimations = false;
-
+                    
                     //default args
-                    var args = { section: $scope.section, tree: $scope.treealias, cacheKey: $scope.cachekey, isDialog: $scope.isdialog ? $scope.isdialog : false, onlyinitialized: $scope.onlyinitialized };
+                    var args = { section: $scope.section, tree: $scope.treealias, cacheKey: $scope.cachekey, isDialog: $scope.isdialog ? $scope.isdialog : false };
 
                     //add the extra query string params if specified
                     if ($scope.customtreeparams) {
@@ -293,8 +247,6 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
 
                             //set the data once we have it
                             $scope.tree = data;
-
-                            enableDeleteAnimations();
 
                             $scope.loading = false;
 
@@ -315,15 +267,42 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
                 }
             }
 
+            function loadChildren(node, forceReload) {
+                //emit treeNodeExpanding event, if a callback object is set on the tree
+                emitEvent("treeNodeExpanding", { tree: $scope.tree, node: node });
+
+                //standardising
+                if (!node.children) {
+                    node.children = [];
+                }
+
+                if (forceReload || (node.hasChildren && node.children.length === 0)) {
+                    //get the children from the tree service
+                    return treeService.loadNodeChildren({ node: node, section: $scope.section, isDialog: $scope.isdialog })
+                        .then(function(data) {
+                            //emit expanded event
+                            emitEvent("treeNodeExpanded", { tree: $scope.tree, node: node, children: data });
+
+                            return $q.when(data);
+                        });
+                }
+                else {
+                    emitEvent("treeNodeExpanded", { tree: $scope.tree, node: node, children: node.children });
+                    node.expanded = true;
+
+                    return $q.when(node.children);
+                }
+            }
+
             /** Returns the css classses assigned to the node (div element) */
             $scope.getNodeCssClass = function (node) {
                 if (!node) {
                     return '';
                 }
 
-                //TODO: This is called constantly because as a method in a template it's re-evaluated pretty much all the time
+                // TODO: This is called constantly because as a method in a template it's re-evaluated pretty much all the time
                 // it would be better if we could cache the processing. The problem is that some of these things are dynamic.
-
+                
                 var css = [];
                 if (node.cssClasses) {
                     _.each(node.cssClasses, function (c) {
@@ -342,50 +321,9 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
                     '';
             };
 
-            /** method to set the current animation for the node.
-             *  This changes dynamically based on if we are changing sections or just loading normal tree data.
-             *  When changing sections we don't want all of the tree-ndoes to do their 'leave' animations.
-             */
-            $scope.animation = function () {
-                if (deleteAnimations && $scope.tree && $scope.tree.root && $scope.tree.root.expanded) {
-                    return { leave: 'tree-node-delete-leave' };
-                }
-                else {
-                    return {};
-                }
-            };
-
             /* helper to force reloading children of a tree node */
-            $scope.loadChildren = function (node, forceReload) {
-
-                //emit treeNodeExpanding event, if a callback object is set on the tree
-                emitEvent("treeNodeExpanding", { tree: $scope.tree, node: node });
-
-                //standardising
-                if (!node.children) {
-                    node.children = [];
-                }
-
-                if (forceReload || (node.hasChildren && node.children.length === 0)) {
-                    //get the children from the tree service
-                    return treeService.loadNodeChildren({ node: node, section: $scope.section })
-                        .then(function (data) {
-                            //emit expanded event
-                            emitEvent("treeNodeExpanded", { tree: $scope.tree, node: node, children: data });
-
-                            enableDeleteAnimations();
-
-                            return $q.when(data);
-                        });
-                }
-                else {
-                    emitEvent("treeNodeExpanded", { tree: $scope.tree, node: node, children: node.children });
-                    node.expanded = true;
-
-                    enableDeleteAnimations();
-
-                    return $q.when(node.children);
-                }
+            $scope.loadChildren = function(node, forceReload) {
+                return loadChildren(node, forceReload);
             };
 
             /**
@@ -431,14 +369,11 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
                     if (args.section) {
                         $scope.section = args.section;
                     }
-                    if (args.customTreeParams) {
-                        $scope.customtreeparams = args.customTreeParams;
-                    }
-                    if (args.treealias) {
-                        $scope.treealias = args.treealias;
-                    }
                     if (args.cacheKey) {
                         $scope.cachekey = args.cacheKey;
+                    }
+                    if (args.customTreeParams) {
+                        $scope.customtreeparams = args.customTreeParams;
                     }
                 }
 
@@ -446,7 +381,7 @@ function umbTreeDirective($compile, $log, $q, $rootScope, treeService, notificat
                 loadTree().then(function () {
                     //because angular doesn't return a promise for the resolve method, we need to resort to some hackery, else
                     //like normal JS promises we could do resolve(...).then() 
-                    if (args.onLoaded && angular.isFunction(args.onLoaded)) {
+                    if (args && args.onLoaded && angular.isFunction(args.onLoaded)) {
                         args.onLoaded();
                     }
                 });

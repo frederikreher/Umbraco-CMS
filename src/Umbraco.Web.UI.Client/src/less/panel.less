@@ -16,7 +16,7 @@
 
 .umb-panel-header {
     background: @gray-10;
-    border-bottom: 1px solid @gray-8;
+    border-bottom: 1px solid @purple-l3;
     position: absolute;
     height: 99px;
     top: 0px;
@@ -43,15 +43,27 @@
 }
 
 .umb-mediapicker-upload {
-    display: -ms-flexbox;
-    display: -webkit-box;
-    display: -webkit-flex;
     display: flex;
 
     .form-search {
-        -webkit-flex: 1;
-        -ms-flex: 1;
         flex: 1;
+
+        &__toggle {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+
+            label {
+                display: flex;
+                align-items: center;
+                margin-left: 5px;
+                margin-bottom: 0;
+
+                input[type="checkbox"] {
+                    margin: 0 5px 0 0;
+                }
+            }
+        }
     }
 
     .upload-button {
@@ -80,18 +92,6 @@
     background-color: @white;
 }
 
-.umb-headline-editor-wrapper {
-    position: relative;
-}
-
-.umb-headline-editor-wrapper .help-inline {
-    right: 0px;
-    top: 25px;
-    position: absolute;
-    font-size: 10px;
-    color: @red;
-}
-
 .umb-panel-header p {
     margin: 0px 20px;
 }
@@ -99,36 +99,6 @@
 .umb-btn-toolbar .dimmed, .umb-dimmed {
     opacity: 0.6;
 }
-
-.umb-headline-editor-wrapper input {
-    background: none;
-    border: none;
-    margin: -6px 0 0 0;
-    padding: 0 0 2px 0;
-    border-radius: 0;
-    line-height: normal;
-    border: 1px solid transparent;
-    color: @black;
-    letter-spacing: -0.01em;
-}
-
-.umb-headline-editor-wrapper input.ng-invalid {
-    color: @red;
-}
-
-.umb-headline-editor-wrapper input.ng-invalid::-moz-placeholder,
-.umb-headline-editor-wrapper input.ng-invalid:-ms-input-placeholder,
-.umb-headline-editor-wrapper input.ng-invalid::-webkit-input-placeholder {
-    color: @red;
-    line-height: 22px;
-}
-
-/*
-.umb-panel-header i {
-    font-size: 13px;
-    vertical-align: middle;
-}
-*/
 
 .umb-panel-header-meta {
     height: 50px;
@@ -174,9 +144,7 @@
 /* tab buttons */
 .umb-bottom-bar {
     background: @white;
-    -webkit-box-shadow: 0px -18px 20px rgba(255, 255, 255, 1);
-    -moz-box-shadow: 0px -18px 20px rgba(255, 255, 255, 1);
-    box-shadow: 0px -18px 20px rgba(255, 255, 255, 1);
+    box-shadow: 0 -18px 20px rgba(255, 255, 255, 1);
     border-top: 1px solid @gray-10;
     padding: 10px 0 10px 0;
     position: fixed;
@@ -378,10 +346,16 @@
   justify-content: center;
   align-items: center;
   background: @white;
-  border: 1px solid @gray-8;
+  border: 1px solid @ui-action-discreet-border;
   animation: fadeIn 0.5s;
   border-radius: 3px;
   width: 50px;
+  &:hover {
+      .icon {
+          opacity: 0.8;
+      }
+      border-color: @ui-action-discreet-border-hover;
+  }
 }
 
 .umb-panel-header-title-wrapper {
@@ -405,10 +379,6 @@
    margin-bottom: 0;
 }
 
-.umb-panel-header-alias .umb-validation-label:after {
-   visibility: hidden;
-}
-
 .umb-panel-header-alias .umb-locked-field:after {
    display: none;
 }
@@ -418,8 +388,9 @@
 }
 
 .umb-panel-header-icon .icon {
-  font-size: 30px;
-  color: @gray-7;
+    font-size: 30px;
+    color: @gray-7;
+    transition: opacity 120ms;
 }
 
 .umb-panel-header-icon-text {

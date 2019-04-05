@@ -1,19 +1,19 @@
-﻿using LightInject;
+﻿using System;
+using System.Collections.Concurrent;
 using Umbraco.Core.Composing;
 
 namespace Umbraco.Core.Persistence.Mappers
 {
-    public class MapperCollectionBuilder : LazyCollectionBuilderBase<MapperCollectionBuilder, MapperCollection, BaseMapper>
+    public class MapperCollectionBuilder : SetCollectionBuilderBase<MapperCollectionBuilder, MapperCollection, BaseMapper>
     {
-        public MapperCollectionBuilder(IServiceContainer container)
-            : base(container)
-        { }
+        private readonly ConcurrentDictionary<Type, ConcurrentDictionary<string, string>> _maps
+            = new ConcurrentDictionary<Type, ConcurrentDictionary<string, string>>();
 
         protected override MapperCollectionBuilder This => this;
 
-        protected override void Initialize()
+        public override void RegisterWith(IRegister register)
         {
-            base.Initialize();
+            base.RegisterWith(register);
 
             // default initializer registers
             // - service MapperCollectionBuilder, returns MapperCollectionBuilder
@@ -21,15 +21,21 @@ namespace Umbraco.Core.Persistence.Mappers
             // we want to register extra
             // - service IMapperCollection, returns MappersCollectionBuilder's collection
 
-            Container.Register<IMapperCollection>(factory => factory.GetInstance<MapperCollection>());
+            register.Register<IMapperCollection>(factory => factory.GetInstance<MapperCollection>());
         }
 
-        public MapperCollectionBuilder AddCore()
+        protected override BaseMapper CreateItem(IFactory factory, Type itemType)
+        {
+            return (BaseMapper) factory.CreateInstance(itemType, _maps);
+        }
+
+        public MapperCollectionBuilder AddCoreMappers()
         {
             Add<AccessMapper>();
             Add<AuditItemMapper>();
             Add<ContentMapper>();
             Add<ContentTypeMapper>();
+            Add<SimpleContentTypeMapper>();
             Add<DataTypeMapper>();
             Add<DictionaryMapper>();
             Add<DictionaryTranslationMapper>();
@@ -48,7 +54,6 @@ namespace Umbraco.Core.Persistence.Mappers
             Add<RelationTypeMapper>();
             Add<ServerRegistrationMapper>();
             Add<TagMapper>();
-            Add<TaskTypeMapper>();
             Add<TemplateMapper>();
             Add<UmbracoEntityMapper>();
             Add<UserMapper>();

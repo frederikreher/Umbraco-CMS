@@ -74,7 +74,7 @@ namespace Umbraco.Web.Routing
             if (errorPage.HasContentKey)
             {
                 //need to get the Id for the GUID
-                //TODO: When we start storing GUIDs into the IPublishedContent, then we won't have to look this up
+                // TODO: When we start storing GUIDs into the IPublishedContent, then we won't have to look this up
                 // but until then we need to look it up in the db. For now we've implemented a cached service for
                 // converting Int -> Guid and vice versa.
                 var found = entityService.GetId(errorPage.ContentKey, UmbracoObjectTypes.Document);
@@ -107,7 +107,7 @@ namespace Umbraco.Web.Routing
                 }
                 catch (Exception ex)
                 {
-                    Current.Logger.Error<NotFoundHandlerHelper>("Could not parse xpath expression: " + errorPage.ContentXPath, ex);
+                    Current.Logger.Error<NotFoundHandlerHelper>(ex, "Could not parse xpath expression: {ContentXPath}", errorPage.ContentXPath);
                     return null;
                 }
             }

@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Specialized;
 using System.Diagnostics;
-using System.Reflection;
 using System.Runtime.Serialization;
 using Umbraco.Core.Models.Entities;
 
@@ -15,8 +14,6 @@ namespace Umbraco.Core.Models
     [DebuggerDisplay("Id: {Id}, Name: {Name}")]
     public class PropertyGroup : EntityBase, IEquatable<PropertyGroup>
     {
-        private static readonly Lazy<PropertySelectors> Ps = new Lazy<PropertySelectors>();
-
         private string _name;
         private int _sortOrder;
         private PropertyTypeCollection _propertyTypes;
@@ -30,17 +27,9 @@ namespace Umbraco.Core.Models
             PropertyTypes = propertyTypeCollection;
         }
 
-        // ReSharper disable once ClassNeverInstantiated.Local
-        private class PropertySelectors
-        {
-            public readonly PropertyInfo NameSelector = ExpressionHelper.GetPropertyInfo<PropertyGroup, string>(x => x.Name);
-            public readonly PropertyInfo SortOrderSelector = ExpressionHelper.GetPropertyInfo<PropertyGroup, int>(x => x.SortOrder);
-            public readonly PropertyInfo PropertyTypeCollectionSelector = ExpressionHelper.GetPropertyInfo<PropertyGroup, PropertyTypeCollection>(x => x.PropertyTypes);
-        }
-
         private void PropertyTypesChanged(object sender, NotifyCollectionChangedEventArgs e)
         {
-            OnPropertyChanged(Ps.Value.PropertyTypeCollectionSelector);
+            OnPropertyChanged(nameof(PropertyTypes));
         }
 
         /// <summary>
@@ -50,7 +39,7 @@ namespace Umbraco.Core.Models
         public string Name
         {
             get => _name;
-            set => SetPropertyValueAndDetectChanges(value, ref _name, Ps.Value.NameSelector);
+            set => SetPropertyValueAndDetectChanges(value, ref _name, nameof(Name));
         }
 
         /// <summary>
@@ -60,18 +49,24 @@ namespace Umbraco.Core.Models
         public int SortOrder
         {
             get => _sortOrder;
-            set => SetPropertyValueAndDetectChanges(value, ref _sortOrder, Ps.Value.SortOrderSelector);
+            set => SetPropertyValueAndDetectChanges(value, ref _sortOrder, nameof(SortOrder));
         }
 
         /// <summary>
         /// Gets or sets a collection of PropertyTypes for this PropertyGroup
         /// </summary>
+        /// <remarks>
+        /// Marked DoNotClone because we will manually deal with cloning and the event handlers
+        /// </remarks>
         [DataMember]
+        [DoNotClone]
         public PropertyTypeCollection PropertyTypes
         {
             get => _propertyTypes;
             set
             {
+                if (_propertyTypes != null)
+                    _propertyTypes.CollectionChanged -= PropertyTypesChanged;
                 _propertyTypes = value;
 
                 // since we're adding this collection to this group,
@@ -79,6 +74,7 @@ namespace Umbraco.Core.Models
                 foreach (var propertyType in _propertyTypes)
                     propertyType.PropertyGroupId = new Lazy<int>(() => Id);
 
+                OnPropertyChanged(nameof(PropertyTypes));
                 _propertyTypes.CollectionChanged += PropertyTypesChanged;
             }
         }
@@ -94,6 +90,20 @@ namespace Umbraco.Core.Models
             var baseHash = base.GetHashCode();
             var nameHash = Name.ToLowerInvariant().GetHashCode();
             return baseHash ^ nameHash;
+        }
+
+        protected override void PerformDeepClone(object clone)
+        {
+            base.PerformDeepClone(clone);
+
+            var clonedEntity = (PropertyGroup)clone;
+
+            if (clonedEntity._propertyTypes != null)
+            {
+                clonedEntity._propertyTypes.CollectionChanged -= PropertyTypesChanged;             //clear this event handler if any
+                clonedEntity._propertyTypes = (PropertyTypeCollection) _propertyTypes.DeepClone(); //manually deep clone
+                clonedEntity._propertyTypes.CollectionChanged += clonedEntity.PropertyTypesChanged;       //re-assign correct event handler
+            }
         }
     }
 }

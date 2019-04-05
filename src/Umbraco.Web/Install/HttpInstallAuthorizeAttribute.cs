@@ -9,11 +9,11 @@ namespace Umbraco.Web.Install
 {
     /// <summary>
     /// Ensures authorization occurs for the installer if it has already completed.
-    /// If install has not yet occured then the authorization is successful.
+    /// If install has not yet occurred then the authorization is successful.
     /// </summary>
     internal class HttpInstallAuthorizeAttribute : AuthorizeAttribute
     {
-        // todo - cannot inject UmbracoContext nor RuntimeState in the attribute, read:
+        // TODO: cannot inject UmbracoContext nor RuntimeState in the attribute, read:
         // http://stackoverflow.com/questions/30096903/dependency-injection-inside-a-filterattribute-in-asp-net-mvc-6
         //  https://www.cuttingedge.it/blogs/steven/pivot/entry.php?id=98 - don't do it!
         //  http://blog.ploeh.dk/2014/06/13/passive-attributes/ - passive attributes
@@ -22,23 +22,23 @@ namespace Umbraco.Web.Install
         // so... either access them via Current service locator, OR use an action filter alongside this attribute (see articles).
         // the second solution is nicer BUT for the time being, let's use the first (simpler).
 
-        private readonly UmbracoContext _umbracoContext;
+        private readonly IUmbracoContextAccessor _umbracoContextAccessor;
         private readonly IRuntimeState _runtimeState;
 
         private IRuntimeState RuntimeState => _runtimeState ?? Current.RuntimeState;
 
-        private UmbracoContext UmbracoContext => _umbracoContext ?? Current.UmbracoContext;
+        private UmbracoContext UmbracoContext => _umbracoContextAccessor?.UmbracoContext ?? Current.UmbracoContext;
 
         /// <summary>
         /// THIS SHOULD BE ONLY USED FOR UNIT TESTS
         /// </summary>
-        /// <param name="umbracoContext"></param>
+        /// <param name="umbracoContextAccessor"></param>
         /// <param name="runtimeState"></param>
-        public HttpInstallAuthorizeAttribute(UmbracoContext umbracoContext, IRuntimeState runtimeState)
+        public HttpInstallAuthorizeAttribute(IUmbracoContextAccessor umbracoContextAccessor, IRuntimeState runtimeState)
         {
-            if (umbracoContext == null) throw new ArgumentNullException(nameof(umbracoContext));
+            if (umbracoContextAccessor == null) throw new ArgumentNullException(nameof(umbracoContextAccessor));
             if (runtimeState == null) throw new ArgumentNullException(nameof(runtimeState));
-            _umbracoContext = umbracoContext;
+            _umbracoContextAccessor = umbracoContextAccessor;
             _runtimeState = runtimeState;
         }
 
@@ -57,7 +57,7 @@ namespace Umbraco.Web.Install
             }
             catch (Exception ex)
             {
-                Current.Logger.Error<HttpInstallAuthorizeAttribute>("An error occurred determining authorization", ex);
+                Current.Logger.Error<HttpInstallAuthorizeAttribute>(ex, "An error occurred determining authorization");
                 return false;
             }
         }

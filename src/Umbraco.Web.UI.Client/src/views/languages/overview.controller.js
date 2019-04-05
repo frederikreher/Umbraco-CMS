@@ -1,7 +1,7 @@
 (function () {
     "use strict";
 
-    function LanguagesOverviewController($location, $timeout, navigationService, notificationsService, localizationService, languageResource, eventsService) {
+    function LanguagesOverviewController($location, $timeout, navigationService, localizationService, languageResource, eventsService, overlayService) {
 
         var vm = this;
 
@@ -13,6 +13,16 @@
         vm.editLanguage = editLanguage;
         vm.deleteLanguage = deleteLanguage;
 
+        vm.getLanguageById = function(id) {
+            for (var i = 0; i < vm.languages.length; i++) {
+                if (vm.languages[i].id === id) {
+                    return vm.languages[i];
+                }
+            }
+
+            return null;
+        };
+
         function init() {
 
             vm.loading = true;
@@ -22,17 +32,19 @@
                 "treeHeaders_languages",
                 "general_mandatory",
                 "general_default",
+                "languages_fallsbackToLabel"
             ];
 
             localizationService.localizeMany(labelKeys).then(function (values) {
                 vm.labels.languages = values[0];
                 vm.labels.mandatory = values[1];
                 vm.labels.general = values[2];
+                vm.labels.fallsbackTo = values[3];
                 // set page name
                 vm.page.name = vm.labels.languages;
             });
 
-            languageResource.getAll().then(function(languages) {
+            languageResource.getAll().then(function (languages) {
                 vm.languages = languages;
                 vm.loading = false;
             });
@@ -53,34 +65,45 @@
         }
 
         function deleteLanguage(language, event) {
-            var confirmed = confirm("Are you sure you want to delete " + language.name + "?");
-            if(confirmed) {
-                language.deleteButtonState = "busy";
 
-                languageResource.deleteById(language.id).then(function () {
+            const dialog = {
+                view: "views/languages/overlays/delete.html",
+                language: language,
+                submitButtonLabelKey: "contentTypeEditor_yesDelete",
+                submit: function (model) {
+                    performDelete(model.language);
+                    overlayService.close();
+                },
+                close: function () {
+                    overlayService.close();
+                }
+            };
 
-                    // emit event
-                    var args = { language: language };
-                    eventsService.emit("editors.languages.languageDeleted", args);
+            localizationService.localize("general_delete").then(value => {
+                dialog.title = value;
+                overlayService.open(dialog);
+            });
 
-                    // remove from list
-                    var index = vm.languages.indexOf(language);
-                    vm.languages.splice(index, 1);
-
-                }, function (err) {
-                    language.deleteButtonState = "error";
-
-                    //show any notifications
-                    if (angular.isArray(err.data.notifications)) {
-                        for (var i = 0; i < err.data.notifications.length; i++) {
-                            notificationsService.showNotification(err.data.notifications[i]);
-                        }
-                    }
-                });
-                
-            }
             event.preventDefault()
             event.stopPropagation();
+        }
+
+        function performDelete(language) {
+            language.deleteButtonState = "busy";
+
+            languageResource.deleteById(language.id).then(function () {
+
+                // emit event
+                var args = { language: language };
+                eventsService.emit("editors.languages.languageDeleted", args);
+
+                // remove from list
+                var index = vm.languages.indexOf(language);
+                vm.languages.splice(index, 1);
+
+            }, function (err) {
+                language.deleteButtonState = "error";
+            });
         }
 
         init();

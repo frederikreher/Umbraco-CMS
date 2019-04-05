@@ -21,7 +21,12 @@ namespace Umbraco.Core.Models
         string Description { get; set; }
 
         /// <summary>
-        /// Gets or Sets the Icon for the ContentType
+        /// Gets or sets the icon for the content type. The value is a CSS class name representing
+        /// the icon (eg. <c>icon-home</c>) along with an optional CSS class name representing the
+        /// color (eg. <c>icon-blue</c>). Put together, the value for this scenario would be
+        /// <c>icon-home color-blue</c>.
+        ///
+        /// If a class name for the color isn't specified, the icon color will default to black.
         /// </summary>
         string Icon { get; set; }
 
@@ -44,14 +49,46 @@ namespace Umbraco.Core.Models
         bool IsContainer { get; set; }
 
         /// <summary>
+        /// Gets or sets a value indicating whether this content type is for an element.
+        /// </summary>
+        /// <remarks>
+        /// <para>By default a content type is for a true media, member or document, but
+        /// it can also be for an element, ie a subset that can for instance be used in
+        /// nested content.</para>
+        /// </remarks>
+        bool IsElement { get; set; }
+
+        /// <summary>
         /// Gets or sets the content variation of the content type.
         /// </summary>
         ContentVariation Variations { get; set; }
 
         /// <summary>
-        /// Validates that a variation is valid for the content type.
+        /// Validates that a combination of culture and segment is valid for the content type.
         /// </summary>
-        bool ValidateVariation(string culture, string segment, bool throwIfInvalid);
+        /// <param name="culture">The culture.</param>
+        /// <param name="segment">The segment.</param>
+        /// <param name="wildcards">A value indicating whether wildcard are supported.</param>
+        /// <returns>True if the combination is valid; otherwise false.</returns>
+        /// <remarks>
+        /// <para>The combination must match the content type variation exactly. For instance, if the content type varies by culture,
+        /// then an invariant culture would be invalid.</para>
+        /// </remarks>
+        bool SupportsVariation(string culture, string segment, bool wildcards = false);
+
+        /// <summary>
+        /// Validates that a combination of culture and segment is valid for the content type properties.
+        /// </summary>
+        /// <param name="culture">The culture.</param>
+        /// <param name="segment">The segment.</param>
+        /// <param name="wildcards">A value indicating whether wildcard are supported.</param>
+        /// <returns>True if the combination is valid; otherwise false.</returns>
+        /// <remarks>
+        /// <para>The combination must be valid for properties of the content type. For instance, if the content type varies by culture,
+        /// then an invariant culture is valid, because some properties may be invariant. On the other hand, if the content type is invariant,
+        /// then a variant culture is invalid, because no property could possibly vary by culture.</para>
+        /// </remarks>
+        bool SupportsPropertyVariation(string culture, string segment, bool wildcards = false);
 
         /// <summary>
         /// Gets or Sets a list of integer Ids of the ContentTypes allowed under the ContentType
@@ -122,5 +159,10 @@ namespace Umbraco.Core.Models
         /// <param name="propertyGroupName">Name of the PropertyGroup to move the PropertyType to</param>
         /// <returns></returns>
         bool MovePropertyType(string propertyTypeAlias, string propertyGroupName);
+
+        /// <summary>
+        /// Gets an <see cref="ISimpleContentType"/> corresponding to this content type.
+        /// </summary>
+        ISimpleContentType ToSimple();
     }
 }

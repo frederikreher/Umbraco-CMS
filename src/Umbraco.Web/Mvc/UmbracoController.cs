@@ -1,13 +1,12 @@
 ﻿using System;
 using System.Web;
 using System.Web.Mvc;
-using LightInject;
 using Microsoft.Owin;
-using Umbraco.Core;
 using Umbraco.Core.Cache;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Configuration;
 using Umbraco.Core.Logging;
-using Umbraco.Core.Persistence;
+using Umbraco.Core;
 using Umbraco.Core.Services;
 using Umbraco.Web.Security;
 
@@ -18,59 +17,43 @@ namespace Umbraco.Web.Mvc
     /// </summary>
     public abstract class UmbracoController : Controller
     {
-        private UmbracoHelper _umbracoHelper;
-
         // for debugging purposes
         internal Guid InstanceId { get; } = Guid.NewGuid();
 
-        // note
-        // properties marked as [Inject] below will be property-injected (vs constructor-injected) in
-        // order to keep the constuctor as light as possible, so that ppl implementing eg a SurfaceController
-        // don't need to implement complex constructors + need to refactor them each time we change ours.
-        // this means that these properties have a setter.
-        // what can go wrong?
-
         /// <summary>
         /// Gets or sets the Umbraco context.
         /// </summary>
-        [Inject]
-        public virtual IGlobalSettings GlobalSettings { get; set; }
+        public IGlobalSettings GlobalSettings { get; }
 
         /// <summary>
-        /// Gets or sets the Umbraco context.
+        /// Gets the Umbraco context.
         /// </summary>
-        [Inject]
-        public virtual UmbracoContext UmbracoContext { get; set; }
+        public virtual UmbracoContext UmbracoContext => UmbracoContextAccessor.UmbracoContext;
 
         /// <summary>
-        /// Gets or sets the database context.
+        /// Gets or sets the Umbraco context accessor.
         /// </summary>
-        [Inject]
-        public IUmbracoDatabaseFactory DatabaseFactory { get; set; }
+        public virtual IUmbracoContextAccessor UmbracoContextAccessor { get; set; }
 
         /// <summary>
         /// Gets or sets the services context.
         /// </summary>
-        [Inject]
-        public ServiceContext Services { get; set; }
+        public ServiceContext Services { get; }
 
         /// <summary>
         /// Gets or sets the application cache.
         /// </summary>
-        [Inject]
-        public CacheHelper ApplicationCache { get; set; }
+        public AppCaches AppCaches { get; }
 
         /// <summary>
         /// Gets or sets the logger.
         /// </summary>
-        [Inject]
-        public ILogger Logger { get; set; }
+        public ILogger Logger { get; }
 
         /// <summary>
         /// Gets or sets the profiling logger.
         /// </summary>
-        [Inject]
-        public ProfilingLogger ProfilingLogger { get; set; }
+        public IProfilingLogger ProfilingLogger { get; set; }
 
         protected IOwinContext OwinContext => Request.GetOwinContext();
 
@@ -82,12 +65,34 @@ namespace Umbraco.Web.Mvc
         /// <summary>
         /// Gets the Umbraco helper.
         /// </summary>
-        public UmbracoHelper Umbraco => _umbracoHelper
-            ?? (_umbracoHelper = new UmbracoHelper(UmbracoContext, Services, ApplicationCache));
+        public UmbracoHelper Umbraco { get; }
 
         /// <summary>
         /// Gets the web security helper.
         /// </summary>
         public virtual WebSecurity Security => UmbracoContext.Security;
+
+        protected UmbracoController()
+            : this(
+                  Current.Factory.GetInstance<IGlobalSettings>(),
+                  Current.Factory.GetInstance<IUmbracoContextAccessor>(),
+                  Current.Factory.GetInstance<ServiceContext>(),
+                  Current.Factory.GetInstance<AppCaches>(),
+                  Current.Factory.GetInstance<IProfilingLogger>(),
+                  Current.Factory.GetInstance<UmbracoHelper>()
+            )
+        {
+        }
+
+        protected UmbracoController(IGlobalSettings globalSettings, IUmbracoContextAccessor umbracoContextAccessor, ServiceContext services, AppCaches appCaches, IProfilingLogger profilingLogger, UmbracoHelper umbracoHelper)
+        {
+            GlobalSettings = globalSettings;
+            UmbracoContextAccessor = umbracoContextAccessor;
+            Services = services;
+            AppCaches = appCaches;
+            Logger = profilingLogger;
+            ProfilingLogger = profilingLogger;
+            Umbraco = umbracoHelper;
+        }
     }
 }

@@ -2,14 +2,15 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using LightInject;
 using Moq;
 using Newtonsoft.Json;
 using NUnit.Framework;
 using Umbraco.Core;
 using Umbraco.Core.Cache;
 using Umbraco.Core.Composing;
+using Umbraco.Core.Configuration;
 using Umbraco.Core.Deploy;
+using Umbraco.Core.IO;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Serialization;
 using Umbraco.Tests.TestHelpers;
@@ -22,12 +23,12 @@ namespace Umbraco.Tests.CoreThings
         [SetUp]
         public void SetUp()
         {
-            // fixme - bad in a unit test - but Udi has a static ctor that wants it?!
-            var container = new Mock<IServiceContainer>();
+            // FIXME: bad in a unit test - but Udi has a static ctor that wants it?!
+            var container = new Mock<IFactory>();
             var globalSettings = SettingsForTests.GenerateMockGlobalSettings();
-            container.Setup(x => x.GetInstance(typeof (TypeLoader))).Returns(
-                new TypeLoader(NullCacheProvider.Instance, globalSettings, new ProfilingLogger(Mock.Of<ILogger>(), Mock.Of<IProfiler>())));
-            Current.Container = container.Object;
+            container.Setup(x => x.GetInstance(typeof(TypeLoader))).Returns(
+                new TypeLoader(NoAppCache.Instance, IOHelper.MapPath("~/App_Data/TEMP"), new ProfilingLogger(Mock.Of<ILogger>(), Mock.Of<IProfiler>())));
+            Current.Factory = container.Object;
 
             Udi.ResetUdiTypes();
         }

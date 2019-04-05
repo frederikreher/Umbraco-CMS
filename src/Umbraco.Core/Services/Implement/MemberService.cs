@@ -28,14 +28,14 @@ namespace Umbraco.Core.Services.Implement
         private readonly IAuditRepository _auditRepository;
 
         private readonly IMemberGroupService _memberGroupService;
-        private readonly MediaFileSystem _mediaFileSystem;
+        private readonly IMediaFileSystem _mediaFileSystem;
 
         //only for unit tests!
         internal MembershipProviderBase MembershipProvider { get; set; }
 
         #region Constructor
 
-        public MemberService(IScopeProvider provider, ILogger logger, IEventMessagesFactory eventMessagesFactory, IMemberGroupService memberGroupService,  MediaFileSystem mediaFileSystem,
+        public MemberService(IScopeProvider provider, ILogger logger, IEventMessagesFactory eventMessagesFactory, IMemberGroupService memberGroupService,  IMediaFileSystem mediaFileSystem,
             IMemberRepository memberRepository, IMemberTypeRepository memberTypeRepository, IMemberGroupRepository memberGroupRepository, IAuditRepository auditRepository)
             : base(provider, logger, eventMessagesFactory)
         {
@@ -331,13 +331,11 @@ namespace Umbraco.Core.Services.Implement
                 saveEventArgs.CanCancel = false;
                 scope.Events.Dispatch(Saved, this, saveEventArgs);
             }
-
-            scope.Events.Dispatch(Created, this, new NewEventArgs<IMember>(member, false, member.ContentType.Alias, -1));
-
+            
             if (withIdentity == false)
                 return;
 
-            Audit(AuditType.New, $"Member '{member.Name}' was created with Id {member.Id}", member.CreatorId, member.Id);
+            Audit(AuditType.New, member.CreatorId, member.Id, $"Member '{member.Name}' was created with Id {member.Id}");
         }
 
         #endregion
@@ -387,25 +385,25 @@ namespace Umbraco.Core.Services.Implement
             using (var scope = ScopeProvider.CreateScope(autoComplete: true))
             {
                 scope.ReadLock(Constants.Locks.MemberTree);
-                return _memberRepository.GetPage(null, pageIndex, pageSize, out totalRecords, "LoginName", Direction.Ascending, true);
+                return _memberRepository.GetPage(null, pageIndex, pageSize, out totalRecords, null, Ordering.By("LoginName"));
             }
         }
 
-        // fixme get rid of string filter?
-
-        public IEnumerable<IMember> GetAll(long pageIndex, int pageSize, out long totalRecords, string orderBy, Direction orderDirection, string memberTypeAlias = null, string filter = "")
+        public IEnumerable<IMember> GetAll(long pageIndex, int pageSize, out long totalRecords,
+            string orderBy, Direction orderDirection, string memberTypeAlias = null, string filter = "")
         {
             return GetAll(pageIndex, pageSize, out totalRecords, orderBy, orderDirection, true, memberTypeAlias, filter);
         }
 
-        public IEnumerable<IMember> GetAll(long pageIndex, int pageSize, out long totalRecords, string orderBy, Direction orderDirection, bool orderBySystemField, string memberTypeAlias, string filter)
+        public IEnumerable<IMember> GetAll(long pageIndex, int pageSize, out long totalRecords,
+            string orderBy, Direction orderDirection, bool orderBySystemField, string memberTypeAlias, string filter)
         {
             using (var scope = ScopeProvider.CreateScope(autoComplete: true))
             {
                 scope.ReadLock(Constants.Locks.MemberTree);
                 var query1 = memberTypeAlias == null ? null : Query<IMember>().Where(x => x.ContentTypeAlias == memberTypeAlias);
                 var query2 = filter == null ? null : Query<IMember>().Where(x => x.Name.Contains(filter) || x.Username.Contains(filter) || x.Email.Contains(filter));
-                return _memberRepository.GetPage(query1, pageIndex, pageSize, out totalRecords, orderBy, orderDirection, orderBySystemField, query2);
+                return _memberRepository.GetPage(query1, pageIndex, pageSize, out totalRecords, query2, Ordering.By(orderBy, orderDirection, isCustomField: !orderBySystemField));
             }
         }
 
@@ -449,7 +447,7 @@ namespace Umbraco.Core.Services.Implement
         /// <returns><see cref="IMember"/></returns>
         public IMember GetByUsername(string username)
         {
-            //TODO: Somewhere in here, whether at this level or the repository level, we need to add
+            // TODO: Somewhere in here, whether at this level or the repository level, we need to add
             // a caching mechanism since this method is used by all the membership providers and could be
             // called quite a bit when dealing with members.
 
@@ -557,7 +555,7 @@ namespace Umbraco.Core.Services.Implement
                         throw new ArgumentOutOfRangeException(nameof(matchType)); // causes rollback // causes rollback
                 }
 
-                return _memberRepository.GetPage(query, pageIndex, pageSize, out totalRecords, "Name", Direction.Ascending, true);
+                return _memberRepository.GetPage(query, pageIndex, pageSize, out totalRecords, null, Ordering.By("Name"));
             }
         }
 
@@ -598,7 +596,7 @@ namespace Umbraco.Core.Services.Implement
                         throw new ArgumentOutOfRangeException(nameof(matchType));
                 }
 
-                return _memberRepository.GetPage(query, pageIndex, pageSize, out totalRecords, "Email", Direction.Ascending, true);
+                return _memberRepository.GetPage(query, pageIndex, pageSize, out totalRecords, null, Ordering.By("Email"));
             }
         }
 
@@ -639,7 +637,7 @@ namespace Umbraco.Core.Services.Implement
                         throw new ArgumentOutOfRangeException(nameof(matchType));
                 }
 
-                return _memberRepository.GetPage(query, pageIndex, pageSize, out totalRecords, "LoginName", Direction.Ascending, true);
+                return _memberRepository.GetPage(query, pageIndex, pageSize, out totalRecords, null, Ordering.By("LoginName"));
             }
         }
 
@@ -770,8 +768,8 @@ namespace Umbraco.Core.Services.Implement
                         throw new ArgumentOutOfRangeException(nameof(matchType)); // causes rollback // causes rollback
                 }
 
-                //TODO: Since this is by property value, we need a GetByPropertyQuery on the repo!
-                //TODO: Since this is by property value, we need a GetByPropertyQuery on the repo!
+                // TODO: Since this is by property value, we need a GetByPropertyQuery on the repo!
+                // TODO: Since this is by property value, we need a GetByPropertyQuery on the repo!
                 return _memberRepository.Get(query);
             }
         }
@@ -843,7 +841,7 @@ namespace Umbraco.Core.Services.Implement
                     saveEventArgs.CanCancel = false;
                     scope.Events.Dispatch(Saved, this, saveEventArgs);
                 }
-                Audit(AuditType.Save, "Save Member performed by user", 0, member.Id);
+                Audit(AuditType.Save, 0, member.Id);
 
                 scope.Complete();
             }
@@ -884,7 +882,7 @@ namespace Umbraco.Core.Services.Implement
                     saveEventArgs.CanCancel = false;
                     scope.Events.Dispatch(Saved, this, saveEventArgs);
                 }
-                Audit(AuditType.Save, "Save Member items performed by user", 0, -1);
+                Audit(AuditType.Save, 0, -1, "Save multiple Members");
 
                 scope.Complete();
             }
@@ -912,7 +910,7 @@ namespace Umbraco.Core.Services.Implement
                 scope.WriteLock(Constants.Locks.MemberTree);
                 DeleteLocked(scope, member, deleteEventArgs);
 
-                Audit(AuditType.Delete, "Delete Member performed by user", 0, member.Id);
+                Audit(AuditType.Delete, 0, member.Id);
                 scope.Complete();
             }
         }
@@ -927,10 +925,7 @@ namespace Umbraco.Core.Services.Implement
                 args.CanCancel = false;
             scope.Events.Dispatch(Deleted, this, args);
 
-            // fixme - this is MOOT because the event will not trigger immediately
-            // it's been refactored already (think it's the dispatcher that deals with it?)
-            _mediaFileSystem.DeleteFiles(args.MediaFilesToDelete, // remove flagged files
-                (file, e) => Logger.Error<MemberService>("An error occurred while deleting file attached to nodes: " + file, e));
+            // media files deleted by QueuingEventDispatcher
         }
 
         #endregion
@@ -1031,7 +1026,7 @@ namespace Umbraco.Core.Services.Implement
                 scope.WriteLock(Constants.Locks.MemberTree);
                 var ids = _memberGroupRepository.GetMemberIds(usernames);
                 _memberGroupRepository.AssignRoles(ids, roleNames);
-                scope.Events.Dispatch(AssignedRoles, this, new RolesEventArgs(ids, roleNames));
+                scope.Events.Dispatch(AssignedRoles, this, new RolesEventArgs(ids, roleNames), nameof(AssignedRoles));
                 scope.Complete();
             }
         }
@@ -1048,7 +1043,7 @@ namespace Umbraco.Core.Services.Implement
                 scope.WriteLock(Constants.Locks.MemberTree);
                 var ids = _memberGroupRepository.GetMemberIds(usernames);
                 _memberGroupRepository.DissociateRoles(ids, roleNames);
-                scope.Events.Dispatch(RemovedRoles, this, new RolesEventArgs(ids, roleNames));
+                scope.Events.Dispatch(RemovedRoles, this, new RolesEventArgs(ids, roleNames), nameof(RemovedRoles));
                 scope.Complete();
             }
         }
@@ -1064,7 +1059,7 @@ namespace Umbraco.Core.Services.Implement
             {
                 scope.WriteLock(Constants.Locks.MemberTree);
                 _memberGroupRepository.AssignRoles(memberIds, roleNames);
-                scope.Events.Dispatch(AssignedRoles, this, new RolesEventArgs(memberIds, roleNames));
+                scope.Events.Dispatch(AssignedRoles, this, new RolesEventArgs(memberIds, roleNames), nameof(AssignedRoles));
                 scope.Complete();
             }
         }
@@ -1080,7 +1075,7 @@ namespace Umbraco.Core.Services.Implement
             {
                 scope.WriteLock(Constants.Locks.MemberTree);
                 _memberGroupRepository.DissociateRoles(memberIds, roleNames);
-                scope.Events.Dispatch(RemovedRoles, this, new RolesEventArgs(memberIds, roleNames));
+                scope.Events.Dispatch(RemovedRoles, this, new RolesEventArgs(memberIds, roleNames), nameof(RemovedRoles));
                 scope.Complete();
             }
         }
@@ -1089,9 +1084,9 @@ namespace Umbraco.Core.Services.Implement
 
         #region Private Methods
 
-        private void Audit(AuditType type, string message, int userId, int objectId)
+        private void Audit(AuditType type, int userId, int objectId, string message = null)
         {
-            _auditRepository.Save(new AuditItem(objectId, message, type, userId));
+            _auditRepository.Save(new AuditItem(objectId, type, userId, ObjectTypes.GetName(UmbracoObjectTypes.Member), message));
         }
 
         #endregion
@@ -1112,15 +1107,6 @@ namespace Umbraco.Core.Services.Implement
         /// Occurs before Save
         /// </summary>
         public static event TypedEventHandler<IMemberService, SaveEventArgs<IMember>> Saving;
-
-        /// <summary>
-        /// Occurs after Create
-        /// </summary>
-        /// <remarks>
-        /// Please note that the Member object has been created, but might not have been saved
-        /// so it does not have an identity yet (meaning no Id has been set).
-        /// </remarks>
-        public static event TypedEventHandler<IMemberService, NewEventArgs<IMember>> Created;
 
         /// <summary>
         /// Occurs after Save
@@ -1189,7 +1175,7 @@ namespace Umbraco.Core.Services.Implement
             var identity = int.MaxValue;
 
             var memType = new MemberType(-1);
-            var propGroup = new PropertyGroup(MemberType.IsPublishingConst)
+            var propGroup = new PropertyGroup(MemberType.SupportsPublishingConst)
             {
                 Name = "Membership",
                 Id = --identity
@@ -1215,21 +1201,21 @@ namespace Umbraco.Core.Services.Implement
                 Id = --identity,
                 Key = identity.ToGuid()
             });
-            propGroup.PropertyTypes.Add(new PropertyType(Constants.PropertyEditors.Aliases.NoEdit, ValueStorageType.Date, Constants.Conventions.Member.LastLockoutDate)
+            propGroup.PropertyTypes.Add(new PropertyType(Constants.PropertyEditors.Aliases.Label, ValueStorageType.Date, Constants.Conventions.Member.LastLockoutDate)
             {
                 Name = Constants.Conventions.Member.LastLockoutDateLabel,
                 SortOrder = 5,
                 Id = --identity,
                 Key = identity.ToGuid()
             });
-            propGroup.PropertyTypes.Add(new PropertyType(Constants.PropertyEditors.Aliases.NoEdit, ValueStorageType.Date, Constants.Conventions.Member.LastLoginDate)
+            propGroup.PropertyTypes.Add(new PropertyType(Constants.PropertyEditors.Aliases.Label, ValueStorageType.Date, Constants.Conventions.Member.LastLoginDate)
             {
                 Name = Constants.Conventions.Member.LastLoginDateLabel,
                 SortOrder = 6,
                 Id = --identity,
                 Key = identity.ToGuid()
             });
-            propGroup.PropertyTypes.Add(new PropertyType(Constants.PropertyEditors.Aliases.NoEdit, ValueStorageType.Date, Constants.Conventions.Member.LastPasswordChangeDate)
+            propGroup.PropertyTypes.Add(new PropertyType(Constants.PropertyEditors.Aliases.Label, ValueStorageType.Date, Constants.Conventions.Member.LastPasswordChangeDate)
             {
                 Name = Constants.Conventions.Member.LastPasswordChangeDateLabel,
                 SortOrder = 7,
@@ -1307,7 +1293,7 @@ namespace Umbraco.Core.Services.Implement
                     Id = property.Id,
                     Alias = property.Alias,
                     Name = property.PropertyType.Name,
-                    Value = property.GetValue(), // fixme ignoring variants
+                    Value = property.GetValue(), // TODO: ignoring variants
                     CreateDate = property.CreateDate,
                     UpdateDate = property.UpdateDate
                 };
@@ -1333,8 +1319,8 @@ namespace Umbraco.Core.Services.Implement
             {
                 scope.WriteLock(Constants.Locks.MemberTree);
 
-                //TODO: What about content that has the contenttype as part of its composition?
-                //TODO: What about content that has the contenttype as part of its composition?
+                // TODO: What about content that has the contenttype as part of its composition?
+                // TODO: What about content that has the contenttype as part of its composition?
                 var query = Query<IMember>().Where(x => x.ContentTypeId == memberTypeId);
 
                 var members = _memberRepository.Get(query).ToArray();
@@ -1380,7 +1366,6 @@ namespace Umbraco.Core.Services.Implement
             }
         }
 
-        // fixme - this should not be here, or???
         public string GetDefaultMemberType()
         {
             return Current.Services.MemberTypeService.GetDefault();

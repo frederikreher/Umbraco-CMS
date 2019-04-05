@@ -17,7 +17,7 @@ namespace Umbraco.Web.PublishedCache
          * to find out how to get that navigator.
          *
          * Because a cache such as NuCache is contextual i.e. it has a "snapshot" thing and remains
-         * consistent over the snapshot, the navigator has to come come from the "current" snapshot.
+         * consistent over the snapshot, the navigator has to come from the "current" snapshot.
          *
          * So although everything should be injected... we also need a notion of "the current published
          * snapshot". This is provided by the IPublishedSnapshotAccessor.
@@ -45,6 +45,21 @@ namespace Umbraco.Web.PublishedCache
         /// <param name="errors">The errors, if any.</param>
         /// <returns>A value indicating whether the published snapshot has the proper environment to run.</returns>
         bool EnsureEnvironment(out IEnumerable<string> errors);
+
+        #endregion
+
+        #region Rebuild
+
+        /// <summary>
+        /// Rebuilds internal caches (but does not reload).
+        /// </summary>
+        /// <remarks>
+        /// <para>Forces the snapshot service to rebuild its internal caches. For instance, some caches
+        /// may rely on a database table to store pre-serialized version of documents.</para>
+        /// <para>This does *not* reload the caches. Caches need to be reloaded, for instance via
+        /// <see cref="DistributedCache" /> RefreshAllPublishedSnapshot method.</para>
+        /// </remarks>
+        void Rebuild();
 
         #endregion
 
@@ -105,7 +120,7 @@ namespace Umbraco.Web.PublishedCache
          * rely on cache refreshers CacheUpdated events to update itself, as these events are external
          * and the order-of-execution of the handlers cannot be guaranteed, which means that some
          * user code may run before Umbraco is finished updating itself. Instead, the cache refreshers
-         * explicitely notify the service of changes.
+         * explicitly notify the service of changes.
          *
          */
 

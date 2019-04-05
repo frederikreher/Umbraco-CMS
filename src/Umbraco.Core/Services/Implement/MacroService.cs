@@ -12,7 +12,7 @@ namespace Umbraco.Core.Services.Implement
     /// <summary>
     /// Represents the Macro Service, which is an easy access to operations involving <see cref="IMacro"/>
     /// </summary>
-    internal class MacroService : ScopeRepositoryService, IMacroService
+    public class MacroService : ScopeRepositoryService, IMacroService
     {
         private readonly IMacroRepository _macroRepository;
         private readonly IAuditRepository _auditRepository;
@@ -81,7 +81,7 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="macro"><see cref="IMacro"/> to delete</param>
         /// <param name="userId">Optional id of the user deleting the macro</param>
-        public void Delete(IMacro macro, int userId = 0)
+        public void Delete(IMacro macro, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -95,7 +95,7 @@ namespace Umbraco.Core.Services.Implement
                 _macroRepository.Delete(macro);
                 deleteEventArgs.CanCancel = false;
                 scope.Events.Dispatch(Deleted, this, deleteEventArgs);
-                Audit(AuditType.Delete, "Delete Macro performed by user", userId, -1);
+                Audit(AuditType.Delete, userId, -1);
 
                 scope.Complete();
             }
@@ -106,7 +106,7 @@ namespace Umbraco.Core.Services.Implement
         /// </summary>
         /// <param name="macro"><see cref="IMacro"/> to save</param>
         /// <param name="userId">Optional Id of the user deleting the macro</param>
-        public void Save(IMacro macro, int userId = 0)
+        public void Save(IMacro macro, int userId = Constants.Security.SuperUserId)
         {
             using (var scope = ScopeProvider.CreateScope())
             {
@@ -125,7 +125,7 @@ namespace Umbraco.Core.Services.Implement
                 _macroRepository.Save(macro);
                 saveEventArgs.CanCancel = false;
                 scope.Events.Dispatch(Saved, this, saveEventArgs);
-                Audit(AuditType.Save, "Save Macro performed by user", userId, -1);
+                Audit(AuditType.Save, userId, -1);
 
                 scope.Complete();
             }
@@ -150,9 +150,9 @@ namespace Umbraco.Core.Services.Implement
         //    return MacroPropertyTypeResolver.Current.MacroPropertyTypes.FirstOrDefault(x => x.Alias == alias);
         //}
 
-        private void Audit(AuditType type, string message, int userId, int objectId)
+        private void Audit(AuditType type, int userId, int objectId)
         {
-            _auditRepository.Save(new AuditItem(objectId, message, type, userId));
+            _auditRepository.Save(new AuditItem(objectId, type, userId, "Macro"));
         }
 
         #region Event Handlers

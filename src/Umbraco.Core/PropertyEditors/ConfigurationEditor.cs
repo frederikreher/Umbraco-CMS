@@ -53,9 +53,18 @@ namespace Umbraco.Core.PropertyEditors
             throw new InvalidCastException($"Cannot cast configuration of type {obj.GetType().Name} to {typeof(TConfiguration).Name}.");
         }
 
+        /// <summary>
+        /// Converts a configuration object into a serialized database value.
+        /// </summary>
+        public static string ToDatabase(object configuration)
+            => configuration == null ? null : JsonConvert.SerializeObject(configuration, ConfigurationJsonSettings);
+
         /// <inheritdoc />
         [JsonProperty("defaultConfig")]
         public virtual IDictionary<string, object> DefaultConfiguration => new Dictionary<string, object>();
+
+        /// <inheritdoc />
+        public virtual object DefaultConfigurationObject => DefaultConfiguration;
 
         /// <inheritdoc />
         public virtual bool IsConfiguration(object obj) => obj is IDictionary<string, object>;
@@ -97,7 +106,7 @@ namespace Umbraco.Core.PropertyEditors
 
             // clone the default configuration, and apply the current configuration values
             var d = new Dictionary<string, object>(DefaultConfiguration);
-            foreach ((var key, var value) in c)
+            foreach (var (key, value) in c)
                 d[key] = value;
             return d;
         }

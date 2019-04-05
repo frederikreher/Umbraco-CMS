@@ -8,45 +8,42 @@
  * The main application controller
  * 
  */
-function MainController($scope, $rootScope, $location, $routeParams, $timeout, $http, $log, appState, treeService, notificationsService, userService, navigationService, historyService, updateChecker, assetsService, eventsService, umbRequestHelper, tmhDynamicLocale, localStorageService, tourService, editorService) {
+function MainController($scope, $location, appState, treeService, notificationsService, userService, historyService, updateChecker, assetsService, eventsService, tmhDynamicLocale, localStorageService, editorService, overlayService) {
 
     //the null is important because we do an explicit bool check on this in the view
     $scope.authenticated = null;
     $scope.touchDevice = appState.getGlobalState("touchDevice");
-    $scope.editors = [];
+    $scope.infiniteMode = false;
     $scope.overlay = {};
+    $scope.drawer = {};
+    $scope.search = {};
+    $scope.login = {};
     
     $scope.removeNotification = function (index) {
         notificationsService.remove(index);
     };
 
-    $scope.closeDialogs = function (event) {
-        //only close dialogs if non-link and non-buttons are clicked
-        var el = event.target.nodeName;
-        var els = ["INPUT", "A", "BUTTON"];
+    $scope.closeSearch = function() {
+        appState.setSearchState("show", false);
+    };
 
-        if (els.indexOf(el) >= 0) { return; }
+    $scope.showLoginScreen = function(isTimedOut) {
+        $scope.login.isTimedOut = isTimedOut;
+        $scope.login.show = true;
+    };
 
-        var parents = $(event.target).parents("a,button");
-        if (parents.length > 0) {
-            return;
-        }
-
-        //SD: I've updated this so that we don't close the dialog when clicking inside of the dialog
-        var nav = $(event.target).parents("#dialog");
-        if (nav.length === 1) {
-            return;
-        }
-
-        eventsService.emit("app.closeDialogs", event);
+    $scope.hideLoginScreen = function() {
+        $scope.login.show = false;
     };
 
     var evts = [];
-
+    
     //when a user logs out or timesout
-    evts.push(eventsService.on("app.notAuthenticated", function () {
+    evts.push(eventsService.on("app.notAuthenticated", function (evt, data) {
         $scope.authenticated = null;
         $scope.user = null;
+        const isTimedOut = data && data.isTimedOut ? true : false;
+        $scope.showLoginScreen(isTimedOut);
     }));
 
     evts.push(eventsService.on("app.userRefresh", function(evt) {
@@ -87,6 +84,8 @@ function MainController($scope, $rootScope, $location, $routeParams, $timeout, $
             $location.path("/").search("");
             historyService.removeAll();
             treeService.clearCache();
+            editorService.closeAll();
+            overlayService.close();
 
             //if the user changed, clearout local storage too - could contain sensitive data
             localStorageService.clearAll();
@@ -104,17 +103,15 @@ function MainController($scope, $rootScope, $location, $routeParams, $timeout, $
 
     }));
 
-    evts.push(eventsService.on("app.ysod", function (name, error) {
-        $scope.ysodOverlay = {
-            view: "ysod",
-            error: error,
-            show: true
-        };
+    // events for search
+    evts.push(eventsService.on("appState.searchState.changed", function (e, args) {
+        if (args.key === "show") {
+            $scope.search.show = args.value;
+        }
     }));
 
     // events for drawer
     // manage the help dialog by subscribing to the showHelp appState
-    $scope.drawer = {};
     evts.push(eventsService.on("appState.drawerState.changed", function (e, args) {
         // set view
         if (args.key === "view") {
@@ -154,12 +151,13 @@ function MainController($scope, $rootScope, $location, $routeParams, $timeout, $
         $scope.backdrop = args;
     }));
 
-    evts.push(eventsService.on("appState.editors.add", function (name, args) {
-        $scope.editors = args.editors;
+    // event for infinite editors
+    evts.push(eventsService.on("appState.editors.open", function (name, args) {
+        $scope.infiniteMode = args && args.editors.length > 0 ? true : false;
     }));
 
-    evts.push(eventsService.on("appState.editors.remove", function (name, args) {
-        $scope.editors = args.editors;
+    evts.push(eventsService.on("appState.editors.close", function (name, args) {
+        $scope.infiniteMode = args && args.editors.length > 0 ? true : false;
     }));
 
     //ensure to unregister from all events!
@@ -176,5 +174,5 @@ function MainController($scope, $rootScope, $location, $routeParams, $timeout, $
 angular.module('umbraco').controller("Umbraco.MainController", MainController).
     config(function (tmhDynamicLocaleProvider) {
         //Set url for locale files
-        tmhDynamicLocaleProvider.localeLocationPattern('lib/angular/1.1.5/i18n/angular-locale_{{locale}}.js');
+        tmhDynamicLocaleProvider.localeLocationPattern('lib/angular-i18n/angular-locale_{{locale}}.js');
     });

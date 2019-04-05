@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Diagnostics;
-using System.Reflection;
 using System.Runtime.Serialization;
 
 namespace Umbraco.Core.Models.Entities
@@ -13,22 +12,15 @@ namespace Umbraco.Core.Models.Entities
     [DebuggerDisplay("Id: {" + nameof(Id) + "}")]
     public abstract class EntityBase : BeingDirtyBase, IEntity
     {
-        private static readonly Lazy<PropertySelectors> Ps = new Lazy<PropertySelectors>();
+#if DEBUG_MODEL
+        public Guid InstanceId = Guid.NewGuid();
+#endif
 
         private bool _hasIdentity;
         private int _id;
         private Guid _key;
         private DateTime _createDate;
         private DateTime _updateDate;
-
-        // ReSharper disable once ClassNeverInstantiated.Local
-        private class PropertySelectors
-        {
-            public readonly PropertyInfo IdSelector = ExpressionHelper.GetPropertyInfo<EntityBase, int>(x => x.Id);
-            public readonly PropertyInfo KeySelector = ExpressionHelper.GetPropertyInfo<EntityBase, Guid>(x => x.Key);
-            public readonly PropertyInfo CreateDateSelector = ExpressionHelper.GetPropertyInfo<EntityBase, DateTime>(x => x.CreateDate);
-            public readonly PropertyInfo UpdateDateSelector = ExpressionHelper.GetPropertyInfo<EntityBase, DateTime>(x => x.UpdateDate);
-        }
 
         /// <inheritdoc />
         [DataMember]
@@ -37,7 +29,7 @@ namespace Umbraco.Core.Models.Entities
             get => _id;
             set
             {
-                SetPropertyValueAndDetectChanges(value, ref _id, Ps.Value.IdSelector);
+                SetPropertyValueAndDetectChanges(value, ref _id, nameof(Id));
                 _hasIdentity = value != 0;
             }
         }
@@ -53,7 +45,7 @@ namespace Umbraco.Core.Models.Entities
                     _key = Guid.NewGuid();
                 return _key;
             }
-            set => SetPropertyValueAndDetectChanges(value, ref _key, Ps.Value.KeySelector);
+            set => SetPropertyValueAndDetectChanges(value, ref _key, nameof(Key));
         }
 
         /// <inheritdoc />
@@ -61,7 +53,7 @@ namespace Umbraco.Core.Models.Entities
         public DateTime CreateDate
         {
             get => _createDate;
-            set => SetPropertyValueAndDetectChanges(value, ref _createDate, Ps.Value.CreateDateSelector);
+            set => SetPropertyValueAndDetectChanges(value, ref _createDate, nameof(CreateDate));
         }
 
         /// <inheritdoc />
@@ -69,7 +61,7 @@ namespace Umbraco.Core.Models.Entities
         public DateTime UpdateDate
         {
             get => _updateDate;
-            set => SetPropertyValueAndDetectChanges(value, ref _updateDate, Ps.Value.UpdateDateSelector);
+            set => SetPropertyValueAndDetectChanges(value, ref _updateDate, nameof(UpdateDate));
         }
 
         /// <inheritdoc />
@@ -136,7 +128,7 @@ namespace Umbraco.Core.Models.Entities
 
             // same identity if
             // - same object (reference equals)
-            // - or same Clr type, both have identities, and they are identical
+            // - or same CLR type, both have identities, and they are identical
 
             if (ReferenceEquals(this, other))
                 return true;
@@ -155,26 +147,39 @@ namespace Umbraco.Core.Models.Entities
             }
         }
 
-        public virtual object DeepClone()
+        public object DeepClone()
         {
             // memberwise-clone (ie shallow clone) the entity
             var unused = Key; // ensure that 'this' has a key, before cloning
             var clone = (EntityBase) MemberwiseClone();
 
-            // clear changes (ensures the clone has its own dictionaries)
-            // then disable change tracking
-            clone.ResetDirtyProperties(false);
+#if DEBUG_MODEL
+            clone.InstanceId = Guid.NewGuid();
+#endif
+
+            //disable change tracking while we deep clone IDeepCloneable properties
             clone.DisableChangeTracking();
 
             // deep clone ref properties that are IDeepCloneable
             DeepCloneHelper.DeepCloneRefProperties(this, clone);
 
-            // clear changes again (just to be sure, because we were not tracking)
-            // then enable change tracking
+            PerformDeepClone(clone);
+
+            // clear changes (ensures the clone has its own dictionaries)
             clone.ResetDirtyProperties(false);
+
+            //re-enable change tracking
             clone.EnableChangeTracking();
 
             return clone;
+        }
+
+        /// <summary>
+        /// Used by inheritors to modify the DeepCloning logic
+        /// </summary>
+        /// <param name="clone"></param>
+        protected virtual void PerformDeepClone(object clone)
+        {
         }
     }
 }

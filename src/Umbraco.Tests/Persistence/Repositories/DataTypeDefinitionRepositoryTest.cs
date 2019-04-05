@@ -6,7 +6,7 @@ using Umbraco.Core.Models;
 using Umbraco.Core.Persistence.Repositories;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.Testing;
-using LightInject;
+using Umbraco.Core.Composing;
 using Umbraco.Core.Persistence.Repositories.Implement;
 using Umbraco.Core.PropertyEditors;
 using Umbraco.Core.Scoping;
@@ -20,12 +20,12 @@ namespace Umbraco.Tests.Persistence.Repositories
     {
         private IDataTypeRepository CreateRepository()
         {
-            return Container.GetInstance<IDataTypeRepository>();
+            return Factory.GetInstance<IDataTypeRepository>();
         }
 
         private EntityContainerRepository CreateContainerRepository(IScopeAccessor scopeAccessor)
         {
-            return new EntityContainerRepository(scopeAccessor, CacheHelper.CreateDisabledCacheHelper(), Logger, Constants.ObjectTypes.DataTypeContainer);
+            return new EntityContainerRepository(scopeAccessor, AppCaches.Disabled, Logger, Constants.ObjectTypes.DataTypeContainer);
         }
 
         [Test]
@@ -192,7 +192,7 @@ namespace Umbraco.Tests.Persistence.Repositories
             {
                 var repository = CreateRepository();
                 // Act
-                var dataTypeDefinition = repository.Get(-42);
+                var dataTypeDefinition = repository.Get(Constants.DataTypes.DropDownSingle);
 
                 // Assert
                 Assert.That(dataTypeDefinition, Is.Not.Null);
@@ -217,7 +217,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 Assert.That(dataTypeDefinitions, Is.Not.Null);
                 Assert.That(dataTypeDefinitions.Any(), Is.True);
                 Assert.That(dataTypeDefinitions.Any(x => x == null), Is.False);
-                Assert.That(dataTypeDefinitions.Length, Is.EqualTo(24));
+                Assert.That(dataTypeDefinitions.Length, Is.EqualTo(29));
             }
         }
 
@@ -344,7 +344,7 @@ namespace Umbraco.Tests.Persistence.Repositories
                 // Assert
                 Assert.That(definitionUpdated, Is.Not.Null);
                 Assert.That(definitionUpdated.Name, Is.EqualTo("AgeDataType Updated"));
-                Assert.That(definitionUpdated.EditorAlias, Is.EqualTo(Constants.PropertyEditors.Aliases.NoEdit));
+                Assert.That(definitionUpdated.EditorAlias, Is.EqualTo(Constants.PropertyEditors.Aliases.Label));
             }
         }
 

@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Linq;
 using System.Web.Mvc;
 using System.Web.Routing;
-using LightInject;
 using Moq;
 using NUnit.Framework;
 using Umbraco.Core;
@@ -12,18 +11,15 @@ using Umbraco.Core.Composing;
 using Umbraco.Core.Configuration.UmbracoSettings;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models.PublishedContent;
-using Umbraco.Core.Persistence;
-using Umbraco.Core.PropertyEditors;
-using Umbraco.Core.Scoping;
 using Umbraco.Core.Services;
 using Umbraco.Core.Strings;
+using Umbraco.Tests.LegacyXmlPublishedCache;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.Testing;
 using Umbraco.Tests.Testing.Objects.Accessors;
 using Umbraco.Web;
 using Umbraco.Web.Models;
 using Umbraco.Web.Mvc;
-using Umbraco.Web.PublishedCache.XmlPublishedCache;
 using Umbraco.Web.Routing;
 using Umbraco.Web.Security;
 
@@ -420,15 +416,19 @@ namespace Umbraco.Tests.Web.Mvc
             //    CacheHelper.CreateDisabledCacheHelper(),
             //    new ProfilingLogger(logger, Mock.Of<IProfiler>())) { /*IsReady = true*/ };
 
-            var cache = NullCacheProvider.Instance;
+            var cache = NoAppCache.Instance;
             //var provider = new ScopeUnitOfWorkProvider(databaseFactory, new RepositoryFactory(Mock.Of<IServiceContainer>()));
             var scopeProvider = TestObjects.GetScopeProvider(Mock.Of<ILogger>());
             var factory = Mock.Of<IPublishedContentTypeFactory>();
-            _service = new PublishedSnapshotService(svcCtx, factory, scopeProvider, cache, Enumerable.Empty<IUrlSegmentProvider>(),
+            var umbracoContextAccessor = Mock.Of<IUmbracoContextAccessor>();
+            _service = new PublishedSnapshotService(svcCtx, factory, scopeProvider, cache,
                 null, null,
-                null, null, null,
+                umbracoContextAccessor, null, null, null,
                 new TestDefaultCultureAccessor(),
-                Current.Logger, TestObjects.GetGlobalSettings(), new SiteDomainHelper(), null, true, false); // no events
+                Current.Logger, TestObjects.GetGlobalSettings(), new SiteDomainHelper(),
+                Factory.GetInstance<IEntityXmlSerializer>(),
+                null, true, false
+                ); // no events
 
             var http = GetHttpContextFactory(url, routeData).HttpContext;
 

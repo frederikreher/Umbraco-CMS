@@ -2,14 +2,18 @@
 using System.Xml;
 using Moq;
 using NUnit.Framework;
+using Umbraco.Core;
 using Umbraco.Core.Cache;
 using Umbraco.Core.Composing;
+using Umbraco.Core.Configuration;
+using Umbraco.Core.Configuration.UmbracoSettings;
+using Umbraco.Core.Services;
+using Umbraco.Tests.LegacyXmlPublishedCache;
 using Umbraco.Tests.TestHelpers;
 using Umbraco.Tests.Testing;
 using Umbraco.Tests.Testing.Objects.Accessors;
 using Umbraco.Web;
 using Umbraco.Web.PublishedCache;
-using Umbraco.Web.PublishedCache.XmlPublishedCache;
 using Umbraco.Web.Routing;
 using Umbraco.Web.Security;
 
@@ -48,26 +52,25 @@ namespace Umbraco.Tests.Cache.PublishedCache
 </root>";
         }
 
-        public override void SetUp()
+        protected override void Initialize()
         {
-            base.SetUp();
+            base.Initialize();
 
             _httpContextFactory = new FakeHttpContextFactory("~/Home");
 
-            var umbracoSettings = SettingsForTests.GenerateMockUmbracoSettings();
-            var globalSettings = SettingsForTests.GenerateMockGlobalSettings();
-            SettingsForTests.ConfigureSettings(umbracoSettings);
-            SettingsForTests.ConfigureSettings(globalSettings);
+            var umbracoSettings = Factory.GetInstance<IUmbracoSettingsSection>();
+            var globalSettings = Factory.GetInstance<IGlobalSettings>();
+            var umbracoContextAccessor = Factory.GetInstance<IUmbracoContextAccessor>();
 
             _xml = new XmlDocument();
             _xml.LoadXml(GetXml());
             var xmlStore = new XmlStore(() => _xml, null, null, null);
-            var cacheProvider = new StaticCacheProvider();
+            var appCache = new DictionaryAppCache();
             var domainCache = new DomainCache(ServiceContext.DomainService, DefaultCultureAccessor);
-            var publishedShapshot = new Umbraco.Web.PublishedCache.XmlPublishedCache.PublishedSnapshot(
-                new PublishedContentCache(xmlStore, domainCache, cacheProvider, globalSettings, new SiteDomainHelper(), ContentTypesCache, null, null),
-                new PublishedMediaCache(xmlStore, ServiceContext.MediaService, ServiceContext.UserService, cacheProvider, ContentTypesCache),
-                new PublishedMemberCache(null, cacheProvider, Current.Services.MemberService, ContentTypesCache),
+            var publishedShapshot = new PublishedSnapshot(
+                new PublishedContentCache(xmlStore, domainCache, appCache, globalSettings, new SiteDomainHelper(), umbracoContextAccessor, ContentTypesCache, null, null),
+                new PublishedMediaCache(xmlStore, ServiceContext.MediaService, ServiceContext.UserService, appCache, ContentTypesCache, Factory.GetInstance<IEntityXmlSerializer>(), umbracoContextAccessor),
+                new PublishedMemberCache(null, appCache, Current.Services.MemberService, ContentTypesCache, umbracoContextAccessor),
                 domainCache);
             var publishedSnapshotService = new Mock<IPublishedSnapshotService>();
             publishedSnapshotService.Setup(x => x.CreatePublishedSnapshot(It.IsAny<string>())).Returns(publishedShapshot);

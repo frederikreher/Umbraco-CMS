@@ -1,10 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.Serialization;
 using Umbraco.Core.Models.Entities;
 using Umbraco.Core.Strings;
@@ -19,16 +17,15 @@ namespace Umbraco.Core.Models
     [DebuggerDisplay("Id: {Id}, Name: {Name}, Alias: {Alias}")]
     public abstract class ContentTypeBase : TreeEntityBase, IContentTypeBase
     {
-        private static readonly Lazy<PropertySelectors> Ps = new Lazy<PropertySelectors>();
-
         private string _alias;
         private string _description;
         private string _icon = "icon-folder";
         private string _thumbnail = "folder.png";
         private bool _allowedAsRoot; // note: only one that's not 'pure element type'
         private bool _isContainer;
+        private bool _isElement;
         private PropertyGroupCollection _propertyGroups;
-        private PropertyTypeCollection _propertyTypes;
+        private PropertyTypeCollection _noGroupPropertyTypes;
         private IEnumerable<ContentTypeSort> _allowedContentTypes;
         private bool _hasPropertyTypeBeenRemoved;
         private ContentVariation _variations;
@@ -43,10 +40,10 @@ namespace Umbraco.Core.Models
 
             // actually OK as IsPublishing is constant
             // ReSharper disable once VirtualMemberCallInConstructor
-            _propertyTypes = new PropertyTypeCollection(IsPublishing);
-            _propertyTypes.CollectionChanged += PropertyTypesChanged;
+            _noGroupPropertyTypes = new PropertyTypeCollection(SupportsPublishing);
+            _noGroupPropertyTypes.CollectionChanged += PropertyTypesChanged;
 
-            _variations = ContentVariation.InvariantNeutral;
+            _variations = ContentVariation.Nothing;
         }
 
         protected ContentTypeBase(IContentTypeBase parent)
@@ -64,14 +61,16 @@ namespace Umbraco.Core.Models
 
             // actually OK as IsPublishing is constant
             // ReSharper disable once VirtualMemberCallInConstructor
-            _propertyTypes = new PropertyTypeCollection(IsPublishing);
-            _propertyTypes.CollectionChanged += PropertyTypesChanged;
+            _noGroupPropertyTypes = new PropertyTypeCollection(SupportsPublishing);
+            _noGroupPropertyTypes.CollectionChanged += PropertyTypesChanged;
 
-            _variations = ContentVariation.InvariantNeutral;
+            _variations = ContentVariation.Nothing;
         }
 
+        public abstract ISimpleContentType ToSimple();
+
         /// <summary>
-        /// Gets a value indicating whether the content type is publishing.
+        /// Gets a value indicating whether the content type supports publishing.
         /// </summary>
         /// <remarks>
         /// <para>A publishing content type supports draft and published values for properties.
@@ -81,38 +80,22 @@ namespace Umbraco.Core.Models
         /// the draft or published value of a property returns the same thing, and publishing
         /// a value property has no effect.</para>
         /// </remarks>
-        public abstract bool IsPublishing { get; }
+        public abstract bool SupportsPublishing { get; }
 
-        // ReSharper disable once ClassNeverInstantiated.Local
-        private class PropertySelectors
-        {
-            public readonly PropertyInfo AliasSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, string>(x => x.Alias);
-            public readonly PropertyInfo DescriptionSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, string>(x => x.Description);
-            public readonly PropertyInfo IconSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, string>(x => x.Icon);
-            public readonly PropertyInfo ThumbnailSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, string>(x => x.Thumbnail);
-            public readonly PropertyInfo AllowedAsRootSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, bool>(x => x.AllowedAsRoot);
-            public readonly PropertyInfo IsContainerSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, bool>(x => x.IsContainer);
-            public readonly PropertyInfo AllowedContentTypesSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, IEnumerable<ContentTypeSort>>(x => x.AllowedContentTypes);
-            public readonly PropertyInfo PropertyGroupCollectionSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, PropertyGroupCollection>(x => x.PropertyGroups);
-            public readonly PropertyInfo PropertyTypeCollectionSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, IEnumerable<PropertyType>>(x => x.PropertyTypes);
-            public readonly PropertyInfo HasPropertyTypeBeenRemovedSelector = ExpressionHelper.GetPropertyInfo<ContentTypeBase, bool>(x => x.HasPropertyTypeBeenRemoved);
-            public readonly PropertyInfo VaryBy = ExpressionHelper.GetPropertyInfo<ContentTypeBase, ContentVariation>(x => x.Variations);
-
-            //Custom comparer for enumerable
-            public readonly DelegateEqualityComparer<IEnumerable<ContentTypeSort>> ContentTypeSortComparer =
-                new DelegateEqualityComparer<IEnumerable<ContentTypeSort>>(
-                    (sorts, enumerable) => sorts.UnsortedSequenceEqual(enumerable),
-                    sorts => sorts.GetHashCode());
-        }
+        //Custom comparer for enumerable
+        private static readonly DelegateEqualityComparer<IEnumerable<ContentTypeSort>> ContentTypeSortComparer =
+            new DelegateEqualityComparer<IEnumerable<ContentTypeSort>>(
+                (sorts, enumerable) => sorts.UnsortedSequenceEqual(enumerable),
+                sorts => sorts.GetHashCode());
 
         protected void PropertyGroupsChanged(object sender, NotifyCollectionChangedEventArgs e)
         {
-            OnPropertyChanged(Ps.Value.PropertyGroupCollectionSelector);
+            OnPropertyChanged(nameof(PropertyGroups));
         }
 
         protected void PropertyTypesChanged(object sender, NotifyCollectionChangedEventArgs e)
         {
-            OnPropertyChanged(Ps.Value.PropertyTypeCollectionSelector);
+            OnPropertyChanged(nameof(PropertyTypes));
         }
 
         /// <summary>
@@ -125,47 +108,47 @@ namespace Umbraco.Core.Models
             set => SetPropertyValueAndDetectChanges(
                 value.ToCleanString(CleanStringType.Alias | CleanStringType.UmbracoCase),
                 ref _alias,
-                Ps.Value.AliasSelector);
+                nameof(Alias));
         }
 
         /// <summary>
         /// Description for the ContentType
         /// </summary>
         [DataMember]
-        public virtual string Description
+        public string Description
         {
             get => _description;
-            set => SetPropertyValueAndDetectChanges(value, ref _description, Ps.Value.DescriptionSelector);
+            set => SetPropertyValueAndDetectChanges(value, ref _description, nameof(Description));
         }
 
         /// <summary>
         /// Name of the icon (sprite class) used to identify the ContentType
         /// </summary>
         [DataMember]
-        public virtual string Icon
+        public string Icon
         {
             get => _icon;
-            set => SetPropertyValueAndDetectChanges(value, ref _icon, Ps.Value.IconSelector);
+            set => SetPropertyValueAndDetectChanges(value, ref _icon, nameof(Icon));
         }
 
         /// <summary>
         /// Name of the thumbnail used to identify the ContentType
         /// </summary>
         [DataMember]
-        public virtual string Thumbnail
+        public string Thumbnail
         {
             get => _thumbnail;
-            set => SetPropertyValueAndDetectChanges(value, ref _thumbnail, Ps.Value.ThumbnailSelector);
+            set => SetPropertyValueAndDetectChanges(value, ref _thumbnail, nameof(Thumbnail));
         }
 
         /// <summary>
         /// Gets or Sets a boolean indicating whether this ContentType is allowed at the root
         /// </summary>
         [DataMember]
-        public virtual bool AllowedAsRoot
+        public bool AllowedAsRoot
         {
             get => _allowedAsRoot;
-            set => SetPropertyValueAndDetectChanges(value, ref _allowedAsRoot, Ps.Value.AllowedAsRootSelector);
+            set => SetPropertyValueAndDetectChanges(value, ref _allowedAsRoot, nameof(AllowedAsRoot));
         }
 
         /// <summary>
@@ -175,21 +158,29 @@ namespace Umbraco.Core.Models
         /// ContentType Containers doesn't show children in the tree, but rather in grid-type view.
         /// </remarks>
         [DataMember]
-        public virtual bool IsContainer
+        public bool IsContainer
         {
             get => _isContainer;
-            set => SetPropertyValueAndDetectChanges(value, ref _isContainer, Ps.Value.IsContainerSelector);
+            set => SetPropertyValueAndDetectChanges(value, ref _isContainer, nameof(IsContainer));
+        }
+
+        /// <inheritdoc />
+        [DataMember]
+        public bool IsElement
+        {
+            get => _isElement;
+            set => SetPropertyValueAndDetectChanges(value, ref _isElement, nameof(IsElement));
         }
 
         /// <summary>
         /// Gets or sets a list of integer Ids for allowed ContentTypes
         /// </summary>
         [DataMember]
-        public virtual IEnumerable<ContentTypeSort> AllowedContentTypes
+        public IEnumerable<ContentTypeSort> AllowedContentTypes
         {
             get => _allowedContentTypes;
-            set => SetPropertyValueAndDetectChanges(value, ref _allowedContentTypes, Ps.Value.AllowedContentTypesSelector,
-                Ps.Value.ContentTypeSortComparer);
+            set => SetPropertyValueAndDetectChanges(value, ref _allowedContentTypes, nameof(AllowedContentTypes),
+                ContentTypeSortComparer);
         }
 
         /// <summary>
@@ -198,46 +189,37 @@ namespace Umbraco.Core.Models
         public virtual ContentVariation Variations
         {
             get => _variations;
-            set => SetPropertyValueAndDetectChanges(value, ref _variations, Ps.Value.VaryBy);
+            set => SetPropertyValueAndDetectChanges(value, ref _variations, nameof(Variations));
         }
 
-        /// <summary>
-        /// Validates that a variation is valid for the content type.
-        /// </summary>
-        public bool ValidateVariation(string culture, string segment, bool throwIfInvalid)
+        /// <inheritdoc />
+        public bool SupportsVariation(string culture, string segment, bool wildcards = false)
         {
-            ContentVariation variation;
-            if (culture != null)
-            {
-                variation = segment != null
-                    ? ContentVariation.CultureSegment
-                    : ContentVariation.CultureNeutral;
-            }
-            else if (segment != null)
-            {
-                variation = ContentVariation.InvariantSegment;
-            }
-            else
-            {
-                variation = ContentVariation.InvariantNeutral;
-            }
-            if (!Variations.Has(variation))
-            {
-                if (throwIfInvalid)
-                    throw new NotSupportedException($"Variation {variation} is invalid for content type \"{Alias}\".");
-                return false;
-            }
-            return true;
+            // exact validation: cannot accept a 'null' culture if the property type varies
+            //  by culture, and likewise for segment
+            // wildcard validation: can accept a '*' culture or segment
+            return Variations.ValidateVariation(culture, segment, true, wildcards, false);
+        }
+
+        /// <inheritdoc />
+        public bool SupportsPropertyVariation(string culture, string segment, bool wildcards = false)
+        {
+            // non-exact validation: can accept a 'null' culture if the property type varies
+            //  by culture, and likewise for segment
+            // wildcard validation: can accept a '*' culture or segment
+            return Variations.ValidateVariation(culture, segment, false, true, false);
         }
 
         /// <summary>
         /// List of PropertyGroups available on this ContentType
         /// </summary>
         /// <remarks>
-        /// A PropertyGroup corresponds to a Tab in the UI
+        /// <para>A PropertyGroup corresponds to a Tab in the UI</para>
+        /// <para>Marked DoNotClone because we will manually deal with cloning and the event handlers</para>
         /// </remarks>
         [DataMember]
-        public virtual PropertyGroupCollection PropertyGroups
+        [DoNotClone]
+        public PropertyGroupCollection PropertyGroups
         {
             get => _propertyGroups;
             set
@@ -253,25 +235,31 @@ namespace Umbraco.Core.Models
         /// </summary>
         [IgnoreDataMember]
         [DoNotClone]
-        public virtual IEnumerable<PropertyType> PropertyTypes
+        public IEnumerable<PropertyType> PropertyTypes
         {
             get
             {
-                return _propertyTypes.Union(PropertyGroups.SelectMany(x => x.PropertyTypes));
+                return _noGroupPropertyTypes.Union(PropertyGroups.SelectMany(x => x.PropertyTypes));
             }
         }
 
         /// <summary>
         /// Gets or sets the property types that are not in a group.
         /// </summary>
+        /// <remarks>
+        /// Marked DoNotClone because we will manually deal with cloning and the event handlers
+        /// </remarks>
+        [DoNotClone]
         public IEnumerable<PropertyType> NoGroupPropertyTypes
         {
-            get => _propertyTypes;
+            get => _noGroupPropertyTypes;
             set
             {
-                _propertyTypes = new PropertyTypeCollection(IsPublishing, value);
-                _propertyTypes.CollectionChanged += PropertyTypesChanged;
-                PropertyTypesChanged(_propertyTypes, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+                if (_noGroupPropertyTypes != null)
+                    _noGroupPropertyTypes.CollectionChanged -= PropertyTypesChanged;
+                _noGroupPropertyTypes = new PropertyTypeCollection(SupportsPublishing, value);
+                _noGroupPropertyTypes.CollectionChanged += PropertyTypesChanged;
+                PropertyTypesChanged(_noGroupPropertyTypes, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
             }
         }
 
@@ -289,7 +277,7 @@ namespace Umbraco.Core.Models
             private set
             {
                 _hasPropertyTypeBeenRemoved = value;
-                OnPropertyChanged(Ps.Value.HasPropertyTypeBeenRemovedSelector);
+                OnPropertyChanged(nameof(HasPropertyTypeBeenRemoved));
             }
         }
 
@@ -325,7 +313,7 @@ namespace Umbraco.Core.Models
         {
             if (PropertyTypeExists(propertyType.Alias) == false)
             {
-                _propertyTypes.Add(propertyType);
+                _noGroupPropertyTypes.Add(propertyType);
                 return true;
             }
 
@@ -374,22 +362,28 @@ namespace Umbraco.Core.Models
         /// <param name="propertyTypeAlias">Alias of the <see cref="PropertyType"/> to remove</param>
         public void RemovePropertyType(string propertyTypeAlias)
         {
-            //check if the property exist in one of our collections
-            if (PropertyGroups.Any(group => group.PropertyTypes.Any(pt => pt.Alias == propertyTypeAlias))
-                || _propertyTypes.Any(x => x.Alias == propertyTypeAlias))
-            {
-                //set the flag that a property has been removed
-                HasPropertyTypeBeenRemoved = true;
-            }
-
+            //check through each property group to see if we can remove the property type by alias from it
             foreach (var propertyGroup in PropertyGroups)
             {
-                propertyGroup.PropertyTypes.RemoveItem(propertyTypeAlias);
+                if (propertyGroup.PropertyTypes.RemoveItem(propertyTypeAlias))
+                {
+                    if (!HasPropertyTypeBeenRemoved)
+                    {
+                        HasPropertyTypeBeenRemoved = true;
+                        OnPropertyChanged(nameof(PropertyTypes));
+                    }
+                    break;
+                }
             }
 
-            if (_propertyTypes.Any(x => x.Alias == propertyTypeAlias))
+            //check through each local property type collection (not assigned to a tab)
+            if (_noGroupPropertyTypes.RemoveItem(propertyTypeAlias))
             {
-                _propertyTypes.RemoveItem(propertyTypeAlias);
+                if (!HasPropertyTypeBeenRemoved)
+                {
+                    HasPropertyTypeBeenRemoved = true;
+                    OnPropertyChanged(nameof(PropertyTypes));
+                }
             }
         }
 
@@ -407,34 +401,20 @@ namespace Umbraco.Core.Models
             foreach (var property in group.PropertyTypes)
             {
                 property.PropertyGroupId = null;
-                _propertyTypes.Add(property);
+                _noGroupPropertyTypes.Add(property);
             }
 
             // actually remove the group
             PropertyGroups.RemoveItem(propertyGroupName);
-            OnPropertyChanged(Ps.Value.PropertyGroupCollectionSelector);
+            OnPropertyChanged(nameof(PropertyGroups));
         }
 
         /// <summary>
         /// PropertyTypes that are not part of a PropertyGroup
         /// </summary>
         [IgnoreDataMember]
-        internal PropertyTypeCollection PropertyTypeCollection => _propertyTypes;
-
-        /// <summary>
-        /// Indicates whether a specific property on the current <see cref="IContent"/> entity is dirty.
-        /// </summary>
-        /// <param name="propertyName">Name of the property to check</param>
-        /// <returns>True if Property is dirty, otherwise False</returns>
-        public override bool IsPropertyDirty(string propertyName)
-        {
-            bool existsInEntity = base.IsPropertyDirty(propertyName);
-
-            bool anyDirtyGroups = PropertyGroups.Any(x => x.IsPropertyDirty(propertyName));
-            bool anyDirtyTypes = PropertyTypes.Any(x => x.IsPropertyDirty(propertyName));
-
-            return existsInEntity || anyDirtyGroups || anyDirtyTypes;
-        }
+        // TODO: should we mark this as EditorBrowsable hidden since it really isn't ever used?
+        internal PropertyTypeCollection PropertyTypeCollection => _noGroupPropertyTypes;
 
         /// <summary>
         /// Indicates whether the current entity is dirty.
@@ -481,28 +461,34 @@ namespace Umbraco.Core.Models
             }
         }
 
-        public override object DeepClone()
+        protected override void PerformDeepClone(object clone)
         {
-            var clone = (ContentTypeBase)base.DeepClone();
-            //turn off change tracking
-            clone.DisableChangeTracking();
-            //need to manually wire up the event handlers for the property type collections - we've ensured
-            // its ignored from the auto-clone process because its return values are unions, not raw and
-            // we end up with duplicates, see: http://issues.umbraco.org/issue/U4-4842
+            base.PerformDeepClone(clone);
 
-            clone._propertyTypes = (PropertyTypeCollection)_propertyTypes.DeepClone();
-            clone._propertyTypes.CollectionChanged += clone.PropertyTypesChanged;
-            //this shouldn't really be needed since we're not tracking
-            clone.ResetDirtyProperties(false);
-            //re-enable tracking
-            clone.EnableChangeTracking();
+            var clonedEntity = (ContentTypeBase) clone;
 
-            return clone;
+            if (clonedEntity._noGroupPropertyTypes != null)
+            {
+                //need to manually wire up the event handlers for the property type collections - we've ensured
+                // its ignored from the auto-clone process because its return values are unions, not raw and
+                // we end up with duplicates, see: http://issues.umbraco.org/issue/U4-4842
+
+                clonedEntity._noGroupPropertyTypes.CollectionChanged -= PropertyTypesChanged;                    //clear this event handler if any
+                clonedEntity._noGroupPropertyTypes = (PropertyTypeCollection) _noGroupPropertyTypes.DeepClone(); //manually deep clone
+                clonedEntity._noGroupPropertyTypes.CollectionChanged += clonedEntity.PropertyTypesChanged;              //re-assign correct event handler
+            }
+
+            if (clonedEntity._propertyGroups != null)
+            {
+                clonedEntity._propertyGroups.CollectionChanged -= PropertyGroupsChanged;              //clear this event handler if any
+                clonedEntity._propertyGroups = (PropertyGroupCollection) _propertyGroups.DeepClone(); //manually deep clone
+                clonedEntity._propertyGroups.CollectionChanged += clonedEntity.PropertyGroupsChanged;        //re-assign correct event handler
+            }
         }
 
-        public IContentType DeepCloneWithResetIdentities(string alias)
+        public ContentTypeBase DeepCloneWithResetIdentities(string alias)
         {
-            var clone = (ContentType)DeepClone();
+            var clone = (ContentTypeBase)DeepClone();
             clone.Alias = alias;
             clone.Key = Guid.Empty;
             foreach (var propertyGroup in clone.PropertyGroups)

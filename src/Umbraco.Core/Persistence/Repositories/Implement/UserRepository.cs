@@ -35,22 +35,22 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         /// Constructor
         /// </summary>
         /// <param name="scopeAccessor"></param>
-        /// <param name="cacheHelper"></param>
+        /// <param name="appCaches"></param>
         /// <param name="logger"></param>
         /// <param name="mapperCollection">
         /// A dictionary specifying the configuration for user passwords. If this is null then no password configuration will be persisted or read.
         /// </param>
         /// <param name="globalSettings"></param>
-        public UserRepository(IScopeAccessor scopeAccessor, CacheHelper cacheHelper, ILogger logger, IMapperCollection mapperCollection, IGlobalSettings globalSettings)
-            : base(scopeAccessor, cacheHelper, logger)
+        public UserRepository(IScopeAccessor scopeAccessor, AppCaches appCaches, ILogger logger, IMapperCollection mapperCollection, IGlobalSettings globalSettings)
+            : base(scopeAccessor, appCaches, logger)
         {
             _mapperCollection = mapperCollection;
             _globalSettings = globalSettings;
         }
 
         // for tests
-        internal UserRepository(IScopeAccessor scopeAccessor, CacheHelper cacheHelper, ILogger logger, IMapperCollection mapperCollection, IDictionary<string, string> passwordConfig, IGlobalSettings globalSettings)
-            : base(scopeAccessor, cacheHelper, logger)
+        internal UserRepository(IScopeAccessor scopeAccessor, AppCaches appCaches, ILogger logger, IMapperCollection mapperCollection, IDictionary<string, string> passwordConfig, IGlobalSettings globalSettings)
+            : base(scopeAccessor, appCaches, logger)
         {
             _mapperCollection = mapperCollection;
             _globalSettings = globalSettings;
@@ -65,7 +65,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                 if (_passwordConfigInitialized)
                     return _passwordConfigJson;
 
-                // fixme - this is bad
+                // TODO: this is bad
                 // because the membership provider we're trying to get has a dependency on the user service
                 // and we should not depend on services in repositories - need a way better way to do this
 
@@ -129,7 +129,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
 
         public IProfile GetProfile(string username)
         {
-            var dto = GetDtoWith(sql => sql.Where<UserDto>(x => x.UserName == username), false);
+            var dto = GetDtoWith(sql => sql.Where<UserDto>(x => x.Login == username), false);
             return dto == null ? null : new UserProfile(dto.Id, dto.UserName);
         }
 
@@ -150,6 +150,8 @@ UNION
 SELECT '4CountOfLockedOut' AS colName, COUNT(id) AS num FROM umbracoUser WHERE userNoConsole = 1
 UNION
 SELECT '5CountOfInvited' AS colName, COUNT(id) AS num FROM umbracoUser WHERE lastLoginDate IS NULL AND userDisabled = 1 AND invitedDate IS NOT NULL
+UNION
+SELECT '6CountOfDisabled' AS colName, COUNT(id) AS num FROM umbracoUser WHERE userDisabled = 0 AND userNoConsole = 0 AND lastLoginDate IS NULL 
 ORDER BY colName";
 
             var result = Database.Fetch<dynamic>(sql);
@@ -160,13 +162,14 @@ ORDER BY colName";
                 {UserState.Active, (int) result[1].num},
                 {UserState.Disabled, (int) result[2].num},
                 {UserState.LockedOut, (int) result[3].num},
-                {UserState.Invited, (int) result[4].num}
+                {UserState.Invited, (int) result[4].num},
+                {UserState.Inactive, (int) result[5].num}
             };
         }
 
         public Guid CreateLoginSession(int userId, string requestingIpAddress, bool cleanStaleSessions = true)
         {
-            //TODO: I know this doesn't follow the normal repository conventions which would require us to crete a UserSessionRepository
+            // TODO: I know this doesn't follow the normal repository conventions which would require us to create a UserSessionRepository
             //and also business logic models for these objects but that's just so overkill for what we are doing
             //and now that everything is properly in a transaction (Scope) there doesn't seem to be much reason for using that anymore
             var now = DateTime.UtcNow;
@@ -191,7 +194,20 @@ ORDER BY colName";
 
         public bool ValidateLoginSession(int userId, Guid sessionId)
         {
-            var found = Database.FirstOrDefault<UserLoginDto>("WHERE sessionId=@sessionId", new {sessionId = sessionId});
+            // with RepeatableRead transaction mode, read-then-update operations can
+            // cause deadlocks, and the ForUpdate() hint is required to tell the database
+            // to acquire an exclusive lock when reading
+
+            // that query is going to run a *lot*, make it a template
+            var t = SqlContext.Templates.Get("Umbraco.Core.UserRepository.ValidateLoginSession", s => s
+                .Select<UserLoginDto>()
+                .From<UserLoginDto>()
+                .Where<UserLoginDto>(x => x.SessionId == SqlTemplate.Arg<Guid>("sessionId"))
+                .ForUpdate());
+
+            var sql = t.Sql(sessionId);
+
+            var found = Database.Query<UserLoginDto>(sql).FirstOrDefault();
             if (found == null || found.UserId != userId || found.LoggedOutUtc.HasValue)
                 return false;
 
@@ -211,34 +227,21 @@ ORDER BY colName";
 
         public int ClearLoginSessions(int userId)
         {
-            //TODO: I know this doesn't follow the normal repository conventions which would require us to crete a UserSessionRepository
-            //and also business logic models for these objects but that's just so overkill for what we are doing
-            //and now that everything is properly in a transaction (Scope) there doesn't seem to be much reason for using that anymore
-            var count = Database.ExecuteScalar<int>("SELECT COUNT(*) FROM umbracoUserLogin WHERE userId=@userId", new { userId = userId });
-            Database.Execute("DELETE FROM umbracoUserLogin WHERE userId=@userId", new {userId = userId});
-            return count;
+            return Database.Delete<UserLoginDto>(Sql().Where<UserLoginDto>(x => x.UserId == userId));
         }
 
         public int ClearLoginSessions(TimeSpan timespan)
         {
-            //TODO: I know this doesn't follow the normal repository conventions which would require us to crete a UserSessionRepository
-            //and also business logic models for these objects but that's just so overkill for what we are doing
-            //and now that everything is properly in a transaction (Scope) there doesn't seem to be much reason for using that anymore
-
             var fromDate = DateTime.UtcNow - timespan;
-
-            var count = Database.ExecuteScalar<int>("SELECT COUNT(*) FROM umbracoUserLogin WHERE lastValidatedUtc=@fromDate", new { fromDate = fromDate });
-            Database.Execute("DELETE FROM umbracoUserLogin WHERE lastValidatedUtc=@fromDate", new { fromDate = fromDate });
-            return count;
+            return Database.Delete<UserLoginDto>(Sql().Where<UserLoginDto>(x => x.LastValidatedUtc < fromDate));
         }
 
         public void ClearLoginSession(Guid sessionId)
         {
-            //TODO: I know this doesn't follow the normal repository conventions which would require us to crete a UserSessionRepository
-            //and also business logic models for these objects but that's just so overkill for what we are doing
-            //and now that everything is properly in a transaction (Scope) there doesn't seem to be much reason for using that anymore
-            Database.Execute("UPDATE umbracoUserLogin SET loggedOutUtc=@now WHERE sessionId=@sessionId",
-                new { now = DateTime.UtcNow, sessionId = sessionId });
+            // TODO: why is that one updating and not deleting?
+            Database.Execute(Sql()
+                .Update<UserLoginDto>(u => u.Set(x => x.LoggedOutUtc, DateTime.UtcNow))
+                .Where<UserLoginDto>(x => x.SessionId == sessionId));
         }
 
         protected override IEnumerable<IUser> PerformGetAll(params int[] ids)
@@ -297,7 +300,7 @@ ORDER BY colName";
         // NPoco cannot fetch 2+ references at a time
         // plus it creates a combinatorial explosion
         // better use extra queries
-        // unfortunately, SqlCe and MySql don't support multiple result sets
+        // unfortunately, SqlCe doesn't support multiple result sets
         private void PerformGetReferencedDtos(List<UserDto> dtos)
         {
             if (dtos.Count == 0) return;
@@ -310,7 +313,7 @@ ORDER BY colName";
             var sql = SqlContext.Sql()
                 .Select<User2UserGroupDto>()
                 .From<User2UserGroupDto>()
-                .WhereIn<User2UserGroupReadOnlyDto>(x => x.UserId, userIds);
+                .WhereIn<User2UserGroupDto>(x => x.UserId, userIds);
 
             var users2groups = Database.Fetch<User2UserGroupDto>(sql);
             var groupIds = users2groups.Select(x => x.UserGroupId).ToList();
@@ -418,10 +421,9 @@ ORDER BY colName";
         {
             var list = new List<string>
             {
-                "DELETE FROM cmsTask WHERE userId = @id",
-                "DELETE FROM cmsTask WHERE parentUserId = @id",
                 "DELETE FROM umbracoUser2UserGroup WHERE userId = @id",
                 "DELETE FROM umbracoUser2NodeNotify WHERE userId = @id",
+                "DELETE FROM umbracoUserStartNode WHERE userId = @id",
                 "DELETE FROM umbracoUser WHERE id = @id",
                 "DELETE FROM umbracoExternalLogin WHERE id = @id"
             };
@@ -441,7 +443,7 @@ ORDER BY colName";
             var userDto = UserFactory.BuildDto(entity);
 
             // check if we have a known config, we only want to store config for hashing
-            //TODO: This logic will need to be updated when we do http://issues.umbraco.org/issue/U4-10089
+            // TODO: This logic will need to be updated when we do http://issues.umbraco.org/issue/U4-10089
             if (PasswordConfigJson != null)
                 userDto.PasswordConfig = PasswordConfigJson;
 
@@ -536,7 +538,7 @@ ORDER BY colName";
                 }
 
                 // check if we have a known config, we only want to store config for hashing
-                //TODO: This logic will need to be updated when we do http://issues.umbraco.org/issue/U4-10089
+                // TODO: This logic will need to be updated when we do http://issues.umbraco.org/issue/U4-10089
                 if (PasswordConfigJson != null)
                 {
                     userDto.PasswordConfig = PasswordConfigJson;
@@ -571,7 +573,7 @@ ORDER BY colName";
                     : Database.Fetch<UserGroupDto>("SELECT * FROM umbracoUserGroup WHERE userGroupAlias IN (@aliases)", new { aliases = entity.Groups.Select(x => x.Alias) });
 
                 //first delete all
-                //TODO: We could do this a nicer way instead of "Nuke and Pave"
+                // TODO: We could do this a nicer way instead of "Nuke and Pave"
                 Database.Delete<User2UserGroupDto>("WHERE UserId = @UserId", new { UserId = entity.Id });
 
                 foreach (var groupDto in assigned)
@@ -688,7 +690,7 @@ ORDER BY colName";
         /// <param name="excludeUserGroups">
         /// A filter to only include users that do not belong to these user groups
         /// </param>
-        /// <param name="userState">Optional parameter to filter by specfied user state</param>
+        /// <param name="userState">Optional parameter to filter by specified user state</param>
         /// <param name="filter"></param>
         /// <returns></returns>
         /// <remarks>
@@ -700,25 +702,8 @@ ORDER BY colName";
         {
             if (orderBy == null) throw new ArgumentNullException(nameof(orderBy));
 
-            // get the referenced column name and find the corresp mapped column name
-            var expressionMember = ExpressionHelper.GetMemberInfo(orderBy);
-            var mapper = _mapperCollection[typeof(IUser)];
-            var mappedField = mapper.Map(SqlContext.SqlSyntax, expressionMember.Name);
-
-            if (mappedField.IsNullOrWhiteSpace())
-                throw new ArgumentException("Could not find a mapping for the column specified in the orderBy clause");
-
-            return GetPagedResultsByQuery(query, pageIndex, pageSize, out totalRecords, mappedField, orderDirection, includeUserGroups, excludeUserGroups, userState, filter);
-        }
-
-        private IEnumerable<IUser> GetPagedResultsByQuery(IQuery<IUser> query, long pageIndex, int pageSize, out long totalRecords,
-            string orderBy, Direction orderDirection = Direction.Ascending,
-            string[] includeUserGroups = null, string[] excludeUserGroups = null, UserState[] userState = null, IQuery<IUser> filter = null)
-        {
-            if (string.IsNullOrWhiteSpace(orderBy)) throw new ArgumentException("Value cannot be null or whitespace.", nameof(orderBy));
-
             Sql<ISqlContext> filterSql = null;
-            var customFilterWheres = filter != null ? filter.GetWhereClauses().ToArray() : null;
+            var customFilterWheres = filter?.GetWhereClauses().ToArray();
             var hasCustomFilter = customFilterWheres != null && customFilterWheres.Length > 0;
             if (hasCustomFilter
                 || includeUserGroups != null && includeUserGroups.Length > 0
@@ -732,7 +717,6 @@ ORDER BY colName";
                     filterSql.Append($"AND ({clause.Item1})", clause.Item2);
             }
 
-
             if (includeUserGroups != null && includeUserGroups.Length > 0)
             {
                 const string subQuery = @"AND (umbracoUser.id IN (SELECT DISTINCT umbracoUser.id
@@ -745,7 +729,7 @@ ORDER BY colName";
 
             if (excludeUserGroups != null && excludeUserGroups.Length > 0)
             {
-                var subQuery = @"AND (umbracoUser.id NOT IN (SELECT DISTINCT umbracoUser.id
+                const string subQuery = @"AND (umbracoUser.id NOT IN (SELECT DISTINCT umbracoUser.id
                     FROM umbracoUser
                     INNER JOIN umbracoUser2UserGroup ON umbracoUser2UserGroup.userId = umbracoUser.id
                     INNER JOIN umbracoUserGroup ON umbracoUserGroup.id = umbracoUser2UserGroup.userGroupId
@@ -764,6 +748,12 @@ ORDER BY colName";
                     if (userState.Contains(UserState.Active))
                     {
                         sb.Append("(userDisabled = 0 AND userNoConsole = 0 AND lastLoginDate IS NOT NULL)");
+                        appended = true;
+                    }
+                    if (userState.Contains(UserState.Inactive))
+                    {
+                        if (appended) sb.Append(" OR ");
+                        sb.Append("(userDisabled = 0 AND userNoConsole = 0 AND lastLoginDate IS NULL)");
                         appended = true;
                     }
                     if (userState.Contains(UserState.Disabled))
@@ -800,7 +790,7 @@ ORDER BY colName";
                 sql = new SqlTranslator<IUser>(sql, query).Translate();
 
             // get sorted and filtered sql
-            var sqlNodeIdsWithSort = ApplySort(ApplyFilter(sql, filterSql), orderDirection, orderBy);
+            var sqlNodeIdsWithSort = ApplySort(ApplyFilter(sql, filterSql, query != null), orderBy, orderDirection);
 
             // get a page of results and total count
             var pagedResult = Database.Page<UserDto>(pageIndex + 1, pageSize, sqlNodeIdsWithSort);
@@ -811,23 +801,51 @@ ORDER BY colName";
             return pagedResult.Items.Select(UserFactory.BuildEntity);
         }
 
-        private Sql<ISqlContext> ApplyFilter(Sql<ISqlContext> sql, Sql<ISqlContext> filterSql)
+        private Sql<ISqlContext> ApplyFilter(Sql<ISqlContext> sql, Sql<ISqlContext> filterSql, bool hasWhereClause)
         {
             if (filterSql == null) return sql;
 
-            sql.Append(SqlContext.Sql(" WHERE " + filterSql.SQL.TrimStart("AND "), filterSql.Arguments));
+            //ensure we don't append a WHERE if there is already one
+            var args = filterSql.Arguments;
+            var sqlFilter = hasWhereClause
+                ? filterSql.SQL
+                : " WHERE " + filterSql.SQL.TrimStart("AND ");
+
+            sql.Append(SqlContext.Sql(sqlFilter, args));
 
             return sql;
         }
 
-        private static Sql<ISqlContext> ApplySort(Sql<ISqlContext> sql, Direction orderDirection, string orderBy)
+        private Sql<ISqlContext> ApplySort(Sql<ISqlContext> sql, Expression<Func<IUser, object>> orderBy, Direction orderDirection)
         {
-            if (string.IsNullOrEmpty(orderBy)) return sql;
+            if (orderBy == null) return sql;
+
+            var expressionMember = ExpressionHelper.GetMemberInfo(orderBy);
+            var mapper = _mapperCollection[typeof(IUser)];
+            var mappedField = mapper.Map(expressionMember.Name);
+
+            if (mappedField.IsNullOrWhiteSpace())
+                throw new ArgumentException("Could not find a mapping for the column specified in the orderBy clause");
+
+            // beware! NPoco paging code parses the query to isolate the ORDER BY fragment,
+            // using a regex that wants "([\w\.\[\]\(\)\s""`,]+)" - meaning that anything
+            // else in orderBy is going to break NPoco / not be detected
+
+            // beware! NPoco paging code (in PagingHelper) collapses everything [foo].[bar]
+            // to [bar] only, so we MUST use aliases, cannot use [table].[field]
+
+            // beware! pre-2012 SqlServer is using a convoluted syntax for paging, which
+            // includes "SELECT ROW_NUMBER() OVER (ORDER BY ...) poco_rn FROM SELECT (...",
+            // so anything added here MUST also be part of the inner SELECT statement, ie
+            // the original statement, AND must be using the proper alias, as the inner SELECT
+            // will hide the original table.field names entirely
+
+            var orderByField = sql.GetAliasedField(mappedField);
 
             if (orderDirection == Direction.Ascending)
-                sql.OrderBy(orderBy);
+                sql.OrderBy(orderByField);
             else
-                sql.OrderByDescending(orderBy);
+                sql.OrderByDescending(orderByField);
 
             return sql;
         }

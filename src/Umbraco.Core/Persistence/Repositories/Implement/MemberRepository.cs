@@ -6,11 +6,12 @@ using NPoco;
 using Umbraco.Core.Cache;
 using Umbraco.Core.Logging;
 using Umbraco.Core.Models;
-using Umbraco.Core.Persistence.DatabaseModelDefinitions;
 using Umbraco.Core.Persistence.Dtos;
 using Umbraco.Core.Persistence.Factories;
 using Umbraco.Core.Persistence.Querying;
 using Umbraco.Core.Scoping;
+using Umbraco.Core.Services;
+using static Umbraco.Core.Persistence.NPocoSqlExtensions.Statics;
 
 namespace Umbraco.Core.Persistence.Repositories.Implement
 {
@@ -23,7 +24,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         private readonly ITagRepository _tagRepository;
         private readonly IMemberGroupRepository _memberGroupRepository;
 
-        public MemberRepository(IScopeAccessor scopeAccessor, CacheHelper cache, ILogger logger, IMemberTypeRepository memberTypeRepository, IMemberGroupRepository memberGroupRepository, ITagRepository tagRepository, ILanguageRepository languageRepository)
+        public MemberRepository(IScopeAccessor scopeAccessor, AppCaches cache, ILogger logger, IMemberTypeRepository memberTypeRepository, IMemberGroupRepository memberGroupRepository, ITagRepository tagRepository, ILanguageRepository languageRepository)
             : base(scopeAccessor, cache, languageRepository, logger)
         {
             _memberTypeRepository = memberTypeRepository ?? throw new ArgumentNullException(nameof(memberTypeRepository));
@@ -65,11 +66,11 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         {
             var baseQuery = GetBaseQuery(false);
 
-            // fixme why is this different from content/media?!
+            // TODO: why is this different from content/media?!
             // check if the query is based on properties or not
 
             var wheres = query.GetWhereClauses();
-            //this is a pretty rudimentary check but wil work, we just need to know if this query requires property
+            //this is a pretty rudimentary check but will work, we just need to know if this query requires property
             // level queries
             if (wheres.Any(x => x.Item1.Contains("cmsPropertyType")))
             {
@@ -102,7 +103,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         {
             var sql = SqlContext.Sql();
 
-            switch (queryType) // FIXME pretend we still need these queries for now
+            switch (queryType) // TODO: pretend we still need these queries for now
             {
                 case QueryType.Count:
                     sql = sql.SelectCount();
@@ -113,9 +114,13 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                 case QueryType.Single:
                 case QueryType.Many:
                     sql = sql.Select<MemberDto>(r =>
-                        r.Select(x => x.ContentVersionDto)
-                         .Select(x => x.ContentDto, r1 =>
-                            r1.Select(x => x.NodeDto)));
+                            r.Select(x => x.ContentVersionDto)
+                                .Select(x => x.ContentDto, r1 =>
+                                    r1.Select(x => x.NodeDto)))
+
+                        // ContentRepositoryBase expects a variantName field to order by name
+                        // so get it here, though for members it's just the plain node name
+                        .AndSelect<NodeDto>(x => Alias(x.Text, "variantName"));
                     break;
             }
 
@@ -138,18 +143,18 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             return sql;
         }
 
-        // fixme - move that one up to Versionable! or better: kill it!
+        // TODO: move that one up to Versionable! or better: kill it!
         protected override Sql<ISqlContext> GetBaseQuery(bool isCount)
         {
             return GetBaseQuery(isCount ? QueryType.Count : QueryType.Single);
         }
 
-        protected override string GetBaseWhereClause() // fixme - can we kill / refactor this?
+        protected override string GetBaseWhereClause() // TODO: can we kill / refactor this?
         {
             return "umbracoNode.id = @id";
         }
 
-        // fixme wtf?
+        // TODO: document/understand that one
         protected Sql<ISqlContext> GetNodeIdQueryWithPropertyData()
         {
             return Sql()
@@ -174,7 +179,6 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         {
             var list = new List<string>
             {
-                "DELETE FROM cmsTask WHERE nodeId = @id",
                 "DELETE FROM umbracoUser2NodeNotify WHERE nodeId = @id",
                 "DELETE FROM umbracoUserGroup2NodePermission WHERE nodeId = @id",
                 "DELETE FROM umbracoRelation WHERE parentId = @id",
@@ -184,7 +188,6 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                 "DELETE FROM cmsMember2MemberGroup WHERE Member = @id",
                 "DELETE FROM cmsMember WHERE nodeId = @id",
                 "DELETE FROM " + Constants.DatabaseSchema.Tables.ContentVersion + " WHERE nodeId = @id",
-                "DELETE FROM cmsContentXml WHERE nodeId = @id",
                 "DELETE FROM " + Constants.DatabaseSchema.Tables.Content + " WHERE nodeId = @id",
                 "DELETE FROM umbracoNode WHERE id = @id"
             };
@@ -233,7 +236,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             member.AddingEntity();
 
             // ensure that strings don't contain characters that are invalid in xml
-            // fixme - do we really want to keep doing this here?
+            // TODO: do we really want to keep doing this here?
             entity.SanitizeEntityPropertiesForXmlStorage();
 
             // create the dto
@@ -306,7 +309,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             Database.Insert(dto);
 
             // persist the property data
-            var propertyDataDtos = PropertyFactory.BuildDtos(member.VersionId, 0, entity.Properties, LanguageRepository, out _, out _);
+            var propertyDataDtos = PropertyFactory.BuildDtos(member.ContentType.Variations, member.VersionId, 0, entity.Properties, LanguageRepository, out _, out _);
             foreach (var propertyDataDto in propertyDataDtos)
                 Database.Insert(propertyDataDto);
 
@@ -325,7 +328,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             member.UpdatingEntity();
 
             // ensure that strings don't contain characters that are invalid in xml
-            // fixme - do we really want to keep doing this here?
+            // TODO: do we really want to keep doing this here?
             entity.SanitizeEntityPropertiesForXmlStorage();
 
             // if parent has changed, get path, level and sort order
@@ -371,7 +374,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             // replace the property data
             var deletePropertyDataSql = SqlContext.Sql().Delete<PropertyDataDto>().Where<PropertyDataDto>(x => x.VersionId == member.VersionId);
             Database.Execute(deletePropertyDataSql);
-            var propertyDataDtos = PropertyFactory.BuildDtos(member.VersionId, 0, entity.Properties, LanguageRepository, out _, out _);
+            var propertyDataDtos = PropertyFactory.BuildDtos(member.ContentType.Variations, member.VersionId, 0, entity.Properties, LanguageRepository, out _, out _);
             foreach (var propertyDataDto in propertyDataDtos)
                 Database.Insert(propertyDataDto);
 
@@ -456,7 +459,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             var subQuery = Sql().Select("Member").From<Member2MemberGroupDto>().Where<Member2MemberGroupDto>(dto => dto.MemberGroup == memberGroup.Id);
 
             var sql = GetBaseQuery(false)
-                //TODO: An inner join would be better, though I've read that the query optimizer will always turn a
+                // TODO: An inner join would be better, though I've read that the query optimizer will always turn a
                 // subquery with an IN clause into an inner join anyways.
                 .Append("WHERE umbracoNode.id IN (" + subQuery.SQL + ")", subQuery.Arguments)
                 .OrderByDescending<ContentVersionDto>(x => x.VersionDate)
@@ -492,8 +495,10 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
         /// <summary>
         /// Gets paged member results.
         /// </summary>
-        public override IEnumerable<IMember> GetPage(IQuery<IMember> query, long pageIndex, int pageSize, out long totalRecords,
-            string orderBy, Direction orderDirection, bool orderBySystemField, IQuery<IMember> filter = null)
+        public override IEnumerable<IMember> GetPage(IQuery<IMember> query,
+            long pageIndex, int pageSize, out long totalRecords,
+            IQuery<IMember> filter,
+            Ordering ordering)
         {
             Sql<ISqlContext> filterSql = null;
 
@@ -505,8 +510,9 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             }
 
             return GetPage<MemberDto>(query, pageIndex, pageSize, out totalRecords,
-                x => MapDtosToContent(x), orderBy, orderDirection, orderBySystemField,
-                filterSql);
+                x => MapDtosToContent(x),
+                filterSql,
+                ordering);
         }
 
         private string _pagedResultsByQueryWhere;
@@ -523,20 +529,18 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             return _pagedResultsByQueryWhere;
         }
 
-        protected override string GetDatabaseFieldNameForOrderBy(string orderBy)
+        protected override string ApplySystemOrdering(ref Sql<ISqlContext> sql, Ordering ordering)
         {
-            //Some custom ones
-            switch (orderBy.ToUpperInvariant())
-            {
-                case "EMAIL":
-                    return GetDatabaseFieldNameForOrderBy("cmsMember", "email");
-                case "LOGINNAME":
-                    return GetDatabaseFieldNameForOrderBy("cmsMember", "loginName");
-                case "USERNAME":
-                    return GetDatabaseFieldNameForOrderBy("cmsMember", "loginName");
-            }
+            if (ordering.OrderBy.InvariantEquals("email"))
+                return SqlSyntax.GetFieldName<MemberDto>(x => x.Email);
 
-            return base.GetDatabaseFieldNameForOrderBy(orderBy);
+            if (ordering.OrderBy.InvariantEquals("loginName"))
+                return SqlSyntax.GetFieldName<MemberDto>(x => x.LoginName);
+
+            if (ordering.OrderBy.InvariantEquals("userName"))
+                return SqlSyntax.GetFieldName<MemberDto>(x => x.LoginName);
+
+            return base.ApplySystemOrdering(ref sql, ordering);
         }
 
         private IEnumerable<IMember> MapDtosToContent(List<MemberDto> dtos, bool withCache = false)
@@ -555,7 +559,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
                     var cached = IsolatedCache.GetCacheItem<IMember>(RepositoryCacheKeys.GetKey<IMember>(dto.NodeId));
                     if (cached != null && cached.VersionId == dto.ContentVersionDto.Id)
                     {
-                        content[i] = (Member) cached; // fixme should we just cache Content not IContent?
+                        content[i] = (Member) cached;
                         continue;
                     }
                 }
@@ -578,7 +582,7 @@ namespace Umbraco.Core.Persistence.Repositories.Implement
             // load all properties for all documents from database in 1 query - indexed by version id
             var properties = GetPropertyCollections(temps);
 
-            // assign properites
+            // assign properties
             foreach (var temp in temps)
             {
                 temp.Content.Properties = properties[temp.VersionId];

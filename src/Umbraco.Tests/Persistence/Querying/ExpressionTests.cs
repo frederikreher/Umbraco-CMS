@@ -52,10 +52,26 @@ namespace Umbraco.Tests.Persistence.Querying
         }
 
         [Test]
-        public void Can_Query_With_Content_Type_Aliases()
+        public void Can_Query_With_Content_Type_Aliases_IEnumerable()
         {
-            //Arrange
+            //Arrange - Contains is IEnumerable.Contains extension method
             var aliases = new[] { "Test1", "Test2" };
+            Expression<Func<IMedia, bool>> predicate = content => aliases.Contains(content.ContentType.Alias);
+            var modelToSqlExpressionHelper = new ModelToSqlExpressionVisitor<IContent>(SqlContext.SqlSyntax, Mappers);
+            var result = modelToSqlExpressionHelper.Visit(predicate);
+
+            Debug.Print("Model to Sql ExpressionHelper: \n" + result);
+
+            Assert.AreEqual("[cmsContentType].[alias] IN (@1,@2)", result);
+            Assert.AreEqual("Test1", modelToSqlExpressionHelper.GetSqlParameters()[1]);
+            Assert.AreEqual("Test2", modelToSqlExpressionHelper.GetSqlParameters()[2]);
+        }
+
+        [Test]
+        public void Can_Query_With_Content_Type_Aliases_List()
+        {
+            //Arrange - Contains is List.Contains instance method
+            var aliases = new System.Collections.Generic.List<string> { "Test1", "Test2" };
             Expression<Func<IMedia, bool>> predicate = content => aliases.Contains(content.ContentType.Alias);
             var modelToSqlExpressionHelper = new ModelToSqlExpressionVisitor<IContent>(SqlContext.SqlSyntax, Mappers);
             var result = modelToSqlExpressionHelper.Visit(predicate);
@@ -144,41 +160,7 @@ namespace Umbraco.Tests.Persistence.Querying
             Assert.AreEqual("upper([umbracoUser].[userLogin]) = upper(@0)", result);
             Assert.AreEqual("hello@world.com", modelToSqlExpressionHelper.GetSqlParameters()[0]);
         }
-
-        [Test]
-        public void Model_Expression_Value_Does_Not_Get_Double_Escaped()
-        {
-            //mysql escapes backslashes, so we'll test with that
-            var sqlSyntax = new MySqlSyntaxProvider(Mock.Of<ILogger>());
-            var sqlContext = new SqlContext(sqlSyntax, DatabaseType.MySQL, SqlContext.PocoDataFactory);
-
-            Expression<Func<IUser, bool>> predicate = user => user.Username.Equals("mydomain\\myuser");
-            var modelToSqlExpressionHelper = new ModelToSqlExpressionVisitor<IUser>(sqlContext.SqlSyntax, Mappers);
-            var result = modelToSqlExpressionHelper.Visit(predicate);
-
-            Debug.Print("Model to Sql ExpressionHelper: \n" + result);
-
-            Assert.AreEqual("upper(`umbracoUser`.`userLogin`) = upper(@0)", result);
-            Assert.AreEqual("mydomain\\myuser", modelToSqlExpressionHelper.GetSqlParameters()[0]);
-        }
-
-        [Test]
-        public void Poco_Expression_Value_Does_Not_Get_Double_Escaped()
-        {
-            //mysql escapes backslashes, so we'll test with that
-            var sqlSyntax = new MySqlSyntaxProvider(Mock.Of<ILogger>());
-            var sqlContext = new SqlContext(sqlSyntax, DatabaseType.MySQL, SqlContext.PocoDataFactory);
-
-            Expression<Func<UserDto, bool>> predicate = user => user.Login.StartsWith("mydomain\\myuser");
-            var modelToSqlExpressionHelper = new PocoToSqlExpressionVisitor<UserDto>(sqlContext, null);
-            var result = modelToSqlExpressionHelper.Visit(predicate);
-
-            Debug.Print("Poco to Sql ExpressionHelper: \n" + result);
-
-            Assert.AreEqual("upper(`umbracoUser`.`userLogin`) LIKE upper(@0)", result);
-            Assert.AreEqual("mydomain\\myuser%", modelToSqlExpressionHelper.GetSqlParameters()[0]);
-        }
-
+        
         [Test]
         public void Sql_Replace_Mapped()
         {

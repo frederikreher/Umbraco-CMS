@@ -3,14 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using Umbraco.Core.Models;
 using Umbraco.Core.Persistence.Dtos;
-using Umbraco.Core.Persistence.Repositories;
 using Umbraco.Core.Persistence.Repositories.Implement;
 
 namespace Umbraco.Core.Persistence.Factories
 {
-    internal class MemberTypeReadOnlyFactory
+    internal static class MemberTypeReadOnlyFactory
     {
-        public IMemberType BuildEntity(MemberTypeReadOnlyDto dto, out bool needsSaving)
+        public static IMemberType BuildEntity(MemberTypeReadOnlyDto dto, out bool needsSaving)
         {
             var standardPropertyTypes = Constants.Conventions.Member.GetStandardPropertyTypeStubs();
             needsSaving = false;
@@ -44,7 +43,7 @@ namespace Umbraco.Core.Persistence.Factories
 
                 var propertyTypes = GetPropertyTypes(dto, memberType, standardPropertyTypes);
 
-                //By Convention we add 9 stnd PropertyTypes - This is only here to support loading of types that didn't have these conventions before.
+                //By Convention we add 9 standard PropertyTypes - This is only here to support loading of types that didn't have these conventions before.
                 foreach (var standardPropertyType in standardPropertyTypes)
                 {
                     if (dto.PropertyTypes.Any(x => x.Alias.Equals(standardPropertyType.Key))) continue;
@@ -72,14 +71,14 @@ namespace Umbraco.Core.Persistence.Factories
             }
         }
 
-        private PropertyGroupCollection GetPropertyTypeGroupCollection(MemberTypeReadOnlyDto dto, MemberType memberType, Dictionary<string, PropertyType> standardProps)
+        private static PropertyGroupCollection GetPropertyTypeGroupCollection(MemberTypeReadOnlyDto dto, MemberType memberType, Dictionary<string, PropertyType> standardProps)
         {
             // see PropertyGroupFactory, repeating code here...
 
             var propertyGroups = new PropertyGroupCollection();
             foreach (var groupDto in dto.PropertyTypeGroups.Where(x => x.Id.HasValue))
             {
-                var group = new PropertyGroup(MemberType.IsPublishingConst);
+                var group = new PropertyGroup(MemberType.SupportsPublishingConst);
 
                 // if the group is defined on the current member type,
                 // assign its identifier, else it will be zero
@@ -94,7 +93,7 @@ namespace Umbraco.Core.Persistence.Factories
                 group.Key = groupDto.UniqueId;
                 group.Name = groupDto.Text;
                 group.SortOrder = groupDto.SortOrder;
-                group.PropertyTypes = new PropertyTypeCollection(MemberType.IsPublishingConst);
+                group.PropertyTypes = new PropertyTypeCollection(MemberType.SupportsPublishingConst);
 
                 //Because we are likely to have a group with no PropertyTypes we need to ensure that these are excluded
                 var localGroupDto = groupDto;
@@ -148,9 +147,7 @@ namespace Umbraco.Core.Persistence.Factories
             return propertyGroups;
         }
 
-
-
-        private List<PropertyType> GetPropertyTypes(MemberTypeReadOnlyDto dto, MemberType memberType, Dictionary<string, PropertyType> standardProps)
+        private static List<PropertyType> GetPropertyTypes(MemberTypeReadOnlyDto dto, MemberType memberType, Dictionary<string, PropertyType> standardProps)
         {
             //Find PropertyTypes that does not belong to a PropertyTypeGroup
             var propertyTypes = new List<PropertyType>();
@@ -191,11 +188,6 @@ namespace Umbraco.Core.Persistence.Factories
                 propertyTypes.Add(propertyType);
             }
             return propertyTypes;
-        }
-
-        public MemberTypeReadOnlyDto BuildDto(IMemberType entity)
-        {
-            throw new System.NotImplementedException();
         }
 
     }

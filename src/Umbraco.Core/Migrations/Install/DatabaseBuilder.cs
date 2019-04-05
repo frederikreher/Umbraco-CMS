@@ -11,7 +11,6 @@ using Umbraco.Core.Logging;
 using Umbraco.Core.Migrations.Upgrade;
 using Umbraco.Core.Persistence;
 using Umbraco.Core.Persistence.Dtos;
-using Umbraco.Core.Persistence.SqlSyntax;
 using Umbraco.Core.Scoping;
 using Umbraco.Core.Services;
 
@@ -28,12 +27,14 @@ namespace Umbraco.Core.Migrations.Install
         private readonly IRuntimeState _runtime;
         private readonly IMigrationBuilder _migrationBuilder;
         private readonly IKeyValueService _keyValueService;
-        private readonly PostMigrationCollection _postMigrations;
         private readonly ILogger _logger;
 
         private DatabaseSchemaResult _databaseSchemaValidationResult;
 
-        public DatabaseBuilder(IScopeProvider scopeProvider, IGlobalSettings globalSettings, IUmbracoDatabaseFactory databaseFactory, IRuntimeState runtime, ILogger logger, IMigrationBuilder migrationBuilder, IKeyValueService keyValueService, PostMigrationCollection postMigrations)
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DatabaseBuilder"/> class.
+        /// </summary>
+        public DatabaseBuilder(IScopeProvider scopeProvider, IGlobalSettings globalSettings, IUmbracoDatabaseFactory databaseFactory, IRuntimeState runtime, ILogger logger, IMigrationBuilder migrationBuilder, IKeyValueService keyValueService)
         {
             _scopeProvider = scopeProvider;
             _globalSettings = globalSettings;
@@ -42,30 +43,26 @@ namespace Umbraco.Core.Migrations.Install
             _logger = logger;
             _migrationBuilder = migrationBuilder;
             _keyValueService = keyValueService;
-            _postMigrations = postMigrations;
         }
 
         #region Status
 
         /// <summary>
         /// Gets a value indicating whether the database is configured. It does not necessarily
-        /// mean that it is possible to connect, nor that Umbraco is installed, nor
-        /// up-to-date.
+        /// mean that it is possible to connect, nor that Umbraco is installed, nor up-to-date.
         /// </summary>
         public bool IsDatabaseConfigured => _databaseFactory.Configured;
 
         /// <summary>
-        /// Gets a value indicating whether it is possible to connect to the database.
+        /// Gets a value indicating whether it is possible to connect to the configured database.
+        /// It does not necessarily mean that Umbraco is installed, nor up-to-date.
         /// </summary>
-        public bool CanConnect => _databaseFactory.CanConnect;
+        public bool CanConnectToDatabase => _databaseFactory.CanConnect;
 
-        // that method was originally created by Per in DatabaseHelper- tests the db connection for install
-        // fixed by Shannon to not-ignore the provider
-        // fixed by Stephan as part of the v8 persistence cleanup, now using provider names + SqlCe exception
-        // moved by Stephan to DatabaseBuilder
-        // probably needs to be cleaned up
-
-        public bool CheckConnection(string databaseType, string connectionString, string server, string database, string login, string password, bool integratedAuth)
+        /// <summary>
+        /// Verifies whether a it is possible to connect to a database.
+        /// </summary>
+        public bool CanConnect(string databaseType, string connectionString, string server, string database, string login, string password, bool integratedAuth)
         {
             // we do not test SqlCE connection
             if (databaseType.InvariantContains("sqlce"))
@@ -93,7 +90,7 @@ namespace Umbraco.Core.Migrations.Install
             return DbConnectionExtensions.IsConnectionAvailable(connectionString, providerName);
         }
 
-        public bool HasSomeNonDefaultUser()
+        internal bool HasSomeNonDefaultUser()
         {
             using (var scope = _scopeProvider.CreateScope())
             {
@@ -101,7 +98,7 @@ namespace Umbraco.Core.Migrations.Install
                 var sql = scope.Database.SqlContext.Sql()
                     .SelectCount()
                     .From<UserDto>()
-                    .Where<UserDto>(x => x.Id == Constants.Security.SuperId && x.Password == "default");
+                    .Where<UserDto>(x => x.Id == Constants.Security.SuperUserId && x.Password == "default");
                 var result = scope.Database.ExecuteScalar<int>(sql);
                 var has = result != 1;
                 if (has == false)
@@ -120,7 +117,7 @@ namespace Umbraco.Core.Migrations.Install
 
         #region Configure Connection String
 
-        private const string EmbeddedDatabaseConnectionString = @"Data Source=|DataDirectory|\Umbraco.sdf;Flush Interval=1;";
+        public const string EmbeddedDatabaseConnectionString = @"Data Source=|DataDirectory|\Umbraco.sdf;Flush Interval=1;";
 
         /// <summary>
         /// Configures a connection string for the embedded database.
@@ -134,7 +131,7 @@ namespace Umbraco.Core.Migrations.Install
         {
             SaveConnectionString(EmbeddedDatabaseConnectionString, Constants.DbProviderNames.SqlCe, logger);
 
-            var path = Path.Combine(GlobalSettings.FullPathToRoot, "App_Data", "Umbraco.sdf");
+            var path = Path.Combine(IOHelper.GetRootDirectorySafe(), "App_Data", "Umbraco.sdf");
             if (File.Exists(path) == false)
             {
                 // this should probably be in a "using (new SqlCeEngine)" clause but not sure
@@ -151,13 +148,10 @@ namespace Umbraco.Core.Migrations.Install
         /// Configures a connection string that has been entered manually.
         /// </summary>
         /// <param name="connectionString">A connection string.</param>
-        /// <remarks>Has to be either SQL Server or MySql</remarks>
+        /// <remarks>Has to be SQL Server</remarks>
         public void ConfigureDatabaseConnection(string connectionString)
         {
-            var provider = DbConnectionExtensions.DetectProviderNameFromConnectionString(connectionString);
-            var providerName = provider.ToString().ToLower().Contains("mysql")
-                ? Constants.DbProviderNames.MySql
-                : Constants.DbProviderNames.SqlServer;
+            const string providerName = Constants.DbProviderNames.SqlServer;
 
             SaveConnectionString(connectionString, providerName, _logger);
             _databaseFactory.Configure(connectionString, providerName);
@@ -170,11 +164,10 @@ namespace Umbraco.Core.Migrations.Install
         /// <param name="databaseName">The name of the database.</param>
         /// <param name="user">The user name.</param>
         /// <param name="password">The user password.</param>
-        /// <param name="databaseProvider">The name the provider (Sql, Sql Azure, Sql Ce, MySql).</param>
+        /// <param name="databaseProvider">The name of the provider (Sql, Sql Azure, Sql Ce).</param>
         public void ConfigureDatabaseConnection(string server, string databaseName, string user, string password, string databaseProvider)
         {
-            string providerName;
-            var connectionString = GetDatabaseConnectionString(server, databaseName, user, password, databaseProvider, out providerName);
+            var connectionString = GetDatabaseConnectionString(server, databaseName, user, password, databaseProvider, out var providerName);
 
             SaveConnectionString(connectionString, providerName, _logger);
             _databaseFactory.Configure(connectionString, providerName);
@@ -187,22 +180,15 @@ namespace Umbraco.Core.Migrations.Install
         /// <param name="databaseName">The name of the database.</param>
         /// <param name="user">The user name.</param>
         /// <param name="password">The user password.</param>
-        /// <param name="databaseProvider">The name the provider (Sql, Sql Azure, Sql Ce, MySql).</param>
+        /// <param name="databaseProvider">The name of the provider (Sql, Sql Azure, Sql Ce).</param>
         /// <param name="providerName"></param>
         /// <returns>A connection string.</returns>
         public static string GetDatabaseConnectionString(string server, string databaseName, string user, string password, string databaseProvider, out string providerName)
         {
             providerName = Constants.DbProviderNames.SqlServer;
-            var test = databaseProvider.ToLower();
-            if (test.Contains("mysql"))
-            {
-                providerName = Constants.DbProviderNames.MySql;
-                return $"Server={server}; Database={databaseName};Uid={user};Pwd={password}";
-            }
-            if (test.Contains("azure"))
-            {
+            var provider = databaseProvider.ToLower();
+            if (provider.InvariantContains("azure"))
                 return GetAzureConnectionString(server, databaseName, user, password);
-            }
             return $"server={server};database={databaseName};user id={user};password={password}";
         }
 
@@ -295,48 +281,60 @@ namespace Umbraco.Core.Migrations.Install
             if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentNullOrEmptyException(nameof(connectionString));
             if (string.IsNullOrWhiteSpace(providerName)) throw new ArgumentNullOrEmptyException(nameof(providerName));
 
-            // set the connection string for the new datalayer
-            var connectionStringSettings = new ConnectionStringSettings(Constants.System.UmbracoConnectionName, connectionString, providerName);
+            var fileSource = "web.config";
+            var fileName = IOHelper.MapPath(SystemDirectories.Root +"/" + fileSource);
 
-            var fileName = IOHelper.MapPath($"{SystemDirectories.Root}/web.config");
             var xml = XDocument.Load(fileName, LoadOptions.PreserveWhitespace);
-            if (xml.Root == null) throw new Exception("Invalid web.config file.");
-            var connectionStrings = xml.Root.DescendantsAndSelf("connectionStrings").FirstOrDefault();
-            if (connectionStrings == null) throw new Exception("Invalid web.config file.");
+            if (xml.Root == null) throw new Exception($"Invalid {fileSource} file (no root).");
 
-            // honour configSource, if its set, change the xml file we are saving the configuration
-            // to the one set in the configSource attribute
-            if (connectionStrings.Attribute("configSource") != null)
+            var connectionStrings = xml.Root.DescendantsAndSelf("connectionStrings").FirstOrDefault();
+            if (connectionStrings == null) throw new Exception($"Invalid {fileSource} file (no connection strings).");
+
+            // handle configSource
+            var configSourceAttribute = connectionStrings.Attribute("configSource");
+            if (configSourceAttribute != null)
             {
-                var source = connectionStrings.Attribute("configSource").Value;
-                var configFile = IOHelper.MapPath($"{SystemDirectories.Root}/{source}");
-                logger.Info<DatabaseBuilder>($"Storing ConnectionString in {configFile}");
-                if (File.Exists(configFile))
-                {
-                    xml = XDocument.Load(fileName, LoadOptions.PreserveWhitespace);
-                    fileName = configFile;
-                }
+                fileSource = configSourceAttribute.Value;
+                fileName = IOHelper.MapPath(SystemDirectories.Root + "/" + fileSource);
+
+                if (!File.Exists(fileName))
+                    throw new Exception($"Invalid configSource \"{fileSource}\" (no such file).");
+
+                xml = XDocument.Load(fileName, LoadOptions.PreserveWhitespace);
+                if (xml.Root == null) throw new Exception($"Invalid {fileSource} file (no root).");
+
                 connectionStrings = xml.Root.DescendantsAndSelf("connectionStrings").FirstOrDefault();
-                if (connectionStrings == null) throw new Exception("Invalid web.config file.");
+                if (connectionStrings == null) throw new Exception($"Invalid {fileSource} file (no connection strings).");
             }
 
-            // update connectionString if it exists, or else create a new connectionString
-            var setting = connectionStrings.Descendants("add").FirstOrDefault(s => s.Attribute("name").Value == Constants.System.UmbracoConnectionName);
+            // create or update connection string
+            var setting = connectionStrings.Descendants("add").FirstOrDefault(s => s.Attribute("name")?.Value == Constants.System.UmbracoConnectionName);
             if (setting == null)
             {
                 connectionStrings.Add(new XElement("add",
                     new XAttribute("name", Constants.System.UmbracoConnectionName),
-                    new XAttribute("connectionString", connectionStringSettings),
+                    new XAttribute("connectionString", connectionString),
                     new XAttribute("providerName", providerName)));
             }
             else
             {
-                setting.Attribute("connectionString").Value = connectionString;
-                setting.Attribute("providerName").Value = providerName;
+                AddOrUpdateAttribute(setting, "connectionString", connectionString);
+                AddOrUpdateAttribute(setting, "providerName", providerName);
             }
 
+            // save
+            logger.Info<DatabaseBuilder>("Saving connection string to {ConfigFile}.", fileSource);
             xml.Save(fileName, SaveOptions.DisableFormatting);
-            logger.Info<DatabaseBuilder>("Configured a new ConnectionString using the '" + providerName + "' provider.");
+            logger.Info<DatabaseBuilder>("Saved connection string to {ConfigFile}.", fileSource);
+        }
+
+        private static void AddOrUpdateAttribute(XElement element, string name, string value)
+        {
+            var attribute = element.Attribute(name);
+            if (attribute == null)
+                element.Add(new XAttribute(name, value));
+            else
+                attribute.Value = value;
         }
 
         internal bool IsConnectionStringConfigured(ConnectionStringSettings databaseSettings)
@@ -370,65 +368,26 @@ namespace Umbraco.Core.Migrations.Install
 
         #endregion
 
-        #region Utils
-
-        internal static void GiveLegacyAChance(IUmbracoDatabaseFactory factory, ILogger logger)
-        {
-            // look for the legacy appSettings key
-            var legacyConnString = ConfigurationManager.AppSettings[Constants.System.UmbracoConnectionName];
-            if (string.IsNullOrWhiteSpace(legacyConnString)) return;
-
-            var test = legacyConnString.ToLowerInvariant();
-            if (test.Contains("sqlce4umbraco"))
-            {
-                // sql ce
-                ConfigureEmbeddedDatabaseConnection(factory, logger);
-            }
-            else if (test.Contains("tcp:"))
-            {
-                // sql azure
-                SaveConnectionString(legacyConnString, Constants.DbProviderNames.SqlServer, logger);
-                factory.Configure(legacyConnString, Constants.DbProviderNames.SqlServer);
-            }
-            else if (test.Contains("datalayer=mysql"))
-            {
-                // mysql
-
-                // strip the datalayer part off
-                var connectionStringWithoutDatalayer = string.Empty;
-                // ReSharper disable once LoopCanBeConvertedToQuery
-                foreach (var variable in legacyConnString.Split(';').Where(x => x.ToLowerInvariant().StartsWith("datalayer") == false))
-                    connectionStringWithoutDatalayer = $"{connectionStringWithoutDatalayer}{variable};";
-
-                SaveConnectionString(connectionStringWithoutDatalayer, Constants.DbProviderNames.MySql, logger);
-                factory.Configure(connectionStringWithoutDatalayer, Constants.DbProviderNames.MySql);
-            }
-            else
-            {
-                // sql server
-                SaveConnectionString(legacyConnString, Constants.DbProviderNames.SqlServer, logger);
-                factory.Configure(legacyConnString, Constants.DbProviderNames.SqlServer);
-            }
-
-            // remove the legacy connection string, so we don't end up in a loop if something goes wrong
-            GlobalSettings.RemoveSetting(Constants.System.UmbracoConnectionName);
-        }
-
-        #endregion
-
         #region Database Schema
 
-        internal DatabaseSchemaResult ValidateDatabaseSchema()
+        /// <summary>
+        /// Validates the database schema.
+        /// </summary>
+        /// <remarks>
+        /// <para>This assumes that the database exists and the connection string is
+        /// configured and it is possible to connect to the database.</para>
+        /// </remarks>
+        internal DatabaseSchemaResult ValidateSchema()
         {
             using (var scope = _scopeProvider.CreateScope())
             {
-                var result = ValidateDatabaseSchema(scope);
+                var result = ValidateSchema(scope);
                 scope.Complete();
                 return result;
             }
         }
 
-        private DatabaseSchemaResult ValidateDatabaseSchema(IScope scope)
+        private DatabaseSchemaResult ValidateSchema(IScope scope)
         {
             if (_databaseFactory.Configured == false)
                 return new DatabaseSchemaResult(_databaseFactory.SqlContext.SqlSyntax);
@@ -443,17 +402,24 @@ namespace Umbraco.Core.Migrations.Install
             return _databaseSchemaValidationResult;
         }
 
-        internal Result CreateDatabaseSchemaAndData()
+        /// <summary>
+        /// Creates the database schema and inserts initial data.
+        /// </summary>
+        /// <remarks>
+        /// <para>This assumes that the database exists and the connection string is
+        /// configured and it is possible to connect to the database.</para>
+        /// </remarks>
+        public Result CreateSchemaAndData()
         {
             using (var scope = _scopeProvider.CreateScope())
             {
-                var result = CreateDatabaseSchemaAndData(scope);
+                var result = CreateSchemaAndData(scope);
                 scope.Complete();
                 return result;
             }
         }
 
-        private Result CreateDatabaseSchemaAndData(IScope scope)
+        private Result CreateSchemaAndData(IScope scope)
         {
             try
             {
@@ -467,30 +433,15 @@ namespace Umbraco.Core.Migrations.Install
 
                 var database = scope.Database;
 
-                // If MySQL, we're going to ensure that database calls are maintaining proper casing as to remove the necessity for checks
-                // for case insensitive queries. In an ideal situation (which is what we're striving for), all calls would be case sensitive.
+                var message = string.Empty;
 
-                /*
-                var supportsCaseInsensitiveQueries = SqlSyntax.SupportsCaseInsensitiveQueries(database);
-                if (supportsCaseInsensitiveQueries  == false)
-                {
-                    message = "<p>&nbsp;</p><p>The database you're trying to use does not support case insensitive queries. <br />We currently do not support these types of databases.</p>" +
-                              "<p>You can fix this by changing the following setting in your my.ini file in your MySQL installation directory:</p>" +
-                              "<pre>lower_case_table_names=1</pre><br />" +
-                              "<p>Note: Make sure to check with your hosting provider if they support case insensitive queries as well.</p>" +
-                              "<p>For more technical information on case sensitivity in MySQL, have a look at " +
-                              "<a href='http://dev.mysql.com/doc/refman/5.0/en/identifier-case-sensitivity.html'>the documentation on the subject</a></p>";
-
-                    return new Result { Message = message, Success = false, Percentage = "15" };
-                }
-                */
-
-                var message = GetResultMessageForMySql();
-                var schemaResult = ValidateDatabaseSchema();
-                var installedSchemaVersion = schemaResult.DetermineInstalledVersion();
+                var schemaResult = ValidateSchema();
+                var hasInstalledVersion = schemaResult.DetermineHasInstalledVersion();
+                //var installedSchemaVersion = schemaResult.DetermineInstalledVersion();
+                //var hasInstalledVersion = !installedSchemaVersion.Equals(new Version(0, 0, 0));
 
                 //If Configuration Status is empty and the determined version is "empty" its a new install - otherwise upgrade the existing
-                if (string.IsNullOrEmpty(_globalSettings.ConfigurationStatus) && installedSchemaVersion.Equals(new Version(0, 0, 0)))
+                if (string.IsNullOrEmpty(_globalSettings.ConfigurationStatus) && !hasInstalledVersion)
                 {
                     if (_runtime.Level == RuntimeLevel.Run)
                         throw new Exception("Umbraco is already configured!");
@@ -501,7 +452,7 @@ namespace Umbraco.Core.Migrations.Install
                     message = message + "<p>Installation completed!</p>";
 
                     //now that everything is done, we need to determine the version of SQL server that is executing
-                    _logger.Info<DatabaseBuilder>("Database configuration status: " + message);
+                    _logger.Info<DatabaseBuilder>("Database configuration status: {DbConfigStatus}", message);
                     return new Result { Message = message, Success = true, Percentage = "100" };
                 }
 
@@ -522,8 +473,15 @@ namespace Umbraco.Core.Migrations.Install
             }
         }
 
-        // This assumes all of the previous checks are done!
-        internal Result UpgradeSchemaAndData()
+        /// <summary>
+        /// Upgrades the database schema and data by running migrations.
+        /// </summary>
+        /// <remarks>
+        /// <para>This assumes that the database exists and the connection string is
+        /// configured and it is possible to connect to the database.</para>
+        /// <para>Runs whichever migrations need to run.</para>
+        /// </remarks>
+        public Result UpgradeSchemaAndData(MigrationPlan plan)
         {
             try
             {
@@ -535,62 +493,15 @@ namespace Umbraco.Core.Migrations.Install
 
                 _logger.Info<DatabaseBuilder>("Database upgrade started");
 
-                //var database = scope.Database;
-                //var supportsCaseInsensitiveQueries = SqlSyntax.SupportsCaseInsensitiveQueries(database);
-
-                var message = GetResultMessageForMySql();
-
-                // fixme - remove this code
-                //var schemaResult = ValidateDatabaseSchema();
-                //
-                //var installedSchemaVersion = new SemVersion(schemaResult.DetermineInstalledVersion());
-                //var installedMigrationVersion = schemaResult.DetermineInstalledVersionByMigrations(migrationEntryService);
-                //var targetVersion = UmbracoVersion.Current;
-                //
-                ////In some cases - like upgrading from 7.2.6 -> 7.3, there will be no migration information in the database and therefore it will
-                //// return a version of 0.0.0 and we don't necessarily want to run all migrations from 0 -> 7.3, so we'll just ensure that the
-                //// migrations are run for the target version
-                //if (installedMigrationVersion == new SemVersion(new Version(0, 0, 0)) && installedSchemaVersion > new SemVersion(new Version(0, 0, 0)))
-                //{
-                //    //set the installedMigrationVersion to be one less than the target so the latest migrations are guaranteed to execute
-                //    installedMigrationVersion = new SemVersion(targetVersion.SubtractRevision());
-                //}
-                //
-                ////Figure out what our current installed version is. If the web.config doesn't have a version listed, then we'll use the minimum
-                //// version detected between the schema installed and the migrations listed in the migration table.
-                //// If there is a version in the web.config, we'll take the minimum between the listed migration in the db and what
-                //// is declared in the web.config.
-                //
-                //var currentInstalledVersion = string.IsNullOrEmpty(GlobalSettings.ConfigurationStatus)
-                //    //Take the minimum version between the detected schema version and the installed migration version
-                //    ? new[] { installedSchemaVersion, installedMigrationVersion }.Min()
-                //    //Take the minimum version between the installed migration version and the version specified in the config
-                //    : new[] { SemVersion.Parse(GlobalSettings.ConfigurationStatus), installedMigrationVersion }.Min();
-                //
-                ////Ok, another edge case here. If the current version is a pre-release,
-                //// then we want to ensure all migrations for the current release are executed.
-                //if (currentInstalledVersion.Prerelease.IsNullOrWhiteSpace() == false)
-                //{
-                //    currentInstalledVersion = new SemVersion(currentInstalledVersion.GetVersion().SubtractRevision());
-                //}
-
                 // upgrade
-                var upgrader = new UmbracoUpgrader(_scopeProvider, _migrationBuilder, _keyValueService, _postMigrations, _logger);
-                upgrader.Execute();
+                var upgrader = new Upgrader(plan);
+                upgrader.Execute(_scopeProvider, _migrationBuilder, _keyValueService, _logger);
 
-                // fixme remove this code
-                //var runner = new MigrationRunner(_scopeProvider, builder, migrationEntryService, _logger, currentInstalledVersion, UmbracoVersion.SemanticVersion, Constants.System.UmbracoMigrationName);
-                //var upgraded = runner.Execute(/*upgrade:true*/);
-                //if (upgraded == false)
-                //{
-                //    throw new ApplicationException("Upgrading failed, either an error occurred during the upgrade process or an event canceled the upgrade process, see log for full details");
-                //}
-
-                message = message + "<p>Upgrade completed!</p>";
+                var message = "<p>Upgrade completed!</p>";
 
                 //now that everything is done, we need to determine the version of SQL server that is executing
 
-                _logger.Info<DatabaseBuilder>("Database configuration status: " + message);
+                _logger.Info<DatabaseBuilder>("Database configuration status: {DbConfigStatus}", message);
 
                 return new Result { Message = message, Success = true, Percentage = "100" };
             }
@@ -599,48 +510,6 @@ namespace Umbraco.Core.Migrations.Install
                 return HandleInstallException(ex);
             }
         }
-
-        private string GetResultMessageForMySql()
-        {
-            if (_databaseFactory.GetType() == typeof(MySqlSyntaxProvider))
-            {
-                return "<p>&nbsp;</p><p>Congratulations, the database step ran successfully!</p>" +
-                       "<p>Note: You're using MySQL and the database instance you're connecting to seems to support case insensitive queries.</p>" +
-                       "<p>However, your hosting provider may not support this option. Umbraco does not currently support MySQL installs that do not support case insensitive queries</p>" +
-                       "<p>Make sure to check with your hosting provider if they support case insensitive queries as well.</p>" +
-                       "<p>They can check this by looking for the following setting in the my.ini file in their MySQL installation directory:</p>" +
-                       "<pre>lower_case_table_names=1</pre><br />" +
-                       "<p>For more technical information on case sensitivity in MySQL, have a look at " +
-                       "<a href='http://dev.mysql.com/doc/refman/5.0/en/identifier-case-sensitivity.html'>the documentation on the subject</a></p>";
-            }
-            return string.Empty;
-        }
-
-        /*
-        private string GetResultMessageForMySql(bool? supportsCaseInsensitiveQueries)
-        {
-            if (supportsCaseInsensitiveQueries == null)
-            {
-                return "<p>&nbsp;</p><p>Warning! Could not check if your database type supports case insensitive queries. <br />We currently do not support these databases that do not support case insensitive queries.</p>" +
-                          "<p>You can check this by looking for the following setting in your my.ini file in your MySQL installation directory:</p>" +
-                          "<pre>lower_case_table_names=1</pre><br />" +
-                          "<p>Note: Make sure to check with your hosting provider if they support case insensitive queries as well.</p>" +
-                          "<p>For more technical information on case sensitivity in MySQL, have a look at " +
-                          "<a href='http://dev.mysql.com/doc/refman/5.0/en/identifier-case-sensitivity.html'>the documentation on the subject</a></p>";
-            }
-            if (SqlSyntax.GetType() == typeof(MySqlSyntaxProvider))
-            {
-                return "<p>&nbsp;</p><p>Congratulations, the database step ran successfully!</p>" +
-                       "<p>Note: You're using MySQL and the database instance you're connecting to seems to support case insensitive queries.</p>" +
-                       "<p>However, your hosting provider may not support this option. Umbraco does not currently support MySQL installs that do not support case insensitive queries</p>" +
-                       "<p>Make sure to check with your hosting provider if they support case insensitive queries as well.</p>" +
-                       "<p>They can check this by looking for the following setting in the my.ini file in their MySQL installation directory:</p>" +
-                       "<pre>lower_case_table_names=1</pre><br />" +
-                       "<p>For more technical information on case sensitivity in MySQL, have a look at " +
-                       "<a href='http://dev.mysql.com/doc/refman/5.0/en/identifier-case-sensitivity.html'>the documentation on the subject</a></p>";
-            }
-            return string.Empty;
-        }*/
 
         private Attempt<Result> CheckReadyForInstall()
         {
@@ -659,11 +528,11 @@ namespace Umbraco.Core.Migrations.Install
 
         private Result HandleInstallException(Exception ex)
         {
-            _logger.Error<DatabaseBuilder>("Database configuration failed", ex);
+            _logger.Error<DatabaseBuilder>(ex, "Database configuration failed");
 
             if (_databaseSchemaValidationResult != null)
             {
-                _logger.Info<DatabaseBuilder>("The database schema validation produced the following summary: \n" + _databaseSchemaValidationResult.GetSummary());
+                _logger.Info<DatabaseBuilder>("The database schema validation produced the following summary: {DbSchemaSummary}", _databaseSchemaValidationResult.GetSummary());
             }
 
             return new Result
@@ -676,11 +545,29 @@ namespace Umbraco.Core.Migrations.Install
             };
         }
 
-        internal class Result
+        /// <summary>
+        /// Represents the result of a database creation or upgrade.
+        /// </summary>
+        public class Result
         {
+            /// <summary>
+            /// Gets or sets a value indicating whether an upgrade is required.
+            /// </summary>
             public bool RequiresUpgrade { get; set; }
+
+            /// <summary>
+            /// Gets or sets the message returned by the operation.
+            /// </summary>
             public string Message { get; set; }
+
+            /// <summary>
+            /// Gets or sets a value indicating whether the operation succeeded.
+            /// </summary>
             public bool Success { get; set; }
+
+            /// <summary>
+            /// Gets or sets an install progress pseudo-percentage.
+            /// </summary>
             public string Percentage { get; set; }
         }
 

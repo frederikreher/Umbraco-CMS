@@ -4,13 +4,25 @@ using Umbraco.Web.Models;
 using Umbraco.Web.Mvc;
 using Umbraco.Core.Security;
 using Umbraco.Core;
+using Umbraco.Core.Cache;
+using Umbraco.Core.Logging;
+using Umbraco.Core.Persistence;
+using Umbraco.Core.Services;
 
 namespace Umbraco.Web.Controllers
 {
     [MemberAuthorize]
     public class UmbProfileController : SurfaceController
     {
+        public UmbProfileController()
+        { }
+
+        public UmbProfileController(IUmbracoContextAccessor umbracoContextAccessor, IUmbracoDatabaseFactory databaseFactory, ServiceContext services, AppCaches appCaches, ILogger logger, IProfilingLogger profilingLogger, UmbracoHelper umbracoHelper)
+            : base(umbracoContextAccessor, databaseFactory, services, appCaches, logger, profilingLogger, umbracoHelper)
+        { }
+
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public ActionResult HandleUpdateProfile([Bind(Prefix = "profileModel")] ProfileModel model)
         {
             var provider = Core.Security.MembershipProviderExtensions.GetMembersMembershipProvider();
